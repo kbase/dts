@@ -1,26 +1,17 @@
-package jdp
+package endpoints
 
 import (
 	"github.com/stretchr/testify/assert"
-	"os"
+  "os"
 	"testing"
 
-	"dts/config"
+  "dts/config"
 )
 
-const jdpConfig string = `
-databases:
-  jdp:
-    name: JGI Data Portal
-    organization: Joint Genome Institue
-    url: https://files.jgi.doe.gov
-    endpoint: globus-jdp
-    auth:
-      client_id: ${JGI_CLIENT_ID}
-      client_secret: ${JGI_CLIENT_SECRET}
+const globusConfig string = `
 endpoints:
-  globus-jdp:
-    name: Globus NERSC DTN
+  globus:
+    name: NERSC DTN
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
     auth:
@@ -30,19 +21,18 @@ endpoints:
 
 // this function gets called at the begіnning of a test session
 func setup() {
-	config.Init([]byte(jdpConfig))
+	config.Init([]byte(globusConfig))
 }
 
 // this function gets called after all tests have been run
 func breakdown() {
 }
 
-func TestNewDatabase(t *testing.T) {
+func TestNewGlobusEndpoint(t *testing.T) {
 	assert := assert.New(t) // binds assert to t
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	jdpDb, err := NewDatabase(orcid)
-	assert.NotNil(jdpDb, "JDP database not created")
-	assert.Nil(err, "JDP database creation encountered an error")
+	ep, err := NewEndpoint("globus")
+	assert.NotNil(ep, "Globus endpoint not created")
+	assert.Nil(err, "Globus endpoint creation encountered an error")
 }
 
 // this runs setup, runs all tests, and does breakdown

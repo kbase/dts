@@ -81,7 +81,7 @@ func validateEndpoints(endpoints map[string]endpointConfig) error {
 			return fmt.Errorf("Invalid UUID specified for endpoint '%s'", label)
 		} else if endpoint.Provider == "" { // no provider given
 			return fmt.Errorf("No provider specified for endpoint '%s'", label)
-    }
+		}
 	}
 	return nil
 }

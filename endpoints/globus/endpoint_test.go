@@ -79,7 +79,7 @@ func TestGlobusStatus(t *testing.T) {
 	assert.NotNil(err)
 }
 
-// This runs setup, runs all tests, and does breakdown.
+// this runs setup, runs all tests, and does breakdown
 func TestMain(m *testing.M) {
 	var status int
 	setup()

@@ -21,7 +21,7 @@ func NewDatabase(orcid, dbName string) (core.Database, error) {
 	if !found {
 		// go get one
 		if dbName == "jdp" {
-			db, err = jdp.NewDatabase(orcid, dbName)
+			db, err = jdp.NewDatabase(orcid)
 		} else {
 			err = fmt.Errorf("Unknown database type for '%s'", dbName)
 		}

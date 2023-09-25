@@ -22,7 +22,7 @@ type serviceConfig struct {
 
 // global config variables
 var Service serviceConfig
-var Globus globusConfig
+var Endpoints map[string]endpointConfig
 var Databases map[string]databaseConfig
 var MessageQueues map[string]messageQueueConfig
 
@@ -30,8 +30,8 @@ var MessageQueues map[string]messageQueueConfig
 // copies its fields to the globals above.
 type configFile struct {
 	Service       serviceConfig                 `yaml:"service"`
-	Globus        globusConfig                  `yaml:"globus"`
 	Databases     map[string]databaseConfig     `yaml:"databases"`
+	Endpoints     map[string]endpointConfig     `yaml:"endpoints"`
 	MessageQueues map[string]messageQueueConfig `yaml:"message_queues"`
 }
 
@@ -54,7 +54,7 @@ func readConfig(bytes []byte) error {
 
 	// copy the config data into place
 	Service = conf.Service
-	Globus = conf.Globus
+	Endpoints = conf.Endpoints
 	Databases = conf.Databases
 	MessageQueues = conf.MessageQueues
 
@@ -72,14 +72,16 @@ func validateServiceParameters(params serviceConfig) error {
 	return nil
 }
 
-func validateGlobusEndpoints(params globusConfig) error {
-	if len(Globus.Endpoints) == 0 {
+func validateEndpoints(endpoints map[string]endpointConfig) error {
+	if len(endpoints) == 0 {
 		return fmt.Errorf("No endpoints were provided!")
 	}
-	for _, endpoint := range Globus.Endpoints {
+	for label, endpoint := range endpoints {
 		if endpoint.Id.String() == "" { // invalid endpoint UUID
-			return fmt.Errorf("Invalid UUID specified for Globus endpoint '%s'", endpoint.Name)
-		}
+			return fmt.Errorf("Invalid UUID specified for endpoint '%s'", label)
+		} else if endpoint.Provider == "" { // no provider given
+			return fmt.Errorf("No provider specified for endpoint '%s'", label)
+    }
 	}
 	return nil
 }
@@ -101,7 +103,7 @@ func validateDatabases(databases map[string]databaseConfig) error {
 func validateConfig() error {
 	err := validateServiceParameters(Service)
 	if err == nil {
-		err = validateGlobusEndpoints(Globus)
+		err = validateEndpoints(Endpoints)
 		if err == nil {
 			err = validateDatabases(Databases)
 		}

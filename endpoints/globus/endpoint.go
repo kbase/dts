@@ -47,8 +47,11 @@ type Endpoint struct {
 }
 
 func NewEndpoint(endpointName string) (core.Endpoint, error) {
-	epConfig, found := config.Globus.Endpoints[endpointName]
+	epConfig, found := config.Endpoints[endpointName]
 	if !found {
+		return nil, fmt.Errorf("'%s' is not an endpoint", endpointName)
+	}
+	if epConfig.Provider != "globus" {
 		return nil, fmt.Errorf("'%s' is not a Globus endpoint", endpointName)
 	}
 
@@ -58,8 +61,8 @@ func NewEndpoint(endpointName string) (core.Endpoint, error) {
 	}
 
 	// authenticate to obtain a Globus Transfer API access token
-	err := ep.authenticate(config.Globus.Auth.ClientId,
-		config.Globus.Auth.ClientSecret)
+	err := ep.authenticate(epConfig.Auth.ClientId,
+		epConfig.Auth.ClientSecret)
 
 	return ep, err
 }
@@ -67,13 +70,14 @@ func NewEndpoint(endpointName string) (core.Endpoint, error) {
 // authenticates with Globus using a client ID and secret to obtain an access
 // token (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
 func (ep *Endpoint) authenticate(clientId uuid.UUID, clientSecret string) error {
+	fmt.Printf("%s\n%s\n", clientId.String(), clientSecret)
 	authUrl := "https://auth.globus.org/v2/oauth2/token"
 	data := url.Values{}
 	data.Set("scope", "urn:globus:auth:scope:transfer.api.globus.org:all")
 	data.Set("grant_type", "client_credentials")
 	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
 	if err == nil {
-		req.SetBasicAuth(config.Globus.Auth.ClientId.String(), config.Globus.Auth.ClientSecret)
+		req.SetBasicAuth(clientId.String(), clientSecret)
 		req.Header.Add("Content-Type", "application-x-www-form-urlencoded")
 
 		// send the request

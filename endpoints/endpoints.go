@@ -20,8 +20,7 @@ func NewEndpoint(endpointName string) (core.Endpoint, error) {
 	endpoint, found := allEndpoints[endpointName]
 	if !found {
 		// is it a Globus endpoint?
-		_, ok := config.Globus.Endpoints[endpointName]
-		if ok {
+		if config.Endpoints[endpointName].Provider == "globus" {
 			endpoint, err = globus.NewEndpoint(endpointName)
 		}
 

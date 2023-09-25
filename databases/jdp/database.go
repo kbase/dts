@@ -246,14 +246,9 @@ type Database struct {
 	StagingIds map[uuid.UUID]int
 }
 
-func NewDatabase(orcid, dbName string) (core.Database, error) {
+func NewDatabase(orcid string) (core.Database, error) {
 	if orcid == "" {
 		return nil, fmt.Errorf("No ORCID ID was given")
-	}
-
-	_, ok := config.Databases[dbName]
-	if !ok {
-		return nil, fmt.Errorf("Database %s not found", dbName)
 	}
 
 	// make sure we have a shared secret
@@ -266,7 +261,7 @@ func NewDatabase(orcid, dbName string) (core.Database, error) {
 	}
 
 	return &Database{
-		Id:         dbName,
+		Id:         "jdp",
 		Orcid:      orcid,
 		Secret:     secret,
 		SsoToken:   os.Getenv("DTS_JDP_SSO_TOKEN"),

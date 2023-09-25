@@ -20,14 +20,14 @@ service:
 
 // a valid endpoints config entry
 const VALID_ENDPOINTS string = `
-globus:
-  auth:
-    client_id: ${DTS_GLOBUS_CLIENT_ID}
-    client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
-  endpoints:
-    my-endpoint:
-      name: Globus test endpoint
-      id: ${DTS_GLOBUS_TEST_ENDPOINT}
+endpoints:
+  my-globus-endpoint:
+    name: Globus test endpoint
+    id: ${DTS_GLOBUS_TEST_ENDPOINT}
+    provider: globus
+    auth:
+      client_id: ${DTS_GLOBUS_CLIENT_ID}
+      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
 `
 
 // a valid databases config entry
@@ -80,7 +80,7 @@ func TestInitRejectsNoEndpointsDefined(t *testing.T) {
 // tests whether config.Init rejects a configuration with invalid endpoints
 func TestInitRejectsInvalidEndpointType(t *testing.T) {
 	yaml := VALID_SERVICE + VALID_DATABASES +
-		"globus:\n  eeeevil_globus_entry:\n    eeeevil_field: eeeevil_value\n\n"
+		"endpoints:\n  eeeevil_entry:\n    eeeevil_field: eeeevil_value\n\n"
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with invalid endpoint didn't trigger an error.")
@@ -122,7 +122,7 @@ func TestInitProperlySetsGlobals(t *testing.T) {
 	// Check data
 	assert.Equal(t, 8080, Service.Port)
 	assert.Equal(t, 100, Service.MaxConnections)
-	assert.Equal(t, 1, len(Globus.Endpoints))
+	assert.Equal(t, 1, len(Endpoints))
 	assert.Equal(t, 1, len(Databases))
 }
 

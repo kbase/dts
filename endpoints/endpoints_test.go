@@ -2,10 +2,10 @@ package endpoints
 
 import (
 	"github.com/stretchr/testify/assert"
-  "os"
+	"os"
 	"testing"
 
-  "dts/config"
+	"dts/config"
 )
 
 const globusConfig string = `

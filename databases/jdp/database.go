@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -319,6 +320,7 @@ func (db *Database) post(resource string, body io.Reader) (*http.Response, error
 func (db *Database) filesFromSearch(params url.Values) (core.SearchResults, error) {
 	var results core.SearchResults
 
+	idEncountered := make(map[string]bool) // keep track of duplicates
 	resp, err := db.get("search", params)
 	if err == nil {
 		defer resp.Body.Close()
@@ -338,7 +340,10 @@ func (db *Database) filesFromSearch(params url.Values) (core.SearchResults, erro
 					resources := make([]core.DataResource, 0)
 					for _, file := range org.Files {
 						res := dataResourceFromFile(file)
-						resources = append(resources, res)
+						if _, encountered := idEncountered[res.Id]; !encountered {
+							resources = append(resources, res)
+							idEncountered[res.Id] = true
+						}
 					}
 					results.Resources = append(results.Resources, resources...)
 				}
@@ -382,16 +387,85 @@ func (db *Database) Search(params core.SearchParameters) (core.SearchResults, er
 	return db.filesFromSearch(p)
 }
 
+// This method is broken and needs a feature implemented by the JDP team.
 func (db *Database) Resources(fileIds []string) ([]core.DataResource, error) {
+	// strip prefix from file IDs and index them so we can sort them and
+	// restore their original order
+	strippedIds := make([]string, len(fileIds))
+	indexForId := make(map[string]int)
+	{
+		type IndexedId struct {
+			Id    string
+			Index int
+		}
+		indexedIds := make([]IndexedId, len(fileIds))
+		for i, id := range fileIds {
+			indexedIds[i] = IndexedId{
+				Id:    id,
+				Index: i,
+			}
+			strippedIds[i] = strings.ReplaceAll(id, "JDP:", "")
+		}
+
+		// sort the indexed IDs and create the mapping
+		slices.SortFunc(indexedIds, func(a, b IndexedId) int {
+			if a.Id < b.Id {
+				return -1
+			} else if a.Id == b.Id {
+				return 0
+			} else {
+				return 1
+			}
+		})
+		for _, iid := range indexedIds {
+			indexForId[iid.Id] = iid.Index
+		}
+	}
+
+	// perform the search
 	type FileFilter struct {
 		Ids []string `json:"_id"`
 	}
-	ff, err := json.Marshal(FileFilter{Ids: fileIds})
+	ff, err := json.Marshal(FileFilter{Ids: strippedIds})
 	if err == nil {
 		p := url.Values{}
-		p.Add("ff=", string(ff))
+		p.Add("ff", string(ff))
+		p.Add("since", strconv.Itoa(0))
 		results, err := db.filesFromSearch(p)
-		return results.Resources, err
+
+		// filter out results with mismatched IDs
+		// (we should ask the JDP team to provide a feature to fetch metadata
+		//  for JAMO IDs)
+		resources := make([]core.DataResource, 0)
+		for _, res := range results.Resources {
+			if _, found := indexForId[res.Id]; found {
+				resources = append(resources, res)
+			}
+		}
+
+		if len(resources) != len(strippedIds) {
+			panic("Couldn't fetch resources for given IDs")
+		}
+
+		// sort the results
+		slices.SortFunc(resources, func(a, b core.DataResource) int {
+			if a.Id < b.Id {
+				return -1
+			} else if a.Id == b.Id {
+				return 0
+			} else {
+				return 1
+			}
+		})
+
+		// remap the sorted results so that they correspond to the originally
+		// requested IDs
+		remappedResources := make([]core.DataResource, len(resources))
+		for i, res := range resources {
+			fmt.Printf("indexed ID index[%d of %d]: %d\n", i, len(resources), indexForId[res.Id])
+			remappedResources[indexForId[res.Id]] = res
+		}
+		return remappedResources, err
 	}
 	return nil, err
 }

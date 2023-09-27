@@ -70,7 +70,6 @@ func NewEndpoint(endpointName string) (core.Endpoint, error) {
 // authenticates with Globus using a client ID and secret to obtain an access
 // token (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
 func (ep *Endpoint) authenticate(clientId uuid.UUID, clientSecret string) error {
-	fmt.Printf("%s\n%s\n", clientId.String(), clientSecret)
 	authUrl := "https://auth.globus.org/v2/oauth2/token"
 	data := url.Values{}
 	data.Set("scope", "urn:globus:auth:scope:transfer.api.globus.org:all")

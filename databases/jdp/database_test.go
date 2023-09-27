@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dts/config"
+	"dts/core"
 )
 
 const jdpConfig string = `
@@ -43,6 +44,47 @@ func TestNewDatabase(t *testing.T) {
 	jdpDb, err := NewDatabase(orcid)
 	assert.NotNil(jdpDb, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
+}
+
+func TestSearch(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	db, _ := NewDatabase(orcid)
+	params := core.SearchParameters{
+		Query: "prochlorococcus",
+	}
+	results, err := db.Search(params)
+	assert.True(len(results.Resources) > 0, "JDP search query returned no results")
+	assert.Nil(err, "JDP search query encountered an error")
+}
+
+/* FIXME: This feature doesn't work--needs some work from JDP team
+// tests that the metadata returned by Database.Resources matches that
+// returned by Database.Search
+func TestResources(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	db, _ := NewDatabase(orcid)
+	params := core.SearchParameters{
+		Query: "prochlorococcus",
+	}
+	results, _ := db.Search(params)
+	fileIds := make([]string, len(results.Resources))
+	for i, res := range results.Resources {
+		fileIds[i] = res.Id
+	}
+	resources, err := db.Resources(fileIds[:10])
+	assert.Equal(results.Resources[:10], resources, "JDP resource query returned non-matching metadata")
+	assert.Nil(err, "JDP resource query encountered an error")
+}
+*/
+
+func TestEndpoint(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	db, _ := NewDatabase(orcid)
+	endpoint := db.Endpoint()
+	assert.NotNil(endpoint, "JDP database has no endpoint")
 }
 
 // this runs setup, runs all tests, and does breakdown

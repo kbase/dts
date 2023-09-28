@@ -46,12 +46,36 @@ func TestNewDatabase(t *testing.T) {
 	assert.Nil(err, "JDP database creation encountered an error")
 }
 
+func TestNewDatabaseWithoutOrcid(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+	jdpDb, err := NewDatabase("")
+	assert.Nil(jdpDb, "Invalid JDP database somehow created")
+	assert.NotNil(err, "JDP database creation without ORCID encountered no error")
+}
+
+func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	jdpSecret := os.Getenv("DTS_JDP_SECRET")
+	os.Unsetenv("DTS_JDP_SECRET")
+	jdpDb, err := NewDatabase(orcid)
+	os.Setenv("DTS_JDP_SECRET", jdpSecret)
+	assert.Nil(jdpDb, "JDP database somehow created without shared secret available")
+	assert.NotNil(err, "JDP database creation without shared secret encountered no error")
+}
+
 func TestSearch(t *testing.T) {
 	assert := assert.New(t) // binds assert to t
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 	db, _ := NewDatabase(orcid)
 	params := core.SearchParameters{
 		Query: "prochlorococcus",
+		Pagination: struct {
+			Offset, MaxNum int
+		}{
+			Offset: 1,
+			MaxNum: 50,
+		},
 	}
 	results, err := db.Search(params)
 	assert.True(len(results.Resources) > 0, "JDP search query returned no results")

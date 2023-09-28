@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
+	//	"slices"
 	"strconv"
 	"strings"
 
@@ -252,7 +252,7 @@ func NewDatabase(orcid string) (core.Database, error) {
 		return nil, fmt.Errorf("No ORCID ID was given")
 	}
 
-	// make sure we have a shared secret
+	// make sure we have a shared secret or an SSO token
 	secret, haveSecret := os.LookupEnv("DTS_JDP_SECRET")
 	if !haveSecret { // check for SSO token
 		_, haveToken := os.LookupEnv("DTS_JDP_SSO_TOKEN")
@@ -389,85 +389,88 @@ func (db *Database) Search(params core.SearchParameters) (core.SearchResults, er
 
 // This method is broken and needs a feature implemented by the JDP team.
 func (db *Database) Resources(fileIds []string) ([]core.DataResource, error) {
-	// strip prefix from file IDs and index them so we can sort them and
-	// restore their original order
-	strippedIds := make([]string, len(fileIds))
-	indexForId := make(map[string]int)
-	{
-		type IndexedId struct {
-			Id    string
-			Index int
-		}
-		indexedIds := make([]IndexedId, len(fileIds))
-		for i, id := range fileIds {
-			indexedIds[i] = IndexedId{
-				Id:    id,
-				Index: i,
+	/*
+			// strip prefix from file IDs and index them so we can sort them and
+			// restore their original order
+			strippedIds := make([]string, len(fileIds))
+			indexForId := make(map[string]int)
+			{
+				type IndexedId struct {
+					Id    string
+					Index int
+				}
+				indexedIds := make([]IndexedId, len(fileIds))
+				for i, id := range fileIds {
+					indexedIds[i] = IndexedId{
+						Id:    id,
+						Index: i,
+					}
+					strippedIds[i] = strings.ReplaceAll(id, "JDP:", "")
+				}
+
+				// sort the indexed IDs and create the mapping
+				slices.SortFunc(indexedIds, func(a, b IndexedId) int {
+					if a.Id < b.Id {
+						return -1
+					} else if a.Id == b.Id {
+						return 0
+					} else {
+						return 1
+					}
+				})
+				for _, iid := range indexedIds {
+					indexForId[iid.Id] = iid.Index
+				}
 			}
-			strippedIds[i] = strings.ReplaceAll(id, "JDP:", "")
-		}
 
-		// sort the indexed IDs and create the mapping
-		slices.SortFunc(indexedIds, func(a, b IndexedId) int {
-			if a.Id < b.Id {
-				return -1
-			} else if a.Id == b.Id {
-				return 0
-			} else {
-				return 1
+			// perform the search
+			type FileFilter struct {
+				Ids []string `json:"_id"`
 			}
-		})
-		for _, iid := range indexedIds {
-			indexForId[iid.Id] = iid.Index
-		}
-	}
+			ff, err := json.Marshal(FileFilter{Ids: strippedIds})
+			if err == nil {
+				p := url.Values{}
+				p.Add("ff", string(ff))
+				p.Add("since", strconv.Itoa(0))
+				results, err := db.filesFromSearch(p)
 
-	// perform the search
-	type FileFilter struct {
-		Ids []string `json:"_id"`
-	}
-	ff, err := json.Marshal(FileFilter{Ids: strippedIds})
-	if err == nil {
-		p := url.Values{}
-		p.Add("ff", string(ff))
-		p.Add("since", strconv.Itoa(0))
-		results, err := db.filesFromSearch(p)
+				// filter out results with mismatched IDs
+				// (we should ask the JDP team to provide a feature to fetch metadata
+				//  for JAMO IDs)
+				resources := make([]core.DataResource, 0)
+				for _, res := range results.Resources {
+					if _, found := indexForId[res.Id]; found {
+						resources = append(resources, res)
+					}
+				}
 
-		// filter out results with mismatched IDs
-		// (we should ask the JDP team to provide a feature to fetch metadata
-		//  for JAMO IDs)
-		resources := make([]core.DataResource, 0)
-		for _, res := range results.Resources {
-			if _, found := indexForId[res.Id]; found {
-				resources = append(resources, res)
+				if len(resources) != len(strippedIds) {
+					panic("Couldn't fetch resources for given IDs")
+				}
+
+				// sort the results
+				slices.SortFunc(resources, func(a, b core.DataResource) int {
+					if a.Id < b.Id {
+						return -1
+					} else if a.Id == b.Id {
+						return 0
+					} else {
+						return 1
+					}
+				})
+
+				// remap the sorted results so that they correspond to the originally
+				// requested IDs
+				remappedResources := make([]core.DataResource, len(resources))
+				for i, res := range resources {
+					fmt.Printf("indexed ID index[%d of %d]: %d\n", i, len(resources), indexForId[res.Id])
+					remappedResources[indexForId[res.Id]] = res
+				}
+				return remappedResources, err
 			}
-		}
-
-		if len(resources) != len(strippedIds) {
-			panic("Couldn't fetch resources for given IDs")
-		}
-
-		// sort the results
-		slices.SortFunc(resources, func(a, b core.DataResource) int {
-			if a.Id < b.Id {
-				return -1
-			} else if a.Id == b.Id {
-				return 0
-			} else {
-				return 1
-			}
-		})
-
-		// remap the sorted results so that they correspond to the originally
-		// requested IDs
-		remappedResources := make([]core.DataResource, len(resources))
-		for i, res := range resources {
-			fmt.Printf("indexed ID index[%d of %d]: %d\n", i, len(resources), indexForId[res.Id])
-			remappedResources[indexForId[res.Id]] = res
-		}
-		return remappedResources, err
-	}
-	return nil, err
+		return nil, err
+	*/
+	return nil, fmt.Errorf("Not yet implemented!")
 }
 
 func (db *Database) StageFiles(fileIds []string) (uuid.UUID, error) {

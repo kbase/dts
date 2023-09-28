@@ -96,6 +96,14 @@ type RootResponse struct {
 // handler method for root
 func (service *prototype) getRoot(w http.ResponseWriter,
 	r *http.Request) {
+
+	_, _, err := getAuthInfo(r.Header)
+	if err != nil {
+		log.Print(err.Error())
+		writeError(w, err.Error(), 401)
+		return
+	}
+
 	log.Printf("Querying root endpoint...")
 	data := RootResponse{
 		Name:    service.Name,

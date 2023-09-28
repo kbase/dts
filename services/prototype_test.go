@@ -3,6 +3,7 @@ package services
 // unit test setup for the DTS prototype service
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ var CWD string
 var TESTING_DIR string
 
 // API prefix for requests.
-var API_PREFIX = "http://localhost:8080/api/v1"
+var API_PREFIX = "http://localhost:8080/api/v1/"
 
 // service instance
 var service TransferService
@@ -38,7 +39,7 @@ service:
 databases:
   jdp:
     name: JGI Data Portal
-    organization: Joint Genome Institue
+    organization: Joint Genome Institute
     url: https://files.jgi.doe.gov
     endpoint: globus-jdp
     auth:
@@ -112,25 +113,116 @@ func breakdown() {
 	}
 }
 
+// sends a GET query with well-formed headers
+func get(resource string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, resource, http.NoBody)
+	if err == nil {
+		fakeToken := base64.StdEncoding.EncodeToString([]byte("fake_token"))
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", fakeToken))
+		return http.DefaultClient.Do(req)
+	} else {
+		return nil, err
+	}
+}
+
 // queries the service's root endpoint
 func TestQueryRoot(t *testing.T) {
 	assert := assert.New(t) // binds assert to t
 
-	// Query the root endpoint.
-	resp, err := http.Get("http://localhost:8080/")
+	resp, err := get("http://localhost:8080/")
 	assert.Nil(err)
 
-	// Read the response.
 	respBody, err := io.ReadAll(resp.Body)
 	assert.Nil(err)
 	defer resp.Body.Close()
 
-	// The response should be a RootResponse with the service's metadata.
 	var root RootResponse
 	err = json.Unmarshal(respBody, &root)
 	assert.Nil(err)
 	assert.Equal("DTS prototype", root.Name)
 	assert.Equal(core.Version, root.Version)
+}
+
+// queries the service's databases endpoint
+func TestQueryDatabases(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+
+	resp, err := get(API_PREFIX + "databases")
+	assert.Nil(err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err)
+	defer resp.Body.Close()
+
+	var dbs []dbMetadata
+	err = json.Unmarshal(respBody, &dbs)
+	assert.Nil(err)
+	assert.Equal(1, len(dbs))
+	assert.Equal("jdp", dbs[0].Id)
+	assert.Equal("JGI Data Portal", dbs[0].Name)
+	assert.Equal("Joint Genome Institute", dbs[0].Organization)
+}
+
+// queries a specific (valid) database
+func TestQueryValidDatabase(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+
+	resp, err := get(API_PREFIX + "databases/jdp")
+	assert.Nil(err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err)
+	defer resp.Body.Close()
+
+	var db dbMetadata
+	err = json.Unmarshal(respBody, &db)
+	assert.Nil(err)
+	assert.Equal("jdp", db.Id)
+	assert.Equal("JGI Data Portal", db.Name)
+	assert.Equal("Joint Genome Institute", db.Organization)
+}
+
+// queries a database that doesn't exist
+func TestQueryInvalidDatabase(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+
+	resp, err := get(API_PREFIX + "databases/nonexistentdb")
+	assert.Nil(err)
+	assert.Equal(404, resp.StatusCode)
+}
+
+// searches a specific database for files matching a simple query
+func TestSearchDatabase(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+
+	resp, err := get(API_PREFIX + "files?database=jdp&query=prochlorococcus")
+	assert.Nil(err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err)
+	defer resp.Body.Close()
+
+	var results ElasticSearchResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err)
+	assert.Equal("jdp", results.Database)
+	assert.Equal("prochlorococcus", results.Query)
+	assert.NotNil(results.Resources)
+}
+
+// attempts to fetch the status of a nonexistent transfer
+func TestFetchInvalidTransferStatus(t *testing.T) {
+	assert := assert.New(t) // binds assert to t
+
+	// try an ill-formed transfer
+	resp, err := get(API_PREFIX + "transfers/xyzzy")
+	assert.Nil(err)
+	assert.Equal(400, resp.StatusCode)
+
+	// I bet this one doesn't exist!!
+	resp, err = get(API_PREFIX + "transfers/3f0f9563-e1f8-4b9c-9308-36988e25df0b")
+	assert.Nil(err)
+	assert.Equal(404, resp.StatusCode)
 }
 
 // runs setup, runs all tests, and does breakdown

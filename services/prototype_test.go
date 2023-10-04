@@ -117,8 +117,9 @@ func breakdown() {
 func get(resource string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, resource, http.NoBody)
 	if err == nil {
-		fakeToken := base64.StdEncoding.EncodeToString([]byte("fake_token"))
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", fakeToken))
+		accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
+		b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 		return http.DefaultClient.Do(req)
 	} else {
 		return nil, err

@@ -62,12 +62,7 @@ func getAuthInfo(header http.Header) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	accessToken := string(accessTokenBytes)
-
-	// FIXME: KBase Auth server needs to be modified to use an RFC-compliant
-	// FIXME: Authorization header (https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization)
-	// FIXME: so for now we just use a hard-wired ORCID
-	//	return accessToken, os.Getenv("DTS_KBASE_TEST_ORCID"), err
+	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
 	// check the access token against the KBase auth server
 	// and fetch the first ORCID associated with it

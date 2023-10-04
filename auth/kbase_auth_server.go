@@ -104,11 +104,7 @@ func (server *KBaseAuthServer) newRequest(method, resource string,
 	if err != nil {
 		return nil, err
 	}
-	// The required authorization header contains only the unencoded access token.
-	// Unfortunately, this is a non-RFC-compliant Authorization header, and Go
-	// validates its request headers, so it can't send non-compliant ones. The
-	// following won't work till this is fixed, so we can't rely on the KBase
-	// auth server for now
+	// the required authorization header contains only the unencoded access token
 	req.Header.Add("Authorization", server.AccessToken)
 	return req, nil
 }

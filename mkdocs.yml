@@ -10,11 +10,13 @@ nav:
     - 'Granting DTS Access to a Globus Endpoint': 'admin/globus.md'
   - 'Integration Guide':
     - 'Overview': 'integration/index.md'
-    - 'Provide Unique IDs and Metadata for Your Files': 'integration/metadata.md'
+    - 'Provide Unique IDs and Metadata for Your Files': 'integration/resources.md'
     - 'Make Your Files Searchable': 'integration/search.md'
-    - 'Provide a Staging Area for Your Files': 'integration/endpoint.md'
-    - 'Stage Your Files on Request': 'integration/staging.md'
-    - 'Map ORCID IDs to Local User Accounts': 'integration/orcid.md'
+    - 'Provide a Staging Area for Your Files': 'integration/staging_area.md'
+    - 'Stage Your Files on Request': 'integration/stage_files.md'
+    - 'Provide a Way to Monitor File Staging': 'integration/staging_status.md'
+    - 'Map ORCID IDs to Local User Accounts': 'integration/local_user.md'
+    - 'Glossary': 'integration/glossary.md'
   - 'Developer Guide':
     - 'Overview': 'developer/index.md'
     - 'Code Organization':
@@ -26,7 +28,6 @@ nav:
       - 'frictionless package': 'developer/frictionless.md'
       - 'services package': 'developer/services.md'
       - 'tasks package': 'developer/tasks.md'
-  - 'Glossary': 'common/glossary.md'
 
 edit_uri: ""
 

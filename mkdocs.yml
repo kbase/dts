@@ -26,6 +26,7 @@ nav:
       - 'frictionless package': 'developer/frictionless.md'
       - 'services package': 'developer/services.md'
       - 'tasks package': 'developer/tasks.md'
+  - 'Glossary': 'common/glossary.md'
 
 edit_uri: ""
 

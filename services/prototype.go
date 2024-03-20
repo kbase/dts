@@ -4,9 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"golang.org/x/net/netutil"
@@ -47,26 +47,22 @@ type prototype struct {
 	Port int
 	// router for REST endpoints
 	Router *mux.Router
+	// API wrapper
+	API huma.API
 	// HTTP server.
 	Server *http.Server
 }
 
-// validates a header, ensuring that it uses the HTTP Bearer authentication
-// method with a valid token, and returns
-// 1. the decoded access token
-// 2. the ORCID ID associated with the access token
-// 3. any error encountered in the process
-func getAuthInfo(header http.Header) (string, string, error) {
-
-	// make sure we're using the Bearer method and that we can get an access token
-	authData := header.Get("Authorization")
-	if !strings.Contains(authData, "Bearer") {
-		return "", "", fmt.Errorf("Invalid authorization header")
+// authorize clients for the DTS, returning the client's ORCID ID and an error
+// describing any issue encountered
+func authorize(authorizationHeader string) (string, error) {
+	if !strings.Contains(authorizationHeader, "Bearer") {
+		return "", fmt.Errorf("Invalid authorization header")
 	}
-	b64Token := authData[len("Bearer "):]
+	b64Token := authorizationHeader[len("Bearer "):]
 	accessTokenBytes, err := base64.StdEncoding.DecodeString(b64Token)
 	if err != nil {
-		return "", "", err
+		return "", huma.Error401Unauthorized(err.Error())
 	}
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
@@ -81,261 +77,179 @@ func getAuthInfo(header http.Header) (string, string, error) {
 			orcid = orcids[0]
 		}
 	}
-	return accessToken, orcid, err
+	if err != nil {
+		return orcid, huma.Error401Unauthorized(err.Error())
+	} else {
+		return orcid, nil
+	}
 }
 
-// this type encodes a JSON object for responding to root queries
-type RootResponse struct {
-	Name          string `json:"name"`
-	Version       string `json:"version"`
-	Uptime        int    `json:"uptime"`
-	Documentation string `json:"documentation,omitempty"`
+type ServiceInfoOutput struct {
+	Body ServiceInfoResponse `doc:"information about the service itself"`
 }
 
 // handler method for root
-func (service *prototype) getRoot(w http.ResponseWriter,
-	r *http.Request) {
+func (service *prototype) getRoot(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization"`
+	}) (*ServiceInfoOutput, error) {
 
-	_, _, err := getAuthInfo(r.Header)
+	_, err := authorize(input.Authorization)
 	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
+		return nil, err
 	}
 
 	slog.Info("Querying root endpoint...")
-	data := RootResponse{
-		Name:    service.Name,
-		Version: service.Version,
-		Uptime:  int(service.uptime())}
-	if HaveDocEndpoints {
-		data.Documentation = "/docs"
-	}
-	jsonData, _ := json.Marshal(data)
-	writeJson(w, jsonData, http.StatusOK)
+	return &ServiceInfoOutput{
+		Body: ServiceInfoResponse{
+			Name:          service.Name,
+			Version:       service.Version,
+			Uptime:        int(service.uptime()),
+			Documentation: "/docs",
+		},
+	}, nil
 }
 
-// type holding database metadata
-type dbMetadata struct {
-	Id           string `json:"id"`
-	Name         string `json:"name"`
-	Organization string `json:"organization"`
-	URL          string `json:"url"`
+type DatabaseOutput struct {
+	Body DatabaseResponse `doc:"Information about the requested available database"`
+}
+
+type DatabasesOutput struct {
+	Body []DatabaseResponse `doc:"A list of information about available databases"`
 }
 
 // handler method for querying all databases
-func (service *prototype) getDatabases(w http.ResponseWriter,
-	r *http.Request) {
+func (service *prototype) getDatabases(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization"`
+	}) (*DatabasesOutput, error) {
 
-	_, _, err := getAuthInfo(r.Header)
+	_, err := authorize(input.Authorization)
 	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
+		return nil, err
 	}
 
 	slog.Info("Querying organizational databases...")
-	dbs := make([]dbMetadata, 0)
+	output := &DatabasesOutput{
+		Body: make([]DatabaseResponse, 0),
+	}
 	for dbName, db := range config.Databases {
-		dbs = append(dbs, dbMetadata{
+		output.Body = append(output.Body, DatabaseResponse{
 			Id:           dbName,
 			Name:         db.Name,
 			Organization: db.Organization,
 		})
 	}
-	slices.SortFunc(dbs, func(db1, db2 dbMetadata) int { // sort by name
+	slices.SortFunc(output.Body, func(db1, db2 DatabaseResponse) int { // sort by name
 		return cmp.Compare(db1.Name, db2.Name)
 	})
-	jsonData, _ := json.Marshal(dbs)
-	writeJson(w, jsonData, http.StatusOK)
+	return output, err
 }
 
 // handler method for querying a single database for its metadata
-func (service *prototype) getDatabase(w http.ResponseWriter,
-	r *http.Request) {
+func (service *prototype) getDatabase(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
+		Id            string `path:"db" example:"jdp" doc:"the abbreviated name of a database"`
+	}) (*DatabaseOutput, error) {
 
-	_, _, err := getAuthInfo(r.Header)
+	_, err := authorize(input.Authorization)
 	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
+		return nil, err
 	}
 
-	vars := mux.Vars(r)
-	dbName := vars["db"]
-
-	slog.Info(fmt.Sprintf("Querying database %s...", dbName))
-	db, ok := config.Databases[dbName]
+	slog.Info(fmt.Sprintf("Querying database %s...", input.Id))
+	db, ok := config.Databases[input.Id]
 	if !ok {
-		errStr := fmt.Sprintf("Database %s not found", dbName)
-		slog.Error(errStr)
-		writeError(w, errStr, http.StatusNotFound)
-	} else {
-		data, _ := json.Marshal(dbMetadata{
-			Id:           dbName,
+		return nil, huma.Error404NotFound(fmt.Sprintf("Database %s not found", input.Id))
+	}
+	return &DatabaseOutput{
+		Body: DatabaseResponse{
+			Id:           input.Id,
 			Name:         db.Name,
 			Organization: db.Organization,
-		})
-		writeJson(w, data, http.StatusOK)
-	}
+		},
+	}, nil
 }
 
-// this helper translates an array of SearchResults to a JSON object
-// containing search results for the query (including the database name)
-func jsonFromSearchResults(dbName string,
-	query string, results databases.SearchResults) ([]byte, error) {
-
-	data := ElasticSearchResponse{
-		Database:  dbName,
-		Query:     query,
-		Resources: results.Resources,
-	}
-
-	return json.Marshal(data)
+type SearchResultsOutput struct {
+	Body SearchResultsResponse `doc:"Search results containing matching files that match the given query"`
 }
 
-// helper for extracting search parameters
-func extractSearchParams(r *http.Request) (databases.SearchParameters, error) {
-	var params databases.SearchParameters
-	params.Query = r.FormValue("query")
-	if params.Query == "" {
-		return params, fmt.Errorf("Query string not given!")
-	}
-	v := r.URL.Query()
-	offsetVal := v.Get("offset")
-	if offsetVal != "" {
-		var err error
-		params.Pagination.Offset, err = strconv.Atoi(offsetVal)
-		if err != nil {
-			return params, fmt.Errorf("Error: Invalid results offset: %s", offsetVal)
-		} else if params.Pagination.Offset < 0 {
-			return params, fmt.Errorf("Error: Invalid results offset: %d", params.Pagination.Offset)
-		}
-	}
-	NVal := v.Get("limit")
-	if NVal != "" {
-		var err error
-		params.Pagination.MaxNum, err = strconv.Atoi(NVal)
-		if err != nil {
-			return params, fmt.Errorf("Invalid results limit: %s", NVal)
-		} else if params.Pagination.MaxNum <= 0 {
-			return params, fmt.Errorf("Invalid results limit: %d", params.Pagination.MaxNum)
-		}
-	}
-	return params, nil
-}
+// handle search queries for files of interest
+func (service *prototype) searchDatabase(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
+		Database      string `query:"database" example:"jdp" doc:"The ID of the database to search"`
+		Query         string `query:"query" example:"prochlorococcus" doc:"A query used to search the database for matching files"`
+		Offset        int    `query:"offset" example:"100" doc:"Search results begin at the given offset"`
+		Limit         int    `query:"limit" example:"50" doc:"Limits the number of search results returned"`
+	}) (*SearchResultsOutput, error) {
 
-// handle ElasticSearch queries
-func (service *prototype) searchDatabase(w http.ResponseWriter,
-	r *http.Request) {
-
-	_, orcid, err := getAuthInfo(r.Header)
+	orcid, err := authorize(input.Authorization)
 	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
+		return nil, err
 	}
-
-	// fetch search parameters
-	dbName := r.FormValue("database")
 
 	// is the database valid?
-	_, ok := config.Databases[dbName]
+	_, ok := config.Databases[input.Database]
 	if !ok {
-		errStr := fmt.Sprintf("Database %s not found", dbName)
-		slog.Error(errStr)
-		writeError(w, errStr, http.StatusNotFound)
-		return
+		return nil, fmt.Errorf("Database %s not found", input.Database)
 	}
 
-	// are we asked to return a subset of our results?
-	params, err := extractSearchParams(r)
+	slog.Info(fmt.Sprintf("Searching database %s for files...", input.Database))
+	db, err := databases.NewDatabase(orcid, input.Database)
 	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, err
 	}
-
-	slog.Info(fmt.Sprintf("Searching database %s for files...", dbName))
-	db, err := databases.NewDatabase(orcid, dbName)
+	results, err := db.Search(databases.SearchParameters{
+		Query: input.Query,
+		Pagination: databases.SearchPaginationParameters{
+			Offset: input.Offset,
+			MaxNum: input.Limit,
+		},
+	})
 	if err != nil {
-		writeError(w, err.Error(), http.StatusNotFound)
-		return
+		return nil, err
 	}
-	results, err := db.Search(params)
-	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest)
-		return
-	} else {
-		// return our results to the caller
-		jsonData, _ := jsonFromSearchResults(dbName, params.Query, results)
-		writeJson(w, jsonData, http.StatusOK)
-	}
+	return &SearchResultsOutput{
+		Body: SearchResultsResponse{
+			Database:  input.Database,
+			Query:     input.Query,
+			Resources: results.Resources,
+		},
+	}, nil
 }
 
-func getTransferRequest(r *http.Request) (TransferRequest, error) {
-	var req TransferRequest
-	var err error
-
-	_, orcid, err := getAuthInfo(r.Header)
-	if err != nil {
-		return req, err
-	}
-
-	// is this a JSON request?
-	if r.Header.Get("Content-Type") != "application/json" {
-		return req, fmt.Errorf("Request content type must be \"application/json\".")
-	}
-
-	// read the request body
-	rBody, err := io.ReadAll(r.Body)
-	if err != nil {
-		return req, err
-	}
-	err = json.Unmarshal(rBody, &req)
-	if err != nil {
-		return req, err
-	}
-
-	// validate source and destination databases
-	if _, ok := config.Databases[req.Source]; !ok {
-		return req, fmt.Errorf("Unknown source database: %s", req.Source)
-	} else if _, ok := config.Databases[req.Destination]; !ok {
-		return req, fmt.Errorf("Unknown destination database: %s", req.Destination)
-	}
-
-	// make sure there's at least one file in the request
-	if len(req.FileIds) == 0 {
-		return req, fmt.Errorf("No file IDs specified for transfer!")
-	}
-
-	req.Orcid = orcid
-	return req, nil
+type TransferOutput struct {
+	Body   TransferResponse `doc:"A UUID for the requested transfer"`
+	Status int
 }
 
 // handler method for initiating a file transfer operation
-func (service *prototype) createTransfer(w http.ResponseWriter,
-	r *http.Request) {
+func (service *prototype) createTransfer(ctx context.Context,
+	input *struct {
+		Authorization string          `header:"Authorization" doc:"Authorization header with encoded access token"`
+		Body          TransferRequest `doc:"The body of a POST request for a file transfer"`
+		ContentType   string          `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
+	}) (*TransferOutput, error) {
 
-	// extract and validate request data
-	request, err := getTransferRequest(r)
+	orcid, err := authorize(input.Authorization)
 	if err != nil {
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
+		return nil, err
 	}
 
-	taskId, err := tasks.Create(request.Orcid, request.Source,
-		request.Destination, request.FileIds)
+	taskId, err := tasks.Create(orcid, input.Body.Source,
+		input.Body.Destination, input.Body.FileIds)
 	if err != nil {
-		switch err.(type) {
-		case databases.NotFoundError:
-			writeError(w, err.Error(), http.StatusNotFound)
-		default:
-			writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
+		return nil, err
 	}
-	jsonData, _ := json.Marshal(TransferResponse{Id: taskId})
-	writeJson(w, jsonData, http.StatusCreated)
+	return &TransferOutput{
+		Body: TransferResponse{
+			Id: taskId,
+		},
+		Status: http.StatusCreated,
+	}, nil
 }
 
 // convert a transfer status code to a nice human-friendly string
@@ -357,75 +271,57 @@ func statusAsString(statusCode endpoints.TransferStatusCode) string {
 	return "unknown"
 }
 
+type TransferStatusOutput struct {
+	Body TransferStatusResponse `doc:"A status message for the transfer task with the given ID"`
+}
+
 // handler method for getting the status of a transfer
-func (service *prototype) getTransferStatus(w http.ResponseWriter,
-	r *http.Request) {
+func (service *prototype) getTransferStatus(ctx context.Context,
+	input *struct {
+		Authorization string    `header:"authorization" doc:"Authorization header with encoded access token"`
+		Id            uuid.UUID `path:"id" example:"de9a2d6a-f5c9-4322-b8a7-8121d83fdfc2" doc:"the UUID for the requested transfer"`
+	}) (*TransferStatusOutput, error) {
 
-	_, _, err := getAuthInfo(r.Header)
+	_, err := authorize(input.Authorization)
 	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
-	}
-
-	// extract the transfer ID from the request
-	vars := mux.Vars(r)
-	xferId, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
 	// fetch the status for the job using the appropriate task data
-	status, err := tasks.Status(xferId)
+	status, err := tasks.Status(input.Id)
 	if err != nil {
-		errCode := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			errCode = http.StatusNotFound
-		}
-		writeError(w, err.Error(), errCode)
-		return
+		return nil, huma.Error404NotFound(err.Error())
 	}
-	resp := TransferStatusResponse{
-		Id:                  xferId.String(),
-		Status:              statusAsString(status.Code),
-		Message:             status.Message,
-		NumFiles:            status.NumFiles,
-		NumFilesTransferred: status.NumFilesTransferred,
-	}
-	jsonData, _ := json.Marshal(resp)
-	writeJson(w, jsonData, http.StatusOK)
+	return &TransferStatusOutput{
+		Body: TransferStatusResponse{
+			Id:                  input.Id.String(),
+			Status:              statusAsString(status.Code),
+			Message:             status.Message,
+			NumFiles:            status.NumFiles,
+			NumFilesTransferred: status.NumFilesTransferred,
+		},
+	}, nil
+}
+
+type TaskDeletionOutput struct {
+	Status int
 }
 
 // handler method for deleting (canceling) an existing transfer
-func (service *prototype) deleteTransfer(w http.ResponseWriter,
-	r *http.Request) {
-
-	_, _, err := getAuthInfo(r.Header)
-	if err != nil {
-		slog.Error(err.Error())
-		writeError(w, err.Error(), http.StatusUnauthorized)
-		return
-	}
-
-	// extract the transfer ID from the request
-	vars := mux.Vars(r)
-	xferId, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+func (service *prototype) deleteTransfer(ctx context.Context,
+	input *struct {
+		Authorization string    `header:"authorization" doc:"Authorization header with encoded access token"`
+		Id            uuid.UUID `path:"id" example:"de9a2d6a-f5c9-4322-b8a7-8121d83fdfc2" doc:"the UUID for the requested transfer"`
+	}) (*TaskDeletionOutput, error) {
 
 	// request that the task be canceled
-	err = tasks.Cancel(xferId)
+	err := tasks.Cancel(input.Id)
 	if err != nil {
-		writeError(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-
-	// at this point, all we can say is that the cancellation request
-	// has been accepted
-	writeJson(w, nil, http.StatusAccepted)
+	return &TaskDeletionOutput{
+		Status: http.StatusAccepted,
+	}, nil
 }
 
 // returns the uptime for the service in seconds
@@ -453,30 +349,17 @@ func NewDTSPrototype() (TransferService, error) {
 	service.Port = -1
 
 	// set up routing
-	r := mux.NewRouter()
-	r.HandleFunc("/", service.getRoot).Methods("GET")
+	service.Router = mux.NewRouter()
+	api := humamux.New(service.Router, huma.DefaultConfig(service.Name, service.Version))
+	huma.Get(api, "/", service.getRoot)
 
-	// serve documentation endpoints
-	AddDocEndpoints(r)
-
-	// API calls are routed through /api
-	api := r.PathPrefix("/api").Subrouter()
-	api.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	// v1
-	api_v1 := api.PathPrefix("/v1").Subrouter()
-	api_v1.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	})
-	api_v1.HandleFunc("/databases", service.getDatabases).Methods("GET")
-	api_v1.HandleFunc("/databases/{db}", service.getDatabase).Methods("GET")
-	api_v1.HandleFunc("/files", service.searchDatabase).Methods("GET")
-	api_v1.HandleFunc("/transfers", service.createTransfer).Methods("POST")
-	api_v1.HandleFunc("/transfers/{id}", service.getTransferStatus).Methods("GET")
-	api_v1.HandleFunc("/transfers/{id}", service.deleteTransfer).Methods("DELETE")
-	service.Router = r
+	// API v1
+	huma.Get(api, "/api/v1/databases", service.getDatabases)
+	huma.Get(api, "/api/v1/databases/{db}", service.getDatabase)
+	huma.Get(api, "/api/v1/files", service.searchDatabase)
+	huma.Post(api, "/api/v1/transfers", service.createTransfer)
+	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
+	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)
 
 	return service, nil
 }

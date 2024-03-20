@@ -86,18 +86,14 @@ ARG SERVER_URL=http://example.com
 # We label this image as "builder" so we can prune it afterward with
 # docker image prune --filter label=stage=builder
 LABEL stage=builder
-# We need Git, Curl, Zlib, and npm.
-RUN apk update && apk add --no-cache git curl build-base zlib-dev zlib-static npm
+# Fetch some essentials.
+RUN apk update && apk add --no-cache git build-base
 # Set the directory we work in within the image.
 WORKDIR /go/dts
 # Copy files from our context to the working directory.
 COPY . .
-# Use redoc-cli to generate API documentation
-RUN npm install -g redoc-cli
-RUN go mod vendor
-RUN go generate
-# Build dts as a static executable with documentation endpoints.
-RUN env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags docs -a
+# Build dts as a static executable.
+RUN env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a
 
 #--------------------------------------------------------
 # Now we create a smaller image containing only

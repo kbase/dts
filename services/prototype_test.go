@@ -257,7 +257,7 @@ func TestQueryRoot(t *testing.T) {
 	assert.Nil(err)
 	defer resp.Body.Close()
 
-	var root RootResponse
+	var root ServiceInfoResponse
 	err = json.Unmarshal(respBody, &root)
 	assert.Nil(err)
 	assert.Equal("DTS prototype", root.Name)
@@ -275,11 +275,11 @@ func TestQueryDatabases(t *testing.T) {
 	assert.Nil(err)
 	defer resp.Body.Close()
 
-	var dbs []dbMetadata
+	var dbs []DatabaseResponse
 	err = json.Unmarshal(respBody, &dbs)
 	assert.Nil(err)
 	assert.Equal(3, len(dbs))
-	slices.SortFunc(dbs, func(a, b dbMetadata) int { // sort alphabetically
+	slices.SortFunc(dbs, func(a, b DatabaseResponse) int { // sort alphabetically
 		if a.Id < b.Id {
 			return -1
 		} else if a.Id == b.Id {
@@ -313,7 +313,7 @@ func TestQueryValidDatabase(t *testing.T) {
 	assert.Nil(err)
 	defer resp.Body.Close()
 
-	var db dbMetadata
+	var db DatabaseResponse
 	err = json.Unmarshal(respBody, &db)
 	assert.Nil(err)
 	assert.Equal("source", db.Id)
@@ -343,7 +343,7 @@ func TestSearchDatabase(t *testing.T) {
 	assert.Equal(http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 
-	var results ElasticSearchResponse
+	var results SearchResultsResponse
 	err = json.Unmarshal(respBody, &results)
 	assert.Nil(err)
 	assert.Equal("source", results.Database)
@@ -485,7 +485,7 @@ func TestFetchInvalidTransferStatus(t *testing.T) {
 	// try an ill-formed transfer
 	resp, err := get(baseUrl + apiPrefix + "transfers/xyzzy")
 	assert.Nil(err)
-	assert.Equal(http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(http.StatusUnprocessableEntity, resp.StatusCode)
 
 	// I bet this one doesn't exist!!
 	resp, err = get(baseUrl + apiPrefix + "transfers/3f0f9563-e1f8-4b9c-9308-36988e25df0b")

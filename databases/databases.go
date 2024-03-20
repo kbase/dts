@@ -30,20 +30,22 @@ import (
 	"github.com/kbase/dts/frictionless"
 )
 
+type SearchPaginationParameters struct {
+	// number of search results to skip
+	Offset int
+	// maximum number of search results to include (0 indicates no max)
+	MaxNum int
+}
+
 // parameters that define a search for files
 type SearchParameters struct {
 	// ElasticSearch query string
 	Query string
 	// pagination support
-	Pagination struct {
-		// number of search results to skip
-		Offset int
-		// maximum number of search results to include (0 indicates no max)
-		MaxNum int
-	}
+	Pagination SearchPaginationParameters
 }
 
-// results from an ElasticSearch query
+// results from a file query
 type SearchResults struct {
 	Resources []frictionless.DataResource `json:"resources"`
 }

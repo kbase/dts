@@ -20,6 +20,14 @@ func writeJson(w http.ResponseWriter, data []byte, code int) {
 	}
 }
 
+// this type encodes a JSON object for responding to root queries
+type ServiceInfoResponse struct {
+	Name          string `json:"name" example:"DTS" doc:"The name of the service API"`
+	Version       string `json:"version" example:"1.0.0" doc:"The version string (major.minor.patch)"`
+	Uptime        int    `json:"uptime" example:"345600" doc:"The time the service has been up (seconds)"`
+	Documentation string `json:"documentation" example:"/docs" doc:"The OpenAPI documentation endpoint"`
+}
+
 // This type holds information about an error that occurred responding to a
 // request.
 type ErrorResponse struct {
@@ -40,32 +48,38 @@ func writeError(w http.ResponseWriter, message string, code int) {
 	w.Write(data)
 }
 
-// a response for an ElasticSearch query (GET)
-type ElasticSearchResponse struct {
+// a response for a database-related query (GET)
+type DatabaseResponse struct {
+	Id           string `json:"id" example:"jdp" `
+	Name         string `json:"name" example:"JGI Data portal"`
+	Organization string `json:"organization" example:"Joint Genome Institute"`
+	URL          string `json:"url" example:"https://data.jgi.doe.gov"`
+}
+
+// a response for a query (GET)
+type SearchResultsResponse struct {
 	// name of organization database
-	Database string `json:"database"`
+	Database string `json:"database" example:"jdp" doc:"the database searched"`
 	// ElasticSearch query string
-	Query string `json:"query"`
+	Query string `json:"query" example:"prochlorococcus" doc:"the given query string"`
 	// Resources matching the query
-	Resources []frictionless.DataResource `json:"resources"`
+	Resources []frictionless.DataResource `json:"resources" doc:"an array of Frictionless DataResources"`
 }
 
 // a request for a file transfer (POST)
 type TransferRequest struct {
 	// name of source database
-	Source string `json:"source"`
+	Source string `json:"source" example:"jdp" doc:"source database identifier"`
 	// identifiers for files to be transferred
-	FileIds []string `json:"file_ids"`
+	FileIds []string `json:"file_ids" doc:"source-specific identifiers for files to be transferred"`
 	// name of destination database
-	Destination string `json:"destination"`
-	// ORCID identifier associated with the request
-	Orcid string `json:"orcid"`
+	Destination string `json:"destination" example:"kbase" doc:"destination database identifier"`
 }
 
 // a response for a file transfer request (POST)
 type TransferResponse struct {
 	// transfer job ID
-	Id uuid.UUID `json:"id"`
+	Id uuid.UUID `json:"id" doc:"a UUID for the requested transfer"`
 }
 
 // a response for a file transfer status request (GET)

@@ -4,3 +4,4 @@
 
 * Supported providers
 * Globus configuration
+* Example configuration: JGI and KBase Globus Guest Collections

@@ -5,3 +5,4 @@
 * Summary
 * Suggested request structure
 * Suggested response structure
+* Example: JGI data portal JAMO IDs and endpoints

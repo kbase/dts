@@ -12,7 +12,7 @@ interactions:
         host: jamo-dev.jgi.doe.gov
         remote_addr: ""
         request_uri: ""
-        body: '{"query":"select _id, file_name, file_path, metadata.file_format, file_size, md5_sum where _id in ( 57f9e03f7ded5e3135bc069e, 57f9d2b57ded5e3135bc0612, 57f9bcb77ded5e3135bc05a5, 57f7e5c47ded5e3135bbd21e, 582509de7ded5e2d305af5d2, 584486257ded5e2d305c9a5c, 57f806ef7ded5e3135bbd583, 582509dd7ded5e2d305af5d1, 584486237ded5e2d305c9a57, 584486237ded5e2d305c9a58 )","requestor":"dts@kbase.us"}'
+        body: '{"query":"select _id, file_name, file_path, metadata.file_format, file_size, md5_sum where _id in ( 57f9e03f7ded5e3135bc069e, 57f9d2b57ded5e3135bc0612, 57f9bcb77ded5e3135bc05a5, 582509de7ded5e2d305af5d2, 584486257ded5e2d305c9a5c, 57f7e5c47ded5e3135bbd21e, 582509dd7ded5e2d305af5d1, 584486237ded5e2d305c9a57, 584486237ded5e2d305c9a58, 584486247ded5e2d305c9a5a )","requestor":"dts@kbase.us"}'
         form: {}
         headers:
             Content-Type:
@@ -27,7 +27,7 @@ interactions:
         trailer: {}
         content_length: -1
         uncompressed: true
-        body: '{"start": 1, "end": 10, "cursor_id": "4NDLI6X9U8", "record_count": 10, "records": [{"_id": "57f7e5c47ded5e3135bbd21e", "file_name": "10914.1.183618.CTCTCTA-ATTAGAC.QC.pdf", "metadata": {}, "file_size": 229766, "file_path": "/global/dna/dm_archive/rqc"}, {"_id": "57f806ef7ded5e3135bbd583", "file_name": "10914.1.183618.CTCTCTA-ATTAGAC.filter-SAG.fastq.gz", "file_size": 2322775655, "file_path": "/global/dna/dm_archive/rqc/filtered_seq_unit/00/01/09/14", "metadata": {}}, {"_id": "57f9bcb77ded5e3135bc05a5", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.fastq.gz", "file_size": 1966895000, "file_path": "/global/dna/dm_archive/sdm/illumina/01/09/27", "metadata": {}}, {"_id": "57f9d2b57ded5e3135bc0612", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.filter-SAG.fastq.gz", "file_size": 2225019092, "file_path": "/global/dna/dm_archive/rqc/filtered_seq_unit/00/01/09/27", "metadata": {}}, {"_id": "57f9e03f7ded5e3135bc069e", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.QC.pdf", "metadata": {}, "file_size": 227745, "file_path": "/global/dna/dm_archive/rqc"}, {"_id": "582509dd7ded5e2d305af5d1", "file_name": "sag-BHAPU-screen.pdf", "file_size": 692808, "file_path": "/global/dna/dm_archive/qaqc/analyses/AUTO-33721", "metadata": {"file_format": "pdf"}}, {"_id": "582509de7ded5e2d305af5d2", "file_name": "sag-BHAPU-screen.txt", "file_size": 4272, "file_path": "/global/dna/dm_archive/qaqc/analyses/AUTO-33721", "metadata": {"file_format": "txt"}}, {"_id": "584486237ded5e2d305c9a57", "file_name": "101341.assembled.fna", "file_size": 1151157, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}, {"_id": "584486237ded5e2d305c9a58", "file_name": "101341.assembled.faa", "file_size": 370266, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}, {"_id": "584486257ded5e2d305c9a5c", "file_name": "101341.assembled.gbk", "file_size": 2282302, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}], "fields": ["_id", "file_name", "file_path", "metadata.file_format", "file_size", "md5_sum"], "timeout": 540}'
+        body: '{"start": 1, "end": 10, "cursor_id": "2IHKEEFF0G", "record_count": 10, "records": [{"_id": "57f7e5c47ded5e3135bbd21e", "file_name": "10914.1.183618.CTCTCTA-ATTAGAC.QC.pdf", "metadata": {}, "file_size": 229766, "file_path": "/global/dna/dm_archive/rqc"}, {"_id": "57f9bcb77ded5e3135bc05a5", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.fastq.gz", "file_size": 1966895000, "file_path": "/global/dna/dm_archive/sdm/illumina/01/09/27", "metadata": {}}, {"_id": "57f9d2b57ded5e3135bc0612", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.filter-SAG.fastq.gz", "file_size": 2225019092, "file_path": "/global/dna/dm_archive/rqc/filtered_seq_unit/00/01/09/27", "metadata": {}}, {"_id": "57f9e03f7ded5e3135bc069e", "file_name": "10927.1.183804.CTCTCTA-AGGCTTA.QC.pdf", "metadata": {}, "file_size": 227745, "file_path": "/global/dna/dm_archive/rqc"}, {"_id": "582509dd7ded5e2d305af5d1", "file_name": "sag-BHAPU-screen.pdf", "file_size": 692808, "file_path": "/global/dna/dm_archive/qaqc/analyses/AUTO-33721", "metadata": {"file_format": "pdf"}}, {"_id": "582509de7ded5e2d305af5d2", "file_name": "sag-BHAPU-screen.txt", "file_size": 4272, "file_path": "/global/dna/dm_archive/qaqc/analyses/AUTO-33721", "metadata": {"file_format": "txt"}}, {"_id": "584486237ded5e2d305c9a57", "file_name": "101341.assembled.fna", "file_size": 1151157, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}, {"_id": "584486237ded5e2d305c9a58", "file_name": "101341.assembled.faa", "file_size": 370266, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}, {"_id": "584486247ded5e2d305c9a5a", "file_name": "101341.assembled.gff", "file_size": 187141, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}, {"_id": "584486257ded5e2d305c9a5c", "file_name": "101341.assembled.gbk", "file_size": 2282302, "file_path": "/global/dna/dm_archive/img/submissions/101341", "metadata": {}}], "fields": ["_id", "file_name", "file_path", "metadata.file_format", "file_size", "md5_sum"], "timeout": 540}'
         headers:
             Access-Control-Allow-Headers:
                 - Content-Type, Authorization, X-Requested-With
@@ -40,11 +40,11 @@ interactions:
             Cf-Cache-Status:
                 - DYNAMIC
             Cf-Ray:
-                - 87c901c13f8a7547-SEA
+                - 899e22598c33eb83-SEA
             Content-Type:
                 - application/json;charset=utf-8
             Date:
-                - Tue, 30 Apr 2024 16:46:15 GMT
+                - Wed, 26 Jun 2024 15:12:11 GMT
             Server:
                 - cloudflare
             Vary:
@@ -53,4 +53,4 @@ interactions:
                 - 2.0 jamo-dev.jgi.doe.gov
         status: 200 OK
         code: 200
-        duration: 155.726713ms
+        duration: 83.684916ms

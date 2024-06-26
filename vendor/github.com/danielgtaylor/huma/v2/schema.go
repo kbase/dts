@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/bits"
 	"net"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -30,9 +31,11 @@ const (
 
 // Special JSON Schema formats.
 var (
-	timeType = reflect.TypeOf(time.Time{})
-	ipType   = reflect.TypeOf(net.IP{})
-	urlType  = reflect.TypeOf(url.URL{})
+	timeType       = reflect.TypeOf(time.Time{})
+	ipType         = reflect.TypeOf(net.IP{})
+	ipAddrType     = reflect.TypeOf(netip.Addr{})
+	urlType        = reflect.TypeOf(url.URL{})
+	rawMessageType = reflect.TypeOf(json.RawMessage{})
 )
 
 func deref(t reflect.Type) reflect.Type {
@@ -40,6 +43,28 @@ func deref(t reflect.Type) reflect.Type {
 		t = t.Elem()
 	}
 	return t
+}
+
+// Discriminator object when request bodies or response payloads may be one of a
+// number of different schemas, can be used to aid in serialization,
+// deserialization, and validation. The discriminator is a specific object in a
+// schema which is used to inform the consumer of the document of an alternative
+// schema based on the value associated with it.
+type Discriminator struct {
+	// PropertyName in the payload that will hold the discriminator value.
+	// REQUIRED.
+	PropertyName string `yaml:"propertyName"`
+
+	// Mapping object to hold mappings between payload values and schema names or
+	// references.
+	Mapping map[string]string `yaml:"mapping,omitempty"`
+}
+
+func (d *Discriminator) MarshalJSON() ([]byte, error) {
+	return marshalJSON([]jsonFieldInfo{
+		{"propertyName", d.PropertyName, omitNever},
+		{"mapping", d.Mapping, omitEmpty},
+	}, nil)
 }
 
 // Schema represents a JSON Schema compatible with OpenAPI 3.1. It is extensible
@@ -58,6 +83,7 @@ func deref(t reflect.Type) reflect.Type {
 // Note that the registry may create references for your types.
 type Schema struct {
 	Type                 string              `yaml:"type,omitempty"`
+	Nullable             bool                `yaml:"-"`
 	Title                string              `yaml:"title,omitempty"`
 	Description          string              `yaml:"description,omitempty"`
 	Ref                  string              `yaml:"$ref,omitempty"`
@@ -95,6 +121,9 @@ type Schema struct {
 	AllOf []*Schema `yaml:"allOf,omitempty"`
 	Not   *Schema   `yaml:"not,omitempty"`
 
+	// OpenAPI specific fields
+	Discriminator *Discriminator `yaml:"discriminator,omitempty"`
+
 	patternRe     *regexp.Regexp  `yaml:"-"`
 	requiredMap   map[string]bool `yaml:"-"`
 	propertyNames []string        `yaml:"-"`
@@ -121,12 +150,21 @@ type Schema struct {
 // MarshalJSON marshals the schema into JSON, respecting the `Extensions` map
 // to marshal extensions inline.
 func (s *Schema) MarshalJSON() ([]byte, error) {
+	var typ any = s.Type
+	if s.Nullable {
+		typ = []string{s.Type, "null"}
+	}
+	var contentMediaType string
+	if s.Format == "binary" {
+		contentMediaType = "application/octet-stream"
+	}
 	return marshalJSON([]jsonFieldInfo{
-		{"type", s.Type, omitEmpty},
+		{"type", typ, omitEmpty},
 		{"title", s.Title, omitEmpty},
 		{"description", s.Description, omitEmpty},
 		{"$ref", s.Ref, omitEmpty},
 		{"format", s.Format, omitEmpty},
+		{"contentMediaType", contentMediaType, omitEmpty},
 		{"contentEncoding", s.ContentEncoding, omitEmpty},
 		{"default", s.Default, omitNil},
 		{"examples", s.Examples, omitEmpty},
@@ -157,6 +195,7 @@ func (s *Schema) MarshalJSON() ([]byte, error) {
 		{"anyOf", s.AnyOf, omitEmpty},
 		{"allOf", s.AllOf, omitEmpty},
 		{"not", s.Not, omitEmpty},
+		{"discriminator", s.Discriminator, omitEmpty},
 	}, s.Extensions)
 }
 
@@ -449,7 +488,9 @@ func SchemaFromField(registry Registry, f reflect.StructField, hint string) *Sch
 	if fs == nil {
 		return fs
 	}
-	fs.Description = f.Tag.Get("doc")
+	if doc := f.Tag.Get("doc"); doc != "" {
+		fs.Description = doc
+	}
 	if fs.Format == "date-time" && f.Tag.Get("header") != "" {
 		// Special case: this is a header and uses a different date/time format.
 		// Note that it can still be overridden by the `format` or `timeFormat`
@@ -496,6 +537,19 @@ func SchemaFromField(registry Registry, f reflect.StructField, hint string) *Sch
 		}
 	}
 
+	if _, ok := f.Tag.Lookup("nullable"); ok {
+		fs.Nullable = boolTag(f, "nullable")
+		if fs.Nullable && fs.Ref != "" {
+			// Nullability is only supported for scalar types for now. Objects are
+			// much more complicated because the `null` type lives within the object
+			// definition (requiring multiple copies of the object) or needs to use
+			// `anyOf` or `not` which is not supported by all code generators, or is
+			// supported poorly & generates hard-to-use code. This is less than ideal
+			// but a compromise for now to support some nullability built-in.
+			panic(fmt.Errorf("nullable is not supported for field '%s' which is type '%s'", f.Name, fs.Ref))
+		}
+	}
+
 	fs.Minimum = floatTag(f, "minimum")
 	fs.ExclusiveMinimum = floatTag(f, "exclusiveMinimum")
 	fs.Maximum = floatTag(f, "maximum")
@@ -528,9 +582,14 @@ type fieldInfo struct {
 // getFields performs a breadth-first search for all fields including embedded
 // ones. It may return multiple fields with the same name, the first of which
 // represents the outermost declaration.
-func getFields(typ reflect.Type) []fieldInfo {
+func getFields(typ reflect.Type, visited map[reflect.Type]struct{}) []fieldInfo {
 	fields := make([]fieldInfo, 0, typ.NumField())
 	var embedded []reflect.StructField
+
+	if _, ok := visited[typ]; ok {
+		return fields
+	}
+	visited[typ] = struct{}{}
 
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
@@ -552,7 +611,7 @@ func getFields(typ reflect.Type) []fieldInfo {
 			newTyp = newTyp.Elem()
 		}
 		if newTyp.Kind() == reflect.Struct {
-			fields = append(fields, getFields(newTyp)...)
+			fields = append(fields, getFields(newTyp, visited)...)
 		}
 	}
 
@@ -566,6 +625,14 @@ type SchemaProvider interface {
 	Schema(r Registry) *Schema
 }
 
+// SchemaTransformer is an interface that can be implemented by types
+// to transform the generated schema as needed.
+// This can be used to leverage the default schema generation for a type,
+// and arbitrarily modify parts of it.
+type SchemaTransformer interface {
+	TransformSchema(r Registry, s *Schema) *Schema
+}
+
 // SchemaFromType returns a schema for a given type, using the registry to
 // possibly create references for nested structs. The schema that is returned
 // can then be passed to `huma.Validate` to efficiently validate incoming
@@ -575,23 +642,39 @@ type SchemaProvider interface {
 //	registry := huma.NewMapRegistry("#/prefix", huma.DefaultSchemaNamer)
 //	schema := huma.SchemaFromType(registry, reflect.TypeOf(MyType{}))
 func SchemaFromType(r Registry, t reflect.Type) *Schema {
+	s := schemaFromType(r, t)
+	// Transform generated schema if type implements SchemaTransformer
+	v := reflect.New(t).Interface()
+	if st, ok := v.(SchemaTransformer); ok {
+		return st.TransformSchema(r, s)
+	}
+	return s
+}
+
+func schemaFromType(r Registry, t reflect.Type) *Schema {
+	isPointer := t.Kind() == reflect.Pointer
+
+	s := Schema{}
+	t = deref(t)
+
 	v := reflect.New(t).Interface()
 	if sp, ok := v.(SchemaProvider); ok {
 		// Special case: type provides its own schema. Do not try to generate.
 		return sp.Schema(r)
 	}
 
-	s := Schema{}
-	t = deref(t)
-
 	// Handle special cases.
 	switch t {
 	case timeType:
-		return &Schema{Type: TypeString, Format: "date-time"}
+		return &Schema{Type: TypeString, Nullable: isPointer, Format: "date-time"}
 	case urlType:
-		return &Schema{Type: TypeString, Format: "uri"}
+		return &Schema{Type: TypeString, Nullable: isPointer, Format: "uri"}
 	case ipType:
-		return &Schema{Type: TypeString, Format: "ipv4"}
+		return &Schema{Type: TypeString, Nullable: isPointer, Format: "ipv4"}
+	case ipAddrType:
+		return &Schema{Type: TypeString, Nullable: isPointer, Format: "ipv4"}
+	case rawMessageType:
+		return &Schema{}
 	}
 
 	minZero := 0.0
@@ -662,7 +745,7 @@ func SchemaFromType(r Registry, t reflect.Type) *Schema {
 		fieldSet := map[string]struct{}{}
 		props := map[string]*Schema{}
 		dependentRequiredMap := map[string][]string{}
-		for _, info := range getFields(t) {
+		for _, info := range getFields(t, make(map[reflect.Type]struct{})) {
 			f := info.Field
 
 			if _, ok := fieldSet[f.Name]; ok {
@@ -673,16 +756,32 @@ func SchemaFromType(r Registry, t reflect.Type) *Schema {
 
 			fieldSet[f.Name] = struct{}{}
 
+			// Controls whether the field is required or not. All fields start as
+			// required, then can be made optional with the `omitempty` JSON tag or it
+			// can be overridden manually via the `required` tag.
+			fieldRequired := true
+
 			name := f.Name
-			omit := false
 			if j := f.Tag.Get("json"); j != "" {
-				name = strings.Split(j, ",")[0]
+				if n := strings.Split(j, ",")[0]; n != "" {
+					name = n
+				}
 				if strings.Contains(j, "omitempty") {
-					omit = true
+					fieldRequired = false
 				}
 			}
 			if name == "-" {
 				// This field is deliberately ignored.
+				continue
+			}
+
+			if _, ok := f.Tag.Lookup("required"); ok {
+				fieldRequired = boolTag(f, "required")
+			}
+
+			if boolTag(f, "hidden") {
+				// This field is deliberately ignored. It may still exist, but won't
+				// be documented.
 				continue
 			}
 
@@ -694,9 +793,16 @@ func SchemaFromType(r Registry, t reflect.Type) *Schema {
 			if fs != nil {
 				props[name] = fs
 				propNames = append(propNames, name)
-				if !omit {
+
+				if fieldRequired {
 					required = append(required, name)
 					requiredMap[name] = true
+				}
+
+				// Special case: pointer with omitempty and not manually set to
+				// nullable, which will never get `null` sent over the wire.
+				if f.Type.Kind() == reflect.Ptr && strings.Contains(f.Tag.Get("json"), "omitempty") && f.Tag.Get("nullable") != "true" {
+					fs.Nullable = false
 				}
 			}
 		}
@@ -727,6 +833,11 @@ func SchemaFromType(r Registry, t reflect.Type) *Schema {
 			if _, ok = f.Tag.Lookup("additionalProperties"); ok {
 				additionalProps = boolTag(f, "additionalProperties")
 			}
+
+			if _, ok := f.Tag.Lookup("nullable"); ok {
+				// Allow overriding nullability per struct.
+				s.Nullable = boolTag(f, "nullable")
+			}
 		}
 		s.AdditionalProperties = additionalProps
 
@@ -740,6 +851,13 @@ func SchemaFromType(r Registry, t reflect.Type) *Schema {
 		// Interfaces mean any object.
 	default:
 		return nil
+	}
+
+	switch s.Type {
+	case TypeBoolean, TypeInteger, TypeNumber, TypeString:
+		// Scalar types which are pointers are nullable by default. This can be
+		// overidden via the `nullable:"false"` field tag in structs.
+		s.Nullable = isPointer
 	}
 
 	return &s

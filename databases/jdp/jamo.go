@@ -131,7 +131,7 @@ func queryJamo(fileIds []string) ([]jamoFileRecord, error) {
 	// sift file results into place and fetch remaining records
 	records := make([]jamoFileRecord, len(fileIds))
 	for err == nil {
-		for i := results.Start - 1; i < results.End; i++ {
+		for i := 0; i < results.End-results.Start+1; i++ {
 			if index, found := indexForFileId[results.Records[i].Id]; found {
 				records[index] = results.Records[i]
 			} else {

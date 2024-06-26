@@ -47,8 +47,6 @@ type File struct {
 	PurgeDate string `json:"dt_to_purge"`
 	// file origination date
 	Date string `json:"file_date"`
-	// integer ID representing the status of the file
-	StatusId int `json:"file_status_id"`
 	// string describing the status of the file
 	Status string `json:"file_status"`
 	// type (or list of types) corresponding to this file

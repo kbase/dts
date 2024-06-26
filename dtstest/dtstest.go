@@ -219,6 +219,13 @@ func RegisterDatabase(databaseName string, resources map[string]frictionless.Dat
 	return databases.RegisterDatabase(databaseName, newDatabaseFunc)
 }
 
+func (db Database) SpecificSearchParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"happy": false, // can also be true--single value indicates all values valid
+		"day":   []string{"sunday", "monday"},
+	}
+}
+
 func (db *Database) Search(params databases.SearchParameters) (databases.SearchResults, error) {
 	// look for file IDs in the search query
 	results := databases.SearchResults{

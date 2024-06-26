@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -87,16 +88,9 @@ type ServiceInfoOutput struct {
 	Body ServiceInfoResponse `doc:"information about the service itself"`
 }
 
-// handler method for root
+// handler method for root (no authorization needed for this one)
 func (service *prototype) getRoot(ctx context.Context,
-	input *struct {
-		Authorization string `header:"authorization"`
-	}) (*ServiceInfoOutput, error) {
-
-	_, err := authorize(input.Authorization)
-	if err != nil {
-		return nil, err
-	}
+	input *struct{}) (*ServiceInfoOutput, error) {
 
 	slog.Info("Querying root endpoint...")
 	return &ServiceInfoOutput{
@@ -171,19 +165,128 @@ func (service *prototype) getDatabase(ctx context.Context,
 	}, nil
 }
 
+type SearchParametersOutput struct {
+	Body json.RawMessage `doc:"a JSON object whose fields are search parameters and whose values indicate their type"`
+}
+
+// We map database-specific search parameters to JSON according to the following
+// rules:
+// * fields are search parameter names
+// * values can be
+//   - zeroed primitives, indicating user-supplied parameters
+//   - slices, indicating parameters selected from a list (e.g. a pulldown)
+//
+// We annotate each parameter with its type, to facilitate the client's
+// handling of the JSON object. This treatment may seem delicate and full of
+// boilerplate, but it's an easy and straightforward way of performing a
+// mapping from a minimal data structure to a self-describing representation.
+func mapSearchParamsToJson(params map[string]interface{}) json.RawMessage {
+	obj := make(map[string]interface{}) // map that becomes the JSON response
+
+	for field, value := range params {
+		switch val := value.(type) {
+		case int:
+			entry := struct {
+				Type  string `json:"type"`
+				Value int    `json:"value"`
+			}{
+				Type:  "number",
+				Value: val,
+			}
+			obj[field] = entry
+		case float64:
+			entry := struct {
+				Type  string  `json:"type"`
+				Value float64 `json:"value"`
+			}{
+				Type:  "number",
+				Value: val,
+			}
+			obj[field] = entry
+		case bool:
+			entry := struct {
+				Type  string `json:"type"`
+				Value bool   `json:"value"`
+			}{
+				Type:  "boolean",
+				Value: val,
+			}
+			obj[field] = entry
+		case string:
+			entry := struct {
+				Type  string `json:"type"`
+				Value string `json:"value"`
+			}{
+				Type:  "string",
+				Value: val,
+			}
+			obj[field] = entry
+		case []string:
+			entry := struct {
+				Type  string   `json:"type"`
+				Value []string `json:"value"`
+			}{
+				Type:  "array(string)",
+				Value: val,
+			}
+			obj[field] = entry
+		}
+	}
+	objData, _ := json.Marshal(obj)
+	return json.RawMessage(objData)
+}
+
+// method for querying a single database for its specific search parameters
+func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
+		Database      string `path:"db" example:"jdp" doc:"the abbreviated name of a database"`
+	}) (*SearchParametersOutput, error) {
+
+	orcid, err := authorize(input.Authorization)
+	if err != nil {
+		return nil, err
+	}
+
+	// is the database valid?
+	_, ok := config.Databases[input.Database]
+	if !ok {
+		return nil, fmt.Errorf("Database %s not found", input.Database)
+	}
+	db, err := databases.NewDatabase(orcid, input.Database)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fish the database-specific search parameters out of the database
+	// and encode them in a JSON object.
+	params := db.SpecificSearchParameters() // parameters to pack into response
+	return &SearchParametersOutput{
+		Body: mapSearchParamsToJson(params),
+	}, nil
+}
+
 type SearchResultsOutput struct {
 	Body SearchResultsResponse `doc:"Search results containing matching files that match the given query"`
 }
 
-// handle search queries for files of interest
-func (service *prototype) searchDatabase(ctx context.Context,
-	input *struct {
-		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
-		Database      string `query:"database" example:"jdp" doc:"The ID of the database to search"`
-		Query         string `query:"query" example:"prochlorococcus" doc:"A query used to search the database for matching files"`
-		Offset        int    `query:"offset" example:"100" doc:"Search results begin at the given offset"`
-		Limit         int    `query:"limit" example:"50" doc:"Limits the number of search results returned"`
-	}) (*SearchResultsOutput, error) {
+type SearchDatabaseInputWithoutHeader struct {
+	Database string `json:"database" query:"database" example:"jdp" doc:"The ID of the database to search"`
+	Query    string `json:"query" query:"query" example:"prochlorococcus" doc:"A query used to search the database for matching files"`
+	Status   string `json:"status" query:"status" example:"\"staged\"" doc:"(Optional) The staged or unstaged status of the desired files"`
+	Offset   int    `json:"offset" query:"offset" example:"100" doc:"Search results begin at the given offset"`
+	Limit    int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of search results returned"`
+}
+
+type SearchDatabaseInput struct {
+	Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
+	SearchDatabaseInputWithoutHeader
+}
+
+// implements database search for both GET and POST requests
+func searchDatabase(ctx context.Context,
+	input *SearchDatabaseInput,
+	specific map[string]json.RawMessage) (*SearchResultsOutput, error) {
 
 	orcid, err := authorize(input.Authorization)
 	if err != nil {
@@ -196,17 +299,33 @@ func (service *prototype) searchDatabase(ctx context.Context,
 		return nil, fmt.Errorf("Database %s not found", input.Database)
 	}
 
+	// check the requested file status
+	var fileStatus databases.SearchFileStatus
+	switch input.Status {
+	case "":
+		fileStatus = databases.SearchFileStatusAny
+	case "staged", "STAGED":
+		fileStatus = databases.SearchFileStatusStaged
+	case "unstaged", "UNSTAGED":
+		fileStatus = databases.SearchFileStatusUnstaged
+	default:
+		return nil, fmt.Errorf("Invalid status parameter: %s", input.Status)
+	}
+
 	slog.Info(fmt.Sprintf("Searching database %s for files...", input.Database))
 	db, err := databases.NewDatabase(orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
+
 	results, err := db.Search(databases.SearchParameters{
-		Query: input.Query,
+		Query:  input.Query,
+		Status: fileStatus,
 		Pagination: databases.SearchPaginationParameters{
 			Offset: input.Offset,
 			MaxNum: input.Limit,
 		},
+		Specific: specific,
 	})
 	if err != nil {
 		return nil, err
@@ -218,6 +337,42 @@ func (service *prototype) searchDatabase(ctx context.Context,
 			Resources: results.Resources,
 		},
 	}, nil
+}
+
+// handle search queries for files of interest (GET, no DB-specific parameters)
+func (service *prototype) searchDatabase(ctx context.Context,
+	input *SearchDatabaseInput) (*SearchResultsOutput, error) {
+	return searchDatabase(ctx, input, nil)
+}
+
+// handle search queries for files of interest (POST, DB-specific parameters)
+// NOTE: all parameters are extracted from the body of the POST; no URL
+// NOTE: parameters are accepted
+func (service *prototype) searchDatabaseWithSpecificParams(ctx context.Context,
+	input *struct {
+		Authorization string          `header:"authorization" doc:"Authorization header with encoded access token"`
+		Body          json.RawMessage `doc:"Contains all search parameters (including any database-specific parameters) given as key-value pairs in a JSON object" contentType:"application/json"`
+		ContentType   string          `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
+	}) (*SearchResultsOutput, error) {
+	var body struct {
+		SearchDatabaseInputWithoutHeader
+		Specific map[string]json.RawMessage `json:"specific" doc:"database-specific search parameters in a JSON object"`
+	}
+	err := json.Unmarshal(input.Body, &body)
+	if err != nil {
+		return nil, err
+	}
+	searchInput := SearchDatabaseInput{
+		Authorization: input.Authorization,
+		SearchDatabaseInputWithoutHeader: SearchDatabaseInputWithoutHeader{
+			Database: body.Database,
+			Query:    body.Query,
+			Status:   body.Status,
+			Offset:   body.Offset,
+			Limit:    body.Limit,
+		},
+	}
+	return searchDatabase(ctx, &searchInput, body.Specific)
 }
 
 type TransferOutput struct {
@@ -355,7 +510,9 @@ func NewDTSPrototype() (TransferService, error) {
 	// API v1
 	huma.Get(api, "/api/v1/databases", service.getDatabases)
 	huma.Get(api, "/api/v1/databases/{db}", service.getDatabase)
+	huma.Get(api, "/api/v1/databases/{db}/search-parameters", service.getDatabaseSearchParameters)
 	huma.Get(api, "/api/v1/files", service.searchDatabase)
+	huma.Post(api, "/api/v1/files", service.searchDatabaseWithSpecificParams)
 	huma.Post(api, "/api/v1/transfers", service.createTransfer)
 	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
 	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)

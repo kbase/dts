@@ -50,6 +50,10 @@ func NewDatabase(orcid string) (databases.Database, error) {
 	}, nil
 }
 
+func (db *Database) SpecificSearchParameters() map[string]interface{} {
+	return nil
+}
+
 func (db *Database) Search(params databases.SearchParameters) (databases.SearchResults, error) {
 	err := fmt.Errorf("Search not implemented for kbase database!")
 	return databases.SearchResults{}, err

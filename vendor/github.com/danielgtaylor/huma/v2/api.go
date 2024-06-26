@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path"
 	"reflect"
 	"regexp"
 	"strings"
@@ -71,6 +72,9 @@ type Context interface {
 	// Host returns the HTTP host for the request.
 	Host() string
 
+	// RemoteAddr returns the remote address of the client.
+	RemoteAddr() string
+
 	// URL returns the full URL for the request.
 	URL() url.URL
 
@@ -98,6 +102,9 @@ type Context interface {
 
 	// SetStatus sets the HTTP status code for the response.
 	SetStatus(code int)
+
+	// Status returns the HTTP status code for the response.
+	Status() int
 
 	// SetHeader sets the given header to the given value, overwriting any
 	// existing value. Use `AppendHeader` to append a value instead.
@@ -176,6 +183,12 @@ type Config struct {
 
 	// Transformers are a way to modify a response body before it is serialized.
 	Transformers []Transformer
+
+	// CreateHooks is a list of functions that will be called before the API is
+	// created. This allows you to modify the configuration at creation time,
+	// for example if you need access to the path settings that may be changed
+	// by the user after the defaults have been set.
+	CreateHooks []func(Config) Config
 }
 
 // API represents a Huma API wrapping a specific router.
@@ -214,7 +227,10 @@ type API interface {
 	// the next Middleware.
 	UseMiddleware(middlewares ...func(ctx Context, next func(Context)))
 
-	// Middlewares returns a slice of middleware handler functions.
+	// Middlewares returns a slice of middleware handler functions that will be
+	// run for all operations. Middleware are run in the order they are added.
+	// See also `huma.Operation{}.Middlewares` for adding operation-specific
+	// middleware at operation registration time.
 	Middlewares() Middlewares
 }
 
@@ -306,6 +322,17 @@ func (a *api) Middlewares() Middlewares {
 	return a.middlewares
 }
 
+// getAPIPrefix returns the API prefix from the first server URL in the OpenAPI
+// spec. If no server URL is set, then an empty string is returned.
+func getAPIPrefix(oapi *OpenAPI) string {
+	for _, server := range oapi.Servers {
+		if u, err := url.Parse(server.URL); err == nil && u.Path != "" {
+			return u.Path
+		}
+	}
+	return ""
+}
+
 // NewAPI creates a new API with the given configuration and router adapter.
 // You usually don't need to use this function directly, and can instead use
 // the `New(...)` function provided by the adapter packages which call this
@@ -321,6 +348,10 @@ func (a *api) Middlewares() Middlewares {
 //	config := huma.DefaultConfig("Example API", "1.0.0")
 //	api := huma.NewAPI(config, adapter)
 func NewAPI(config Config, a Adapter) API {
+	for i := 0; i < len(config.CreateHooks); i++ {
+		config = config.CreateHooks[i](config)
+	}
+
 	newAPI := &api{
 		config:       config,
 		adapter:      a,
@@ -367,6 +398,17 @@ func NewAPI(config Config, a Adapter) API {
 			}
 			ctx.BodyWriter().Write(specJSON)
 		})
+		var specJSON30 []byte
+		a.Handle(&Operation{
+			Method: http.MethodGet,
+			Path:   config.OpenAPIPath + "-3.0.json",
+		}, func(ctx Context) {
+			ctx.SetHeader("Content-Type", "application/vnd.oai.openapi+json")
+			if specJSON30 == nil {
+				specJSON30, _ = newAPI.OpenAPI().Downgrade()
+			}
+			ctx.BodyWriter().Write(specJSON30)
+		})
 		var specYAML []byte
 		a.Handle(&Operation{
 			Method: http.MethodGet,
@@ -378,6 +420,17 @@ func NewAPI(config Config, a Adapter) API {
 			}
 			ctx.BodyWriter().Write(specYAML)
 		})
+		var specYAML30 []byte
+		a.Handle(&Operation{
+			Method: http.MethodGet,
+			Path:   config.OpenAPIPath + "-3.0.yaml",
+		}, func(ctx Context) {
+			ctx.SetHeader("Content-Type", "application/vnd.oai.openapi+yaml")
+			if specYAML30 == nil {
+				specYAML30, _ = newAPI.OpenAPI().DowngradeYAML()
+			}
+			ctx.BodyWriter().Write(specYAML30)
+		})
 	}
 
 	if config.DocsPath != "" {
@@ -385,24 +438,32 @@ func NewAPI(config Config, a Adapter) API {
 			Method: http.MethodGet,
 			Path:   config.DocsPath,
 		}, func(ctx Context) {
+			openAPIPath := config.OpenAPIPath
+			if prefix := getAPIPrefix(newAPI.OpenAPI()); prefix != "" {
+				openAPIPath = path.Join(prefix, openAPIPath)
+			}
 			ctx.SetHeader("Content-Type", "text/html")
+			title := "Elements in HTML"
+			if config.Info != nil && config.Info.Title != "" {
+				title = config.Info.Title + " Reference"
+			}
 			ctx.BodyWriter().Write([]byte(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="referrer" content="same-origin" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <title>Elements in HTML</title>
+    <title>` + title + `</title>
     <!-- Embed elements Elements via Web Component -->
-    <link href="https://unpkg.com/@stoplight/elements@8.0.0/styles.min.css" rel="stylesheet" />
-    <script src="https://unpkg.com/@stoplight/elements@8.0.0/web-components.min.js"
-            integrity="sha256-yIhuSFMJJ6mp2XTUAb4SiSYneP3Qav8Uu+7NBhGJW5A="
+    <link href="https://unpkg.com/@stoplight/elements@8.1.0/styles.min.css" rel="stylesheet" />
+    <script src="https://unpkg.com/@stoplight/elements@8.1.0/web-components.min.js"
+            integrity="sha256-985sDMZYbGa0LDS8jYmC4VbkVlh7DZ0TWejFv+raZII="
             crossorigin="anonymous"></script>
   </head>
   <body style="height: 100vh;">
 
     <elements-api
-      apiDescriptionUrl="` + config.OpenAPIPath + `.yaml"
+      apiDescriptionUrl="` + openAPIPath + `.yaml"
       router="hash"
       layout="sidebar"
       tryItCredentialsPolicy="same-origin"

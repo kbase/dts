@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielgtaylor/casing"
+	"github.com/danielgtaylor/huma/v2/casing"
 )
 
 var errDeadlineUnsupported = fmt.Errorf("%w", http.ErrNotSupported)
@@ -182,17 +182,26 @@ func findParams(registry Registry, op *Operation, t reflect.Type) *findResult[*p
 			pfi.TimeFormat = timeFormat
 		}
 
-		if f.Tag.Get("hidden") == "" {
+		if !boolTag(f, "hidden") {
+			desc := ""
+			if pfi.Schema != nil {
+				// If the schema has a description, use it. Some tools will not show
+				// the description if it is only on the schema.
+				desc = pfi.Schema.Description
+			}
+
 			// Document the parameter if not hidden.
 			op.Parameters = append(op.Parameters, &Param{
-				Name:     name,
-				In:       pfi.Loc,
-				Explode:  explode,
-				Required: pfi.Required,
-				Schema:   pfi.Schema,
-				Example:  example,
+				Name:        name,
+				Description: desc,
+				In:          pfi.Loc,
+				Explode:     explode,
+				Required:    pfi.Required,
+				Schema:      pfi.Schema,
+				Example:     example,
 			})
 		}
+
 		return pfi
 	}, false, "Body")
 }
@@ -370,11 +379,11 @@ func (r *findResult[T]) EveryPB(pb *PathBuffer, v reflect.Value, f func(reflect.
 
 func findInType[T comparable](t reflect.Type, onType func(reflect.Type, []int) T, onField func(reflect.StructField, []int) T, recurseFields bool, ignore ...string) *findResult[T] {
 	result := &findResult[T]{}
-	_findInType(t, []int{}, result, onType, onField, recurseFields, ignore...)
+	_findInType(t, []int{}, result, onType, onField, recurseFields, make(map[reflect.Type]struct{}), ignore...)
 	return result
 }
 
-func _findInType[T comparable](t reflect.Type, path []int, result *findResult[T], onType func(reflect.Type, []int) T, onField func(reflect.StructField, []int) T, recurseFields bool, ignore ...string) {
+func _findInType[T comparable](t reflect.Type, path []int, result *findResult[T], onType func(reflect.Type, []int) T, onField func(reflect.StructField, []int) T, recurseFields bool, visited map[reflect.Type]struct{}, ignore ...string) {
 	t = deref(t)
 	zero := reflect.Zero(reflect.TypeOf((*T)(nil)).Elem()).Interface()
 
@@ -392,6 +401,10 @@ func _findInType[T comparable](t reflect.Type, path []int, result *findResult[T]
 
 	switch t.Kind() {
 	case reflect.Struct:
+		if _, ok := visited[t]; ok {
+			return
+		}
+		visited[t] = struct{}{}
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
 			if !f.IsExported() {
@@ -414,13 +427,13 @@ func _findInType[T comparable](t reflect.Type, path []int, result *findResult[T]
 				// Always process embedded structs and named fields which are not
 				// structs. If `recurseFields` is true then we also process named
 				// struct fields recursively.
-				_findInType(f.Type, fi, result, onType, onField, recurseFields, ignore...)
+				_findInType(f.Type, fi, result, onType, onField, recurseFields, visited, ignore...)
 			}
 		}
 	case reflect.Slice:
-		_findInType(t.Elem(), path, result, onType, onField, recurseFields, ignore...)
+		_findInType(t.Elem(), path, result, onType, onField, recurseFields, visited, ignore...)
 	case reflect.Map:
-		_findInType(t.Elem(), path, result, onType, onField, recurseFields, ignore...)
+		_findInType(t.Elem(), path, result, onType, onField, recurseFields, visited, ignore...)
 	}
 }
 
@@ -464,9 +477,11 @@ func transformAndWrite(api API, ctx Context, status int, ct string, body any) {
 		panic(fmt.Errorf("error transforming response %+v for %s %s %d: %w\n", tval, ctx.Operation().Method, ctx.Operation().Path, status, terr))
 	}
 	ctx.SetStatus(status)
-	if merr := api.Marshal(ctx.BodyWriter(), ct, tval); merr != nil {
-		ctx.BodyWriter().Write([]byte("error marshaling response"))
-		panic(fmt.Errorf("error marshaling response %+v for %s %s %d: %w\n", tval, ctx.Operation().Method, ctx.Operation().Path, status, merr))
+	if status != http.StatusNoContent && status != http.StatusNotModified {
+		if merr := api.Marshal(ctx.BodyWriter(), ct, tval); merr != nil {
+			ctx.BodyWriter().Write([]byte("error marshaling response"))
+			panic(fmt.Errorf("error marshaling response %+v for %s %s %d: %w\n", tval, ctx.Operation().Method, ctx.Operation().Path, status, merr))
+		}
 	}
 }
 
@@ -554,9 +569,11 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 		panic("input must be a struct")
 	}
 	inputParams := findParams(registry, &op, inputType)
-	inputBodyIndex := -1
+	inputBodyIndex := make([]int, 0)
+	hasInputBody := false
 	if f, ok := inputType.FieldByName("Body"); ok {
-		inputBodyIndex = f.Index[0]
+		hasInputBody = true
+		inputBodyIndex = f.Index
 		if op.RequestBody == nil {
 			required := f.Type.Kind() != reflect.Ptr && f.Type.Kind() != reflect.Interface
 			if f.Tag.Get("required") == "true" {
@@ -567,8 +584,11 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 			if c := f.Tag.Get("contentType"); c != "" {
 				contentType = c
 			}
-
-			s := SchemaFromField(registry, f, getHint(inputType, f.Name, op.OperationID+"Request"))
+			hint := getHint(inputType, f.Name, op.OperationID+"Request")
+			if nameHint := f.Tag.Get("nameHint"); nameHint != "" {
+				hint = nameHint
+			}
+			s := SchemaFromField(registry, f, hint)
 
 			op.RequestBody = &RequestBody{
 				Required: required,
@@ -591,23 +611,71 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 		}
 	}
 	rawBodyIndex := -1
+	rawBodyMultipart := false
+	rawBodyDecodedMultipart := false
 	if f, ok := inputType.FieldByName("RawBody"); ok {
 		rawBodyIndex = f.Index[0]
 		if op.RequestBody == nil {
-			contentType := "application/octet-stream"
-			if c := f.Tag.Get("contentType"); c != "" {
-				contentType = c
-			}
-
 			op.RequestBody = &RequestBody{
 				Required: true,
-				Content: map[string]*MediaType{
-					contentType: {
-						Schema: &Schema{
-							Type:   "string",
-							Format: "binary",
+				Content:  map[string]*MediaType{},
+			}
+		}
+
+		contentType := "application/octet-stream"
+
+		if f.Type.String() == "multipart.Form" {
+			contentType = "multipart/form-data"
+			rawBodyMultipart = true
+		}
+		if strings.HasPrefix(f.Type.Name(), "MultipartFormFiles") {
+			contentType = "multipart/form-data"
+			rawBodyDecodedMultipart = true
+		}
+
+		if c := f.Tag.Get("contentType"); c != "" {
+			contentType = c
+		}
+
+		switch contentType {
+		case "multipart/form-data":
+			if op.RequestBody.Content["multipart/form-data"] != nil {
+				break
+			}
+			if rawBodyMultipart {
+				op.RequestBody.Content["multipart/form-data"] = &MediaType{
+					Schema: &Schema{
+						Type: "object",
+						Properties: map[string]*Schema{
+							"name": {
+								Type:        "string",
+								Description: "general purpose name for multipart form value",
+							},
+							"filename": {
+								Type:        "string",
+								Format:      "binary",
+								Description: "filename of the file being uploaded",
+							},
 						},
 					},
+				}
+			}
+			if rawBodyDecodedMultipart {
+				dataField, ok := f.Type.FieldByName("data")
+				if !ok {
+					panic("Expected type MultipartFormFiles[T] to have a 'data *T' generic pointer field")
+				}
+				op.RequestBody.Content["multipart/form-data"] = &MediaType{
+					Schema:   multiPartFormFileSchema(dataField.Type.Elem()),
+					Encoding: multiPartContentEncoding(dataField.Type.Elem()),
+				}
+				op.RequestBody.Required = false
+			}
+		default:
+			op.RequestBody.Content[contentType] = &MediaType{
+				Schema: &Schema{
+					Type:   "string",
+					Format: "binary",
 				},
 			}
 		}
@@ -666,7 +734,11 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 			op.Responses[statusStr].Headers = map[string]*Param{}
 		}
 		if !outBodyFunc {
-			outSchema := SchemaFromField(registry, f, getHint(outputType, f.Name, op.OperationID+"Response"))
+			hint := getHint(outputType, f.Name, op.OperationID+"Response")
+			if nameHint := f.Tag.Get("nameHint"); nameHint != "" {
+				hint = nameHint
+			}
+			outSchema := SchemaFromField(registry, f, hint)
 			if op.Responses[statusStr].Content == nil {
 				op.Responses[statusStr].Content = map[string]*MediaType{}
 			}
@@ -713,7 +785,7 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 		}
 	}
 
-	if len(op.Errors) > 0 && (len(inputParams.Paths) > 0 || inputBodyIndex >= -1) {
+	if len(op.Errors) > 0 && (len(inputParams.Paths) > 0 || hasInputBody) {
 		op.Errors = append(op.Errors, http.StatusUnprocessableEntity)
 	}
 	if len(op.Errors) > 0 {
@@ -725,7 +797,7 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 	if ctf, ok := exampleErr.(ContentTypeFilter); ok {
 		errContentType = ctf.ContentType(errContentType)
 	}
-	errType := reflect.TypeOf(exampleErr)
+	errType := deref(reflect.TypeOf(exampleErr))
 	errSchema := registry.Schema(errType, true, getHint(errType, "", "Error"))
 	for _, code := range op.Errors {
 		op.Responses[strconv.Itoa(code)] = &Response{
@@ -755,7 +827,7 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 
 	a := api.Adapter()
 
-	a.Handle(&op, api.Middlewares().Handler(func(ctx Context) {
+	a.Handle(&op, api.Middlewares().Handler(op.Middlewares.Handler(func(ctx Context) {
 		var input I
 
 		// Get the validation dependencies from the shared pool.
@@ -1075,7 +1147,7 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 		})
 
 		// Read input body if defined.
-		if inputBodyIndex != -1 || rawBodyIndex != -1 {
+		if hasInputBody || rawBodyIndex != -1 {
 			if op.BodyReadTimeout > 0 {
 				ctx.SetReadDeadline(time.Now().Add(op.BodyReadTimeout))
 			} else if op.BodyReadTimeout < 0 {
@@ -1083,110 +1155,140 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 				ctx.SetReadDeadline(time.Time{})
 			}
 
-			buf := bufPool.Get().(*bytes.Buffer)
-			reader := ctx.BodyReader()
-			if reader == nil {
-				reader = bytes.NewReader(nil)
-			}
-			if closer, ok := reader.(io.Closer); ok {
-				defer closer.Close()
-			}
-			if op.MaxBodyBytes > 0 {
-				reader = io.LimitReader(reader, op.MaxBodyBytes)
-			}
-			count, err := io.Copy(buf, reader)
-			if op.MaxBodyBytes > 0 {
-				if count == op.MaxBodyBytes {
-					buf.Reset()
-					bufPool.Put(buf)
-					WriteErr(api, ctx, http.StatusRequestEntityTooLarge, fmt.Sprintf("request body is too large limit=%d bytes", op.MaxBodyBytes), res.Errors...)
-					return
-				}
-			}
-			if err != nil {
-				buf.Reset()
-				bufPool.Put(buf)
-
-				if e, ok := err.(net.Error); ok && e.Timeout() {
-					WriteErr(api, ctx, http.StatusRequestTimeout, "request body read timeout", res.Errors...)
-					return
-				}
-
-				WriteErr(api, ctx, http.StatusInternalServerError, "cannot read request body", err)
-				return
-			}
-			body := buf.Bytes()
-
-			if rawBodyIndex != -1 {
-				f := v.Field(rawBodyIndex)
-				f.SetBytes(body)
-			}
-
-			if len(body) == 0 {
-				if op.RequestBody != nil && op.RequestBody.Required {
-					buf.Reset()
-					bufPool.Put(buf)
-					WriteErr(api, ctx, http.StatusBadRequest, "request body is required", res.Errors...)
-					return
-				}
-			} else {
-				parseErrCount := 0
-				if inputBodyIndex != -1 && !op.SkipValidateBody {
-					// Validate the input. First, parse the body into []any or map[string]any
-					// or equivalent, which can be easily validated. Then, convert to the
-					// expected struct type to call the handler.
-					var parsed any
-					if err := api.Unmarshal(ctx.Header("Content-Type"), body, &parsed); err != nil {
-						errStatus = http.StatusBadRequest
-						if errors.Is(err, ErrUnknownContentType) {
-							errStatus = http.StatusUnsupportedMediaType
-						}
-						res.Errors = append(res.Errors, &ErrorDetail{
-							Location: "body",
-							Message:  err.Error(),
-							Value:    body,
-						})
-						parseErrCount++
+			if rawBodyMultipart || rawBodyDecodedMultipart {
+				form, err := ctx.GetMultipartForm()
+				if err != nil || form == nil {
+					res.Errors = append(res.Errors, &ErrorDetail{
+						Location: "body",
+						Message:  "cannot read multipart form: " + err.Error(),
+					})
+				} else {
+					f := v.Field(rawBodyIndex)
+					if rawBodyMultipart {
+						f.Set(reflect.ValueOf(*form))
 					} else {
-						pb.Reset()
-						pb.Push("body")
-						count := len(res.Errors)
-						Validate(oapi.Components.Schemas, inSchema, pb, ModeWriteToServer, parsed, res)
-						parseErrCount = len(res.Errors) - count
-						if parseErrCount > 0 {
-							errStatus = http.StatusUnprocessableEntity
+						f.FieldByName("Form").Set(reflect.ValueOf(form))
+						r := f.Addr().
+							MethodByName("Decode").
+							Call([]reflect.Value{
+								reflect.ValueOf(op.RequestBody.Content["multipart/form-data"]),
+							})
+						errs := r[0].Interface().([]error)
+						if errs != nil {
+							WriteErr(api, ctx, http.StatusUnprocessableEntity, "validation failed", errs...)
+							return
 						}
 					}
 				}
+			} else {
+				buf := bufPool.Get().(*bytes.Buffer)
+				reader := ctx.BodyReader()
+				if reader == nil {
+					reader = bytes.NewReader(nil)
+				}
+				if closer, ok := reader.(io.Closer); ok {
+					defer closer.Close()
+				}
+				if op.MaxBodyBytes > 0 {
+					reader = io.LimitReader(reader, op.MaxBodyBytes)
+				}
+				count, err := io.Copy(buf, reader)
+				if op.MaxBodyBytes > 0 {
+					if count == op.MaxBodyBytes {
+						buf.Reset()
+						bufPool.Put(buf)
+						WriteErr(api, ctx, http.StatusRequestEntityTooLarge, fmt.Sprintf("request body is too large limit=%d bytes", op.MaxBodyBytes), res.Errors...)
+						return
+					}
+				}
+				if err != nil {
+					buf.Reset()
+					bufPool.Put(buf)
 
-				if inputBodyIndex != -1 {
-					// We need to get the body into the correct type now that it has been
-					// validated. Benchmarks on Go 1.20 show that using `json.Unmarshal` a
-					// second time is faster than `mapstructure.Decode` or any of the other
-					// common reflection-based approaches when using real-world medium-sized
-					// JSON payloads with lots of strings.
-					f := v.Field(inputBodyIndex)
-					if err := api.Unmarshal(ctx.Header("Content-Type"), body, f.Addr().Interface()); err != nil {
-						if parseErrCount == 0 {
-							// Hmm, this should have worked... validator missed something?
+					if e, ok := err.(net.Error); ok && e.Timeout() {
+						WriteErr(api, ctx, http.StatusRequestTimeout, "request body read timeout", res.Errors...)
+						return
+					}
+
+					WriteErr(api, ctx, http.StatusInternalServerError, "cannot read request body", err)
+					return
+				}
+				body := buf.Bytes()
+
+				if rawBodyIndex != -1 {
+					f := v.Field(rawBodyIndex)
+					f.SetBytes(body)
+				}
+
+				if len(body) == 0 {
+					if op.RequestBody != nil && op.RequestBody.Required {
+						buf.Reset()
+						bufPool.Put(buf)
+						WriteErr(api, ctx, http.StatusBadRequest, "request body is required", res.Errors...)
+						return
+					}
+				} else {
+					parseErrCount := 0
+					if hasInputBody && !op.SkipValidateBody {
+						// Validate the input. First, parse the body into []any or map[string]any
+						// or equivalent, which can be easily validated. Then, convert to the
+						// expected struct type to call the handler.
+						var parsed any
+						if err := api.Unmarshal(ctx.Header("Content-Type"), body, &parsed); err != nil {
+							errStatus = http.StatusBadRequest
+							if errors.Is(err, ErrUnknownContentType) {
+								errStatus = http.StatusUnsupportedMediaType
+							}
 							res.Errors = append(res.Errors, &ErrorDetail{
 								Location: "body",
 								Message:  err.Error(),
-								Value:    string(body),
+								Value:    body,
+							})
+							parseErrCount++
+						} else {
+							pb.Reset()
+							pb.Push("body")
+							count := len(res.Errors)
+							Validate(oapi.Components.Schemas, inSchema, pb, ModeWriteToServer, parsed, res)
+							parseErrCount = len(res.Errors) - count
+							if parseErrCount > 0 {
+								errStatus = http.StatusUnprocessableEntity
+							}
+						}
+					}
+
+					if hasInputBody {
+						// We need to get the body into the correct type now that it has been
+						// validated. Benchmarks on Go 1.20 show that using `json.Unmarshal` a
+						// second time is faster than `mapstructure.Decode` or any of the other
+						// common reflection-based approaches when using real-world medium-sized
+						// JSON payloads with lots of strings.
+						f := v
+						for _, index := range inputBodyIndex {
+							f = f.Field(index)
+						}
+						if err := api.Unmarshal(ctx.Header("Content-Type"), body, f.Addr().Interface()); err != nil {
+							if parseErrCount == 0 {
+								// Hmm, this should have worked... validator missed something?
+								res.Errors = append(res.Errors, &ErrorDetail{
+									Location: "body",
+									Message:  err.Error(),
+									Value:    string(body),
+								})
+							}
+						} else {
+							// Set defaults for any fields that were not in the input.
+							defaults.Every(v, func(item reflect.Value, def any) {
+								if item.IsZero() {
+									item.Set(reflect.Indirect(reflect.ValueOf(def)))
+								}
 							})
 						}
-					} else {
-						// Set defaults for any fields that were not in the input.
-						defaults.Every(v, func(item reflect.Value, def any) {
-							if item.IsZero() {
-								item.Set(reflect.Indirect(reflect.ValueOf(def)))
-							}
-						})
 					}
-				}
 
-				buf.Reset()
-				bufPool.Put(buf)
+					buf.Reset()
+					bufPool.Put(buf)
+				}
 			}
 		}
 
@@ -1220,9 +1322,20 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 
 		output, err := handler(ctx.Context(), &input)
 		if err != nil {
+			var he HeadersError
+			if errors.As(err, &he) {
+				for k, values := range he.GetHeaders() {
+					for _, v := range values {
+						ctx.AppendHeader(k, v)
+					}
+				}
+			}
+
 			status := http.StatusInternalServerError
-			if se, ok := err.(StatusError); ok {
+			var se StatusError
+			if errors.As(err, &se) {
 				status = se.GetStatus()
+				err = se
 			} else {
 				err = NewError(http.StatusInternalServerError, err.Error())
 			}
@@ -1293,7 +1406,7 @@ func Register[I, O any](api API, op Operation, handler func(context.Context, *I)
 		} else {
 			ctx.SetStatus(status)
 		}
-	}))
+	})))
 }
 
 // AutoRegister auto-detects operation registration methods and registers them
@@ -1348,7 +1461,11 @@ var reRemoveIDs = regexp.MustCompile(`\{([^}]+)\}`)
 // This function can be overridden to provide custom operation IDs.
 var GenerateOperationID = func(method, path string, response any) string {
 	action := method
-	body, hasBody := deref(reflect.TypeOf(response)).FieldByName("Body")
+	t := deref(reflect.TypeOf(response))
+	if t.Kind() != reflect.Struct {
+		panic("Response type must be a struct")
+	}
+	body, hasBody := t.FieldByName("Body")
 	if hasBody && method == http.MethodGet && deref(body.Type).Kind() == reflect.Slice {
 		// Special case: GET with a slice response body is a list operation.
 		action = "list"
@@ -1370,7 +1487,11 @@ var GenerateOperationID = func(method, path string, response any) string {
 // This function can be overridden to provide custom operation summaries.
 var GenerateSummary = func(method, path string, response any) string {
 	action := method
-	body, hasBody := deref(reflect.TypeOf(response)).FieldByName("Body")
+	t := deref(reflect.TypeOf(response))
+	if t.Kind() != reflect.Struct {
+		panic("Response type must be a struct")
+	}
+	body, hasBody := t.FieldByName("Body")
 	if hasBody && method == http.MethodGet && deref(body.Type).Kind() == reflect.Slice {
 		// Special case: GET with a slice response body is a list operation.
 		action = "list"
@@ -1380,14 +1501,24 @@ var GenerateSummary = func(method, path string, response any) string {
 	return strings.ToUpper(phrase[:1]) + phrase[1:]
 }
 
-func convenience[I, O any](api API, method, path string, handler func(context.Context, *I) (*O, error)) {
+func OperationTags(tags ...string) func(o *Operation) {
+	return func(o *Operation) {
+		o.Tags = tags
+	}
+}
+
+func convenience[I, O any](api API, method, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
 	var o *O
-	Register(api, Operation{
+	operation := Operation{
 		OperationID: GenerateOperationID(method, path, o),
 		Summary:     GenerateSummary(method, path, o),
 		Method:      method,
 		Path:        path,
-	}, handler)
+	}
+	for _, oh := range operationHandlers {
+		oh(&operation)
+	}
+	Register(api, operation, handler)
 }
 
 // Get HTTP operation handler for an API. The handler must be a function that
@@ -1407,8 +1538,8 @@ func convenience[I, O any](api API, method, path string, handler func(context.Co
 //	})
 //
 // This is a convenience wrapper around `huma.Register`.
-func Get[I, O any](api API, path string, handler func(context.Context, *I) (*O, error)) {
-	convenience(api, http.MethodGet, path, handler)
+func Get[I, O any](api API, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
+	convenience(api, http.MethodGet, path, handler, operationHandlers...)
 }
 
 // Post HTTP operation handler for an API. The handler must be a function that
@@ -1428,8 +1559,8 @@ func Get[I, O any](api API, path string, handler func(context.Context, *I) (*O, 
 //	})
 //
 // This is a convenience wrapper around `huma.Register`.
-func Post[I, O any](api API, path string, handler func(context.Context, *I) (*O, error)) {
-	convenience(api, http.MethodPost, path, handler)
+func Post[I, O any](api API, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
+	convenience(api, http.MethodPost, path, handler, operationHandlers...)
 }
 
 // Put HTTP operation handler for an API. The handler must be a function that
@@ -1449,8 +1580,8 @@ func Post[I, O any](api API, path string, handler func(context.Context, *I) (*O,
 //	})
 //
 // This is a convenience wrapper around `huma.Register`.
-func Put[I, O any](api API, path string, handler func(context.Context, *I) (*O, error)) {
-	convenience(api, http.MethodPut, path, handler)
+func Put[I, O any](api API, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
+	convenience(api, http.MethodPut, path, handler, operationHandlers...)
 }
 
 // Patch HTTP operation handler for an API. The handler must be a function that
@@ -1470,8 +1601,8 @@ func Put[I, O any](api API, path string, handler func(context.Context, *I) (*O, 
 //	})
 //
 // This is a convenience wrapper around `huma.Register`.
-func Patch[I, O any](api API, path string, handler func(context.Context, *I) (*O, error)) {
-	convenience(api, http.MethodPatch, path, handler)
+func Patch[I, O any](api API, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
+	convenience(api, http.MethodPatch, path, handler, operationHandlers...)
 }
 
 // Delete HTTP operation handler for an API. The handler must be a function that
@@ -1489,6 +1620,6 @@ func Patch[I, O any](api API, path string, handler func(context.Context, *I) (*O
 //	})
 //
 // This is a convenience wrapper around `huma.Register`.
-func Delete[I, O any](api API, path string, handler func(context.Context, *I) (*O, error)) {
-	convenience(api, http.MethodDelete, path, handler)
+func Delete[I, O any](api API, path string, handler func(context.Context, *I) (*O, error), operationHandlers ...func(o *Operation)) {
+	convenience(api, http.MethodDelete, path, handler, operationHandlers...)
 }

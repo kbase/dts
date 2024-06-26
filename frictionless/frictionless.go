@@ -73,8 +73,8 @@ type DataResource struct {
 	Licenses []DataLicense `json:"licenses,omitempty"`
 	// credit metadata associated with the resource (optional for now)
 	Credit credit.CreditMetadata `json:"credit,omitempty"`
-	// any other metadata the DTS feels like reporting (optional, raw JSON object)
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// any other fields requested e.g. by a search query (optional, raw JSON object)
+	Extra json.RawMessage `json:"extra,omitempty"`
 }
 
 // call this to get a string containing the name of the hashing algorithm used

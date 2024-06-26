@@ -71,6 +71,10 @@ databases:
     name: Destination Test Database 2
     organization: Fabulous Destinations, Inc.
     endpoint: destination-endpoint2
+  jdp: # for database-specific search parameters test
+    name: JGI Data Portal
+    organization: Joint Genome Institute
+    endpoint: globus-jdp
 endpoints:
   local-endpoint:
     name: Local endpoint
@@ -278,7 +282,7 @@ func TestQueryDatabases(t *testing.T) {
 	var dbs []DatabaseResponse
 	err = json.Unmarshal(respBody, &dbs)
 	assert.Nil(err)
-	assert.Equal(3, len(dbs))
+	assert.Equal(4, len(dbs))
 	slices.SortFunc(dbs, func(a, b DatabaseResponse) int { // sort alphabetically
 		if a.Id < b.Id {
 			return -1
@@ -297,9 +301,13 @@ func TestQueryDatabases(t *testing.T) {
 	assert.Equal("Destination Test Database 2", dbs[1].Name)
 	assert.Equal("Fabulous Destinations, Inc.", dbs[1].Organization)
 
-	assert.Equal("source", dbs[2].Id)
-	assert.Equal("Source Test Database", dbs[2].Name)
-	assert.Equal("The Source Company", dbs[2].Organization)
+	assert.Equal("jdp", dbs[2].Id)
+	assert.Equal("JGI Data Portal", dbs[2].Name)
+	assert.Equal("Joint Genome Institute", dbs[2].Organization)
+
+	assert.Equal("source", dbs[3].Id)
+	assert.Equal("Source Test Database", dbs[3].Name)
+	assert.Equal("The Source Company", dbs[3].Organization)
 }
 
 // queries a specific (valid) database
@@ -328,6 +336,51 @@ func TestQueryInvalidDatabase(t *testing.T) {
 	resp, err := get(baseUrl + apiPrefix + "databases/nonexistentdb")
 	assert.Nil(err)
 	assert.Equal(http.StatusNotFound, resp.StatusCode)
+}
+
+// queries search parameters specific to the JDP database
+func TestQueryJDPDatabaseSearchParameters(t *testing.T) {
+	assert := assert.New(t)
+
+	resp, err := get(baseUrl + apiPrefix + "databases/jdp/search-parameters")
+	assert.Nil(err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err)
+	defer resp.Body.Close()
+
+	// all JDP-specific search parameters are selectable string values
+	type ArraySearchParam struct {
+		Type  string   `json:"type"`
+		Value []string `json:"value"`
+	}
+	var searchParams map[string]ArraySearchParam
+	err = json.Unmarshal(respBody, &searchParams)
+	assert.Nil(err)
+
+	// "d": sort order ({"asc", "desc"})
+	assert.Equal(ArraySearchParam{
+		Type:  "array(string)",
+		Value: []string{"asc", "desc"},
+	}, searchParams["d"])
+
+	// "extra": extra metadata to include in payload ({"project_id"})
+	assert.Equal(ArraySearchParam{
+		Type:  "array(string)",
+		Value: []string{"project_id"},
+	}, searchParams["extra"])
+
+	// "f": specific fields to search ({"ssr", "biosample", "library", "project_id"})
+	assert.Equal(ArraySearchParam{
+		Type:  "array(string)",
+		Value: []string{"ssr", "biosample", "project_id", "library"},
+	}, searchParams["f"])
+
+	// "s": sort order ({"name", "id", "title", "kingdom", "score.avg"})
+	assert.Equal(ArraySearchParam{
+		Type:  "array(string)",
+		Value: []string{"name", "id", "title", "kingdom", "score.avg"},
+	}, searchParams["s"])
 }
 
 // searches a specific database for files matching a simple query

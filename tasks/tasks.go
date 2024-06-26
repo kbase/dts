@@ -203,18 +203,33 @@ func (task *taskType) checkStaging() error {
 	if err != nil {
 		return err
 	}
-	sourceEndpoint, err := source.Endpoint()
+	// check with the database first to see whether the files are staged
+	stagingStatus, err := source.StagingStatus(task.Staging.UUID)
 	if err != nil {
 		return err
 	}
-	staged, err := sourceEndpoint.FilesStaged(task.Resources)
-	if err != nil {
+
+	if stagingStatus == databases.StagingStatusSucceeded { // supposedly staged!
+		// double check with the endpoint
+		sourceEndpoint, err := source.Endpoint()
+		if err != nil {
+			return err
+		}
+		staged, err := sourceEndpoint.FilesStaged(task.Resources)
+		if err != nil {
+			return err
+		}
+		if staged {
+			err = task.beginTransfer()
+		}
 		return err
+	} else if stagingStatus == databases.StagingStatusFailed {
+		// staging failed, so cancel the task
+		task.Cancel()
+		task.Status.Code = TransferStatusUnknown
+		task.Status.Message = "task cancelled because of staging failure"
 	}
-	if staged {
-		err = task.beginTransfer()
-	}
-	return err
+	return nil
 }
 
 // checks whether files for a task are finished transferring and, if so,
@@ -352,19 +367,21 @@ func (task taskType) Completed() bool {
 func (task *taskType) Cancel() error {
 	task.Canceled = true // mark as canceled
 
-	// fetch the source endpoint
-	var endpoint endpoints.Endpoint
-	source, err := databases.NewDatabase(task.Orcid, task.Source)
-	if err != nil {
-		return err
+	if task.Transfer.Valid { // we're transferring
+		// fetch the source endpoint
+		var endpoint endpoints.Endpoint
+		source, err := databases.NewDatabase(task.Orcid, task.Source)
+		if err != nil {
+			return err
+		}
+		endpoint, err = source.Endpoint()
+		if err != nil {
+			return err
+		}
+		// request that the task be canceled using its UUID
+		return endpoint.Cancel(task.Transfer.UUID)
 	}
-	endpoint, err = source.Endpoint()
-	if err != nil {
-		return err
-	}
-
-	// request that the task be canceled
-	return endpoint.Cancel(task.Id)
+	return nil
 }
 
 // this function updates the state of a task, setting its status as necessary

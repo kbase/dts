@@ -141,8 +141,8 @@ const (
 // Split a value intelligently, taking into account different casing styles,
 // numbers, symbols, etc.
 //
-//    // Returns: ["HTTP", "Server", "2020"]
-//    casing.Split("HTTPServer_2020")
+//	// Returns: ["HTTP", "Server", "2020"]
+//	casing.Split("HTTPServer_2020")
 func Split(value string) []string {
 	results := []string{}
 	start := 0
@@ -292,7 +292,7 @@ func Camel(value string, transform ...TransformFunc) string {
 	if transform == nil {
 		transform = []TransformFunc{strings.ToLower}
 	}
-	t := append(transform, strings.Title)
+	t := append(transform, strings.Title) //nolint:staticcheck
 	return Join(Split(value), "", t...)
 }
 

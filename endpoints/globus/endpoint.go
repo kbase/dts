@@ -31,7 +31,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"time"
+	//"time"
 
 	"github.com/google/uuid"
 
@@ -270,6 +270,7 @@ func (ep *Endpoint) post(resource string, body io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
+	req.Header.Set("Content-Type", "application/json")
 
 	return ep.sendRequest(req)
 }
@@ -299,9 +300,13 @@ func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error)
 		resource := fmt.Sprintf("operation/endpoint/%s/ls", ep.Id.String())
 		body, err := ep.get(resource, values)
 		if err != nil {
-			// it's okay if the directory doesn't exist -- it might need to be staged
 			globusErr := err.(*GlobusError)
 			if globusErr.Code == "ClientError.NotFound" {
+				// it's okay if the directory doesn't exist -- it might need to be staged
+				return false, nil
+			} else if globusErr.Code == "ExternalError.DirListingFailed.LoginFailed" {
+				// unfortunately, Globus throws this error when there's a network hiccup,
+				// so we can't take it seriously as an actual error condition
 				return false, nil
 			}
 			return false, err
@@ -574,25 +579,20 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 	// 3. "TaskComplete", indicating that the task is complete and not able to
 	//    be canceled.
 	//
-	// To avoid a 10-second wait, we simply issue a request asynchronously and
-	// settle for a "best-effort" execution, which (it seems to me) is just a less
-	// elaborate framing of what Globus gives us.
-
-	errChan := make(chan error, 1) // <-- captures immediately issued errors
-	go func() {
-		resource := fmt.Sprintf("task/%s/cancel", id.String())
-		_, err := ep.post(resource, nil) // can take up to 10 ѕeconds!
-		if err != nil {
-			errChan <- err
-			return
-		}
-		// no need to read the response--just close the error channel
-		close(errChan)
-	}()
-	select {
-	case err := <-errChan: // error received!
-		return err
-	case <-time.After(10 * time.Millisecond): // short timeout period
-		return nil
+	// We live with the 10-second wait for now, since our polling interval is
+	// large.
+	type CancellationResponse struct {
+		Code      string `json:"code"` // should be "Canceled"
+		Message   string `json:"message"`
+		RequestId string `json:"request_id"`
+		Resource  string `json:"resource"`
 	}
+	resource := fmt.Sprintf("task/%s/cancel", id.String())
+	body, err := ep.post(resource, nil) // can take up to 10 ѕeconds!
+	if err != nil {
+		return err
+	}
+	var response CancellationResponse
+	err = json.Unmarshal(body, &response)
+	return err
 }

@@ -2,6 +2,7 @@ package huma
 
 import (
 	"bytes"
+	"fmt"
 	"path"
 	"reflect"
 )
@@ -56,11 +57,22 @@ func (t *SchemaLinkTransformer) addSchemaField(oapi *OpenAPI, content *MediaType
 		return true
 	}
 
+	// Create an example so it's easier for users to find the schema URL when
+	// they are reading the documentation.
+	server := "https://example.com"
+	for _, s := range oapi.Servers {
+		if s.URL != "" {
+			server = s.URL
+			break
+		}
+	}
+
 	schema.Properties["$schema"] = &Schema{
 		Type:        TypeString,
 		Format:      "uri",
 		Description: "A URL to the JSON Schema for this object.",
 		ReadOnly:    true,
+		Examples:    []any{server + t.schemasPath + "/" + path.Base(content.Schema.Ref) + ".json"},
 	}
 	return false
 }
@@ -77,6 +89,13 @@ func (t *SchemaLinkTransformer) OnAddOperation(oapi *OpenAPI, op *Operation) {
 		}
 	}
 
+	// Figure out if there should be a base path prefix. This might be set when
+	// using a sub-router / group or if the gateway consumes a part of the path.
+	schemasPath := t.schemasPath
+	if prefix := getAPIPrefix(oapi); prefix != "" {
+		schemasPath = path.Join(prefix, schemasPath)
+	}
+
 	registry := oapi.Components.Schemas
 	for _, resp := range op.Responses {
 		for _, content := range resp.Content {
@@ -88,7 +107,7 @@ func (t *SchemaLinkTransformer) OnAddOperation(oapi *OpenAPI, op *Operation) {
 			typ := deref(registry.TypeFromRef(content.Schema.Ref))
 
 			extra := schemaField{
-				Schema: t.schemasPath + "/" + path.Base(content.Schema.Ref) + ".json",
+				Schema: schemasPath + "/" + path.Base(content.Schema.Ref) + ".json",
 			}
 
 			fieldIndexes := []int{}
@@ -107,13 +126,23 @@ func (t *SchemaLinkTransformer) OnAddOperation(oapi *OpenAPI, op *Operation) {
 				}
 			}
 
-			newType := reflect.StructOf(fields)
-			info := t.types[typ]
-			info.t = newType
-			info.fields = fieldIndexes
-			info.ref = extra.Schema
-			info.header = "<" + extra.Schema + ">; rel=\"describedBy\""
-			t.types[typ] = info
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Catch some scenarios that just aren't supported in Go at the
+						// moment. Logs an error so people know what's going on.
+						// https://github.com/danielgtaylor/huma/issues/371
+						fmt.Println("Warning: unable to create schema link for type", typ, ":", r)
+					}
+				}()
+				newType := reflect.StructOf(fields)
+				info := t.types[typ]
+				info.t = newType
+				info.fields = fieldIndexes
+				info.ref = extra.Schema
+				info.header = "<" + extra.Schema + ">; rel=\"describedBy\""
+				t.types[typ] = info
+			}()
 		}
 	}
 }
@@ -121,7 +150,8 @@ func (t *SchemaLinkTransformer) OnAddOperation(oapi *OpenAPI, op *Operation) {
 // Transform is called for every response to add the `$schema` field and/or
 // the Link header pointing to the JSON Schema.
 func (t *SchemaLinkTransformer) Transform(ctx Context, status string, v any) (any, error) {
-	if v == nil {
+	vv := reflect.ValueOf(v)
+	if vv.Kind() == reflect.Pointer && vv.IsNil() {
 		return v, nil
 	}
 
@@ -143,7 +173,7 @@ func (t *SchemaLinkTransformer) Transform(ctx Context, status string, v any) (an
 
 	// Set the `$schema` field.
 	buf := bufPool.Get().(*bytes.Buffer)
-	if len(host) >= 9 && host[:9] == "localhost" {
+	if len(host) >= 9 && (host[:9] == "localhost" || host[:9] == "127.0.0.1") {
 		buf.WriteString("http://")
 	} else {
 		buf.WriteString("https://")
@@ -155,7 +185,7 @@ func (t *SchemaLinkTransformer) Transform(ctx Context, status string, v any) (an
 	bufPool.Put(buf)
 
 	// Copy over all the exported fields.
-	vv := reflect.Indirect(reflect.ValueOf(v))
+	vv = reflect.Indirect(vv)
 	for i, j := range info.fields {
 		// Field 0 is the $schema field, so we need to offset the index by one.
 		// There might have been unexported fields in the struct declared in the schema,

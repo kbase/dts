@@ -1,6 +1,14 @@
-![Huma Rest API Framework](https://user-images.githubusercontent.com/106826/78105564-51102780-73a6-11ea-99ff-84d6c1b3e8df.png)
+<a href="#">
+	<picture>
+		<source media="(prefers-color-scheme: dark)" srcset="https://huma.rocks/huma-dark.png" />
+		<source media="(prefers-color-scheme: light)" srcset="https://huma.rocks/huma.png" />
+		<img alt="Huma Logo" src="https://huma.rocks/huma.png" />
+	</picture>
+</a>
 
 [![HUMA Powered](https://img.shields.io/badge/Powered%20By-HUMA-f40273)](https://huma.rocks/) [![CI](https://github.com/danielgtaylor/huma/workflows/CI/badge.svg?branch=main)](https://github.com/danielgtaylor/huma/actions?query=workflow%3ACI+branch%3Amain++) [![codecov](https://codecov.io/gh/danielgtaylor/huma/branch/main/graph/badge.svg)](https://codecov.io/gh/danielgtaylor/huma) [![Docs](https://godoc.org/github.com/danielgtaylor/huma/v2?status.svg)](https://pkg.go.dev/github.com/danielgtaylor/huma/v2?tab=doc) [![Go Report Card](https://goreportcard.com/badge/github.com/danielgtaylor/huma/v2)](https://goreportcard.com/report/github.com/danielgtaylor/huma/v2)
+
+[**🌎中文文档**](./README_CN.md)
 
 - [What is huma?](#intro)
 - [Install](#install)
@@ -30,7 +38,7 @@ Features include:
 - JSON Errors using [RFC9457](https://datatracker.ietf.org/doc/html/rfc9457) and `application/problem+json` by default (but can be changed)
 - Per-operation request size limits with sane defaults
 - [Content negotiation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation) between server and client
-  - Support for JSON ([RFC 8259](https://tools.ietf.org/html/rfc8259)) and CBOR ([RFC 7049](https://tools.ietf.org/html/rfc7049)) content types via the `Accept` header with the default config.
+  - Support for JSON ([RFC 8259](https://tools.ietf.org/html/rfc8259)) and optionally CBOR ([RFC 7049](https://tools.ietf.org/html/rfc7049)) content types via the `Accept` header with the default config.
 - Conditional requests support, e.g. `If-Match` or `If-Unmodified-Since` header utilities.
 - Optional automatic generation of `PATCH` operations that support:
   - [RFC 7386](https://www.rfc-editor.org/rfc/rfc7386) JSON Merge Patch
@@ -53,6 +61,17 @@ Features include:
 
 This project was inspired by [FastAPI](https://fastapi.tiangolo.com/). Logo & branding designed by Kari Taylor.
 
+## Sponsors
+
+A big thank you to our current & former sponsors:
+
+- [@bclements](https://github.com/bclements)
+- [@bekabaz](https://github.com/bekabaz)
+- [@victoraugustolls](https://github.com/victoraugustolls)
+- [@phoenixtechnologies-io](https://github.com/phoenixtechnologies-io)
+
+## Testimonials
+
 > This is by far my favorite web framework for Go. It is inspired by FastAPI, which is also amazing, and conforms to many RFCs for common web things ... I really like the feature set, the fact that it [can use] Chi, and the fact that it is still somehow relatively simple to use. I've tried other frameworks and they do not spark joy for me. - [Jeb_Jenky](https://www.reddit.com/r/golang/comments/zhitcg/comment/izmg6vk/?utm_source=reddit&utm_medium=web2x&context=3)
 
 > After working with #Golang for over a year, I stumbled upon Huma, the #FastAPI-inspired web framework. It’s the Christmas miracle I’ve been hoping for! This framework has everything! - [Hana Mohan](https://twitter.com/unamashana/status/1733088066053583197)
@@ -62,6 +81,8 @@ This project was inspired by [FastAPI](https://fastapi.tiangolo.com/). Logo & br
 > Thank you Daniel for Huma. Superbly useful project and saves us a lot of time and hassle thanks to the OpenAPI gen — similar to FastAPI in Python. - [WolvesOfAllStreets](https://www.reddit.com/r/golang/comments/1aqj99d/comment/kqfqcml/?utm_source=reddit&utm_medium=web2x&context=3)
 
 > Huma is wonderful, I've started working with it recently, and it's a pleasure, so thank you very much for your efforts 🙏 - [callmemicah](https://www.reddit.com/r/golang/comments/1b32ts4/comment/ksvr9h7/?utm_source=reddit&utm_medium=web2x&context=3)
+
+> It took us 3 months to build our platform in Python with FastAPI, SQL Alchemy and only 3 weeks to rewrite it in Go with Huma and SQL C. Things just work and I seldomly have to debug where in Python I spent a majority of my time debugging. - [Bitclick\_](https://www.reddit.com/r/golang/comments/1cj2znb/comment/l2e4u6y/)
 
 # Install
 
@@ -88,6 +109,8 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/go-chi/chi/v5"
+
+	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 )
 
 // Options for the CLI. Pass `--port` or set the `SERVICE_PORT` env var.
@@ -166,4 +189,10 @@ Official Go package documentation can always be found at https://pkg.go.dev/gith
 
 Be sure to star the project if you find it useful!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=danielgtaylor/huma&type=Date)](https://star-history.com/#danielgtaylor/huma&Date)
+<a href="https://star-history.com/#danielgtaylor/huma&Date">
+	<picture>
+		<source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=danielgtaylor/huma&type=Date&theme=dark" />
+		<source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=danielgtaylor/huma&type=Date" />
+		<img alt="Star History Chart" src="https://api.star-history.com/svg?repos=danielgtaylor/huma&type=Date" />
+	</picture>
+</a>

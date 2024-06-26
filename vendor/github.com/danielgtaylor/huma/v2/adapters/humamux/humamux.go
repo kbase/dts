@@ -18,10 +18,14 @@ import (
 var MultipartMaxMemory int64 = 8 * 1024
 
 type gmuxContext struct {
-	op *huma.Operation
-	r  *http.Request
-	w  http.ResponseWriter
+	op     *huma.Operation
+	r      *http.Request
+	w      http.ResponseWriter
+	status int
 }
+
+// check that gmuxContext implements huma.Context
+var _ huma.Context = &gmuxContext{}
 
 func (c *gmuxContext) Operation() *huma.Operation {
 	return c.op
@@ -37,6 +41,10 @@ func (c *gmuxContext) Method() string {
 
 func (c *gmuxContext) Host() string {
 	return c.r.Host
+}
+
+func (c *gmuxContext) RemoteAddr() string {
+	return c.r.RemoteAddr
 }
 
 func (c *gmuxContext) URL() url.URL {
@@ -77,7 +85,12 @@ func (c *gmuxContext) SetReadDeadline(deadline time.Time) error {
 }
 
 func (c *gmuxContext) SetStatus(code int) {
+	c.status = code
 	c.w.WriteHeader(code)
+}
+
+func (c *gmuxContext) Status() int {
+	return c.status
 }
 
 func (c *gmuxContext) AppendHeader(name string, value string) {

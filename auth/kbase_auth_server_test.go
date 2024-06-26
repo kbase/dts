@@ -50,6 +50,7 @@ func TestUsername(t *testing.T) {
 	assert := assert.New(t)
 	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
 	server, _ := NewKBaseAuthServer(devToken)
+	assert.NotNil(server)
 	username, err := server.Username()
 	assert.Nil(err)
 	assert.True(len(username) > 0)

@@ -211,38 +211,6 @@ func sourcesFromMetadata(md Metadata) []frictionless.DataSource {
 	return sources
 }
 
-// creates a credit metadata item from JDP file metadata
-func creditFromIdAndMetadata(id string, md Metadata) credit.CreditMetadata {
-	crd := credit.CreditMetadata{
-		Identifier:   id,
-		ResourceType: "dataset",
-	}
-
-	crd.Dates = []credit.EventDate{
-		{
-			Date:  md.Proposal.DateApproved,
-			Event: "approval",
-		},
-	}
-	pi := md.Proposal.PI
-	crd.Contributors = []credit.Contributor{
-		{
-			ContributorType: "Person",
-			// ContributorId: nothing yet
-			Name:       strings.TrimSpace(fmt.Sprintf("%s, %s %s", pi.LastName, pi.FirstName, pi.MiddleName)),
-			GivenName:  strings.TrimSpace(fmt.Sprintf("%s %s", pi.FirstName, pi.MiddleName)),
-			FamilyName: strings.TrimSpace(pi.LastName),
-			Affiliations: []credit.Organization{
-				credit.Organization{
-					OrganizationName: pi.Institution,
-				},
-			},
-			ContributorRoles: "PI",
-		},
-	}
-	return crd
-}
-
 // creates a Frictionless DataResource-savvy name for a file:
 // * the name consists of lower case characters plus '.', '-', and '_'
 // * all forbidden characters encountered in the filename are removed
@@ -292,6 +260,7 @@ func dataResourceFromFile(file File) frictionless.DataResource {
 	// Data Resource specification
 	filePath := filepath.Join(strings.TrimPrefix(file.Path, filePathPrefix), file.Name)
 
+	pi := file.Metadata.Proposal.PI
 	return frictionless.DataResource{
 		Id:        id,
 		Name:      dataResourceName(file.Name),
@@ -301,7 +270,61 @@ func dataResourceFromFile(file File) frictionless.DataResource {
 		Bytes:     file.Size,
 		Hash:      file.MD5Sum,
 		Sources:   sources,
-		Credit:    creditFromIdAndMetadata(id, file.Metadata),
+		Credit: credit.CreditMetadata{
+			Identifier:   id,
+			ResourceType: "dataset",
+			Titles: []credit.Title{
+				{
+					Title: filePath,
+				},
+			},
+			Dates: []credit.EventDate{
+				{
+					Date:  file.Date,
+					Event: "Created",
+				},
+				{
+					Date:  file.AddedDate,
+					Event: "Accepted",
+				},
+				{
+					Date:  file.ModifiedDate,
+					Event: "Updated",
+				},
+			},
+			Publisher: credit.Organization{
+				OrganizationId:   "ROR:04xm1d337",
+				OrganizationName: "Joint Genome Institute",
+			},
+			RelatedIdentifiers: []credit.PermanentID{
+				{
+					Id:               file.Metadata.Proposal.DOI,
+					Description:      "Proposal DOI",
+					RelationshipType: "IsCitedBy",
+				},
+				{
+					Id:               file.Metadata.Proposal.AwardDOI,
+					Description:      "Awarded proposal DOI",
+					RelationshipType: "IsCitedBy",
+				},
+			},
+			Contributors: []credit.Contributor{
+				{
+					ContributorType: "Person",
+					// ContributorId: nothing yet
+					Name:       strings.TrimSpace(fmt.Sprintf("%s, %s %s", pi.LastName, pi.FirstName, pi.MiddleName)),
+					GivenName:  strings.TrimSpace(fmt.Sprintf("%s %s", pi.FirstName, pi.MiddleName)),
+					FamilyName: strings.TrimSpace(pi.LastName),
+					Affiliations: []credit.Organization{
+						{
+							OrganizationName: pi.Institution,
+						},
+					},
+					ContributorRoles: "PI",
+				},
+			},
+			Version: file.Date,
+		},
 	}
 }
 
@@ -654,11 +677,14 @@ func (db *Database) Resources(fileIds []string) ([]frictionless.DataResource, er
 				Type   string `json:"_type"`
 				Id     string `json:"_id"`
 				Source struct {
-					FilePath string `json:"file_path"`
-					FileName string `json:"file_name"`
-					FileSize int    `json:"file_size"`
-					MD5Sum   string `json:"md5sum"`
-					Metadata Metadata
+					Date         string `json:"file_date"`
+					AddedDate    string `json:"added_date"`
+					ModifiedDate string `json:"modified_date"`
+					FilePath     string `json:"file_path"`
+					FileName     string `json:"file_name"`
+					FileSize     int    `json:"file_size"`
+					MD5Sum       string `json:"md5sum"`
+					Metadata     Metadata
 				} `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
@@ -679,22 +705,26 @@ func (db *Database) Resources(fileIds []string) ([]frictionless.DataResource, er
 		if !found {
 			return nil, &FileIdNotFoundError{fileIds[i]}
 		}
-		resources[index] = frictionless.DataResource{
-			Id:     "JDP:" + md.Id,
-			Name:   dataResourceName(md.Source.FileName),
-			Path:   filepath.Join(strings.TrimPrefix(md.Source.FilePath, filePathPrefix), md.Source.FileName),
-			Bytes:  md.Source.FileSize,
-			Hash:   md.Source.MD5Sum,
-			Credit: creditFromIdAndMetadata("JDP:"+md.Id, md.Source.Metadata),
+		file := File{
+			Id:           md.Id,
+			Name:         md.Source.FileName,
+			Path:         md.Source.FilePath,
+			Date:         md.Source.Date,
+			AddedDate:    md.Source.AddedDate,
+			ModifiedDate: md.Source.ModifiedDate,
+			Size:         md.Source.FileSize,
+			Metadata:     md.Source.Metadata,
+			MD5Sum:       md.Source.MD5Sum,
 		}
+		resources[index] = dataResourceFromFile(file)
 		if resources[index].Path == "" || resources[index].Path == "/" { // permissions probem
 			return nil, &PermissionDeniedError{fileIds[index]}
 		}
 
 		// fill in holes where we can and patch up discrepancies
-		// FIXME: we don't retrieve hits.hits._source.file_type because it can be
-		// FIXME: either a string or an array of strings, and I'm just trying for a
-		// FIXME: solution
+		// NOTE: we don't retrieve hits.hits._source.file_type because it can be
+		// NOTE: either a string or an array of strings, and I'm just trying for a
+		// NOTE: solution
 		resources[index].Format = formatFromFileName(resources[index].Path)
 		resources[index].MediaType = mimeTypeFromFormatAndTypes(resources[index].Format, []string{})
 	}

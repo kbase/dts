@@ -2,23 +2,11 @@ package services
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/frictionless"
 )
-
-// This package-specific helper function writes a JSON payload to an
-// http.ResponseWriter.
-func writeJson(w http.ResponseWriter, data []byte, code int) {
-	w.WriteHeader(code)
-	if len(data) > 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	}
-}
 
 // this type encodes a JSON object for responding to root queries
 type ServiceInfoResponse struct {
@@ -37,17 +25,6 @@ type ErrorResponse struct {
 	Error string `json:"message"`
 }
 
-// This package-specific helper function writes an error to an
-// http.ResponseWriter, giving it the proper status code, and encoding an
-// ErrorResponse in the response body.
-func writeError(w http.ResponseWriter, message string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	e := ErrorResponse{Code: code, Error: message}
-	data, _ := json.Marshal(e)
-	w.Write(data)
-}
-
 // a response for a database-related query (GET)
 type DatabaseResponse struct {
 	Id           string `json:"id" example:"jdp" `
@@ -56,13 +33,21 @@ type DatabaseResponse struct {
 	URL          string `json:"url" example:"https://data.jgi.doe.gov"`
 }
 
-// a response for a query (GET)
+// a response for a file search query (GET)
 type SearchResultsResponse struct {
 	// name of organization database
 	Database string `json:"database" example:"jdp" doc:"the database searched"`
 	// ElasticSearch query string
 	Query string `json:"query" example:"prochlorococcus" doc:"the given query string"`
-	// Resources matching the query
+	// resources matching the query
+	Resources []frictionless.DataResource `json:"resources" doc:"an array of Frictionless DataResources"`
+}
+
+// a response for a file metadata query (GET)
+type FileMetadataResponse struct {
+	// name of organization database
+	Database string `json:"database" example:"jdp" doc:"the database searched"`
+	// resources corresponding to given file IDs
 	Resources []frictionless.DataResource `json:"resources" doc:"an array of Frictionless DataResources"`
 }
 

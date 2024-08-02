@@ -416,6 +416,35 @@ func TestSearchDatabase(t *testing.T) {
 	assert.Equal("file1", results.Resources[0].Name)
 }
 
+// fetches file metadata from the JDP for some specific files
+func TestFetchJdpMetadata(t *testing.T) {
+	assert := assert.New(t)
+
+	// try omitting file IDs
+	resp, err := get(baseUrl + apiPrefix + "files/by-id?database=jdp")
+	assert.Nil(err)
+	assert.Equal(http.StatusBadRequest, resp.StatusCode)
+
+	// now let's fetch 3 records
+	resp, err = get(baseUrl + apiPrefix +
+		"files/by-id?database=jdp&ids=JDP:6101cc0f2b1f2eeea564c978,JDP:613a7baa72d3a08c9a54b32d,JDP:61412246cc4ff44f36c8913d")
+	assert.Nil(err)
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, resp.StatusCode)
+	defer resp.Body.Close()
+
+	var results SearchResultsResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err)
+	assert.Equal("jdp", results.Database)
+	assert.Equal(3, len(results.Resources))
+	assert.Equal("JDP:6101cc0f2b1f2eeea564c978", results.Resources[0].Id)
+	assert.Equal("JDP:613a7baa72d3a08c9a54b32d", results.Resources[1].Id)
+	assert.Equal("JDP:61412246cc4ff44f36c8913d", results.Resources[2].Id)
+}
+
 // creates a transfer from source -> destination1
 func TestCreateTransfer(t *testing.T) {
 	assert := assert.New(t)

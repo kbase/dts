@@ -389,6 +389,57 @@ func (service *prototype) searchDatabaseWithSpecificParams(ctx context.Context,
 	return searchDatabase(ctx, &searchInput, body.Specific)
 }
 
+type FileMetadataOutput struct {
+	Body FileMetadataResponse `doc:"Metadata for files with the given IDs"`
+}
+
+// fetches file metadata given a list of file identifiers
+func (service *prototype) fetchFileMetadata(ctx context.Context,
+	input *struct {
+		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
+		Database      string `json:"database" query:"database" example:"jdp" doc:"The ID of the database for which file metadata is fetched"`
+		Ids           string `json:"ids" query:"ids" example:"JDP:6101cc0f2b1f2eeea564c978" doc:"A comma-separated list of file IDs"`
+		Offset        int    `json:"offset" query:"offset" example:"100" doc:"Metadata records begin at the given offset"`
+		Limit         int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
+	}) (*FileMetadataOutput, error) {
+
+	orcid, err := authorize(input.Authorization)
+	if err != nil {
+		return nil, err
+	}
+
+	// is the database valid?
+	_, ok := config.Databases[input.Database]
+	if !ok {
+		return nil, fmt.Errorf("Database %s not found", input.Database)
+	}
+
+	// have we been given any IDs?
+	if strings.TrimSpace(input.Ids) == "" {
+		return nil, huma.Error400BadRequest("No file IDs were provided!")
+	}
+	ids := strings.Split(input.Ids, ",")
+
+	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
+		len(ids), input.Database))
+	db, err := databases.NewDatabase(orcid, input.Database)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := db.Resources(ids)
+	if err != nil {
+		slog.Error(err.Error())
+		return nil, err
+	}
+	return &FileMetadataOutput{
+		Body: FileMetadataResponse{
+			Database:  input.Database,
+			Resources: results,
+		},
+	}, nil
+}
+
 type TransferOutput struct {
 	Body   TransferResponse `doc:"A UUID for the requested transfer"`
 	Status int
@@ -527,6 +578,7 @@ func NewDTSPrototype() (TransferService, error) {
 	huma.Get(api, "/api/v1/databases/{db}/search-parameters", service.getDatabaseSearchParameters)
 	huma.Get(api, "/api/v1/files", service.searchDatabase)
 	huma.Post(api, "/api/v1/files", service.searchDatabaseWithSpecificParams)
+	huma.Get(api, "/api/v1/files/by-id", service.fetchFileMetadata)
 	huma.Post(api, "/api/v1/transfers", service.createTransfer)
 	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
 	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)

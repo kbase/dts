@@ -56,14 +56,14 @@ type prototype struct {
 
 // authorize clients for the DTS, returning the client's ORCID ID and an error
 // describing any issue encountered
-func authorize(authorizationHeader string) (string, error) {
+func authorize(authorizationHeader string) (auth.UserInfo, error) {
 	if !strings.Contains(authorizationHeader, "Bearer") {
-		return "", fmt.Errorf("Invalid authorization header")
+		return auth.UserInfo{}, fmt.Errorf("Invalid authorization header")
 	}
 	b64Token := authorizationHeader[len("Bearer "):]
 	accessTokenBytes, err := base64.StdEncoding.DecodeString(b64Token)
 	if err != nil {
-		return "", huma.Error401Unauthorized(err.Error())
+		return auth.UserInfo{}, huma.Error401Unauthorized(err.Error())
 	}
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
@@ -71,14 +71,13 @@ func authorize(authorizationHeader string) (string, error) {
 	// and fetch the first ORCID associated with it
 	authServer, err := auth.NewKBaseAuthServer(accessToken)
 	if err != nil {
-		return "", huma.Error401Unauthorized(err.Error())
+		return auth.UserInfo{}, huma.Error401Unauthorized(err.Error())
 	}
 	userInfo, err := authServer.UserInfo()
-	orcids, err := userInfo.Orcids()
 	if err != nil {
-		return "", huma.Error401Unauthorized(err.Error())
+		return userInfo, huma.Error401Unauthorized(err.Error())
 	}
-	return orcids[0], nil // return the first ORCID encountered
+	return userInfo, nil // return the first ORCID encountered
 }
 
 type ServiceInfoOutput struct {
@@ -249,7 +248,7 @@ func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
 		Database      string `path:"db" example:"jdp" doc:"the abbreviated name of a database"`
 	}) (*SearchParametersOutput, error) {
 
-	orcid, err := authorize(input.Authorization)
+	userInfo, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +258,7 @@ func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
 	if !ok {
 		return nil, fmt.Errorf("Database %s not found", input.Database)
 	}
-	db, err := databases.NewDatabase(orcid, input.Database)
+	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +293,7 @@ func searchDatabase(ctx context.Context,
 	input *SearchDatabaseInput,
 	specific map[string]json.RawMessage) (*SearchResultsOutput, error) {
 
-	orcid, err := authorize(input.Authorization)
+	userInfo, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +318,7 @@ func searchDatabase(ctx context.Context,
 	}
 
 	slog.Info(fmt.Sprintf("Searching database %s for files...", input.Database))
-	db, err := databases.NewDatabase(orcid, input.Database)
+	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +399,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		Limit         int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
 	}) (*FileMetadataOutput, error) {
 
-	orcid, err := authorize(input.Authorization)
+	userInfo, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +418,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 
 	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
 		len(ids), input.Database))
-	db, err := databases.NewDatabase(orcid, input.Database)
+	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -450,13 +449,13 @@ func (service *prototype) createTransfer(ctx context.Context,
 		ContentType   string          `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
 	}) (*TransferOutput, error) {
 
-	orcid, err := authorize(input.Authorization)
+	userInfo, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
 
 	taskId, err := tasks.Create(tasks.Specification{
-		Orcid:       orcid,
+		UserInfo:    userInfo,
 		Source:      input.Body.Source,
 		Destination: input.Body.Destination,
 		FileIds:     input.Body.FileIds,

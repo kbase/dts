@@ -46,11 +46,11 @@ type KBaseAuthServer struct {
 
 // a record containing information about a user logged into the KBase Auth2
 // server
-type KBaseUserInfo struct {
+type kbaseUserInfo struct {
 	// KBase username
 	Username string `json:"user"`
 	// KBase user display name
-	DisplayName string `json:"display"`
+	Display string `json:"display"`
 	// User email address
 	Email string `json:"email"`
 	// Identities with associated providers
@@ -94,7 +94,7 @@ func NewKBaseAuthServer(accessToken string) (*KBaseAuthServer, error) {
 		}
 
 		// verify that the access token works (i.e. that the user is logged in)
-		userInfo, err := server.UserInfo()
+		userInfo, err := server.kbaseUserInfo()
 		if err != nil {
 			return nil, err
 		}
@@ -170,8 +170,8 @@ func (server *KBaseAuthServer) get(resource string) (*http.Response, error) {
 }
 
 // returns information for the current KBase user accessing the auth server
-func (server *KBaseAuthServer) UserInfo() (KBaseUserInfo, error) {
-	var userInfo KBaseUserInfo
+func (server *KBaseAuthServer) kbaseUserInfo() (kbaseUserInfo, error) {
+	var userInfo kbaseUserInfo
 	resp, err := server.get("me")
 	if err != nil {
 		return userInfo, err
@@ -188,21 +188,39 @@ func (server *KBaseAuthServer) UserInfo() (KBaseUserInfo, error) {
 		return userInfo, err
 	}
 	err = json.Unmarshal(body, &userInfo)
+
+	// make sure we have at least one ORCID for this user
+	if len(userInfo.Idents) < 1 {
+		return userInfo, fmt.Errorf("KBase Auth2: No providers associated with this user!")
+	}
+	foundOrcid := false
+	for _, pid := range userInfo.Idents {
+		if pid.Provider == "OrcID" {
+			foundOrcid = true
+			break
+		}
+	}
+	if !foundOrcid {
+		return userInfo, fmt.Errorf("KBase Auth2: No ORCID IDs associated with this user!")
+	}
 	return userInfo, err
 }
 
-// returns the registered ORCID identifiers (and/or an error) within the given
-// KBase user info record (a user can have 0, 1, or many associated ORCID
-// identifiers)
-func (userInfo *KBaseUserInfo) Orcids() ([]string, error) {
-	if len(userInfo.Idents) < 1 {
-		return nil, fmt.Errorf("No ORCID IDs associated with this user!")
+// returns a normalized user info record for the current KBase user
+func (server *KBaseAuthServer) UserInfo() (UserInfo, error) {
+	kbUserInfo, err := server.kbaseUserInfo()
+	if err != nil {
+		return UserInfo{}, err
 	}
-	orcidIds := make([]string, 0)
-	for _, pid := range userInfo.Idents {
+	userInfo := UserInfo{
+		Name:     kbUserInfo.Display,
+		Username: kbUserInfo.Username,
+		Email:    kbUserInfo.Email,
+	}
+	for _, pid := range kbUserInfo.Idents {
 		if pid.Provider == "OrcID" {
-			orcidIds = append(orcidIds, pid.UserName)
+			userInfo.Orcid = pid.UserName
 		}
 	}
-	return orcidIds, nil
+	return userInfo, nil
 }

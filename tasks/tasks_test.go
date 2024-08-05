@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 )
@@ -178,9 +179,11 @@ func (t *SerialTests) TestCreateTask() {
 	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
 
 	// queue up a transfer task between two phony databases
-	orcid := "1234-5678-9012-3456"
 	taskId, err := Create(Specification{
-		Orcid:       orcid,
+		UserInfo: auth.UserInfo{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
 		Source:      "test-source",
 		Destination: "test-destination",
 		FileIds:     []string{"file1", "file2"},
@@ -240,7 +243,10 @@ func (t *SerialTests) TestCancelTask() {
 
 	// queue up a transfer task between two phony databases
 	taskId, err := Create(Specification{
-		Orcid:       "1234-5678-9012-3456",
+		UserInfo: auth.UserInfo{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
 		Source:      "test-source",
 		Destination: "test-destination",
 		FileIds:     []string{"file1", "file2"},
@@ -283,7 +289,10 @@ func (t *SerialTests) TestStopAndRestart() {
 	taskIds := make([]uuid.UUID, numTasks)
 	for i := 0; i < numTasks; i++ {
 		taskId, _ := Create(Specification{
-			Orcid:       "1234-5678-9012-3456",
+			UserInfo: auth.UserInfo{
+				Name:  "Joe-bob",
+				Orcid: "1234-5678-9012-3456",
+			},
 			Source:      "test-source",
 			Destination: "test-destination",
 			FileIds:     []string{"file1", "file2"},

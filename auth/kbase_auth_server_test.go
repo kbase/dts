@@ -56,16 +56,5 @@ func TestUserInfo(t *testing.T) {
 
 	assert.True(len(userInfo.Username) > 0)
 	assert.True(len(userInfo.Email) > 0)
-
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	orcids, err := userInfo.Orcids()
-	assert.Nil(err)
-	var foundOrcid bool
-	for _, id := range orcids {
-		if orcid == id {
-			foundOrcid = true
-			break
-		}
-	}
-	assert.True(foundOrcid)
+	assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), userInfo.Orcid)
 }

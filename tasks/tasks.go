@@ -35,6 +35,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/databases/jdp"
@@ -66,8 +67,8 @@ const (
 
 // this type holds a specification used to create a valid transfer task
 type Specification struct {
-	// the ORCID for the user requesting the task
-	Orcid string
+	// information about the user requesting the task
+	UserInfo auth.UserInfo
 	// the name of source database from which files are transferred (as specified
 	// in the DTS config file)
 	Source string
@@ -87,7 +88,7 @@ type Specification struct {
 type taskType struct {
 	Id                  uuid.UUID      // task identifier
 	DestinationFolder   string         // folder path to which files are transferred
-	Orcid               string         // Orcid ID for user requesting transfer
+	UserInfo            auth.UserInfo  // info about user requesting transfer
 	Source, Destination string         // names of source and destination databases
 	FileIds             []string       // IDs of files within Source
 	Description         string         // Markdown description of the task
@@ -122,7 +123,7 @@ func payloadSize(resources []DataResource) float64 {
 
 // starts a task going, initiating staging if needed
 func (task *taskType) start() error {
-	source, err := databases.NewDatabase(task.Orcid, task.Source)
+	source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 	if err != nil {
 		return err
 	}
@@ -172,7 +173,7 @@ func (task *taskType) start() error {
 func (task *taskType) checkCancellation() error {
 	if task.Transfer.Valid {
 		// the task's status is the same as its transfer status
-		source, err := databases.NewDatabase(task.Orcid, task.Source)
+		source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 		if err != nil {
 			return err
 		}
@@ -195,17 +196,17 @@ func (task *taskType) checkCancellation() error {
 
 // initiates a file transfer on a set of staged files
 func (task *taskType) beginTransfer() error {
-	source, err := databases.NewDatabase(task.Orcid, task.Source)
+	source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 	if err != nil {
 		return err
 	}
-	destination, err := databases.NewDatabase(task.Orcid, task.Destination)
+	destination, err := databases.NewDatabase(task.UserInfo.Orcid, task.Destination)
 	if err != nil {
 		return err
 	}
 
 	// construct the source/destination file paths
-	username, err := destination.LocalUser(task.Orcid)
+	username, err := destination.LocalUser(task.UserInfo.Orcid)
 	if err != nil {
 		return err
 	}
@@ -246,7 +247,7 @@ func (task *taskType) beginTransfer() error {
 // checks whether files for a task are finished staging and, if so,
 // initiates the transfer process
 func (task *taskType) checkStaging() error {
-	source, err := databases.NewDatabase(task.Orcid, task.Source)
+	source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 	if err != nil {
 		return err
 	}
@@ -275,6 +276,14 @@ func (task *taskType) createManifest() frictionless.DataPackage {
 		Created:   time.Now().Format(time.RFC3339),
 		Profile:   "data-package",
 		Keywords:  []string{"dts", "manifest"},
+		Contributors: []frictionless.Contributor{
+			{
+				Title:        task.UserInfo.Name,
+				Email:        task.UserInfo.Email,
+				Role:         "author",
+				Organization: task.UserInfo.Organization,
+			},
+		},
 	}
 	copy(manifest.Resources, task.Resources)
 	return manifest
@@ -284,7 +293,7 @@ func (task *taskType) createManifest() frictionless.DataPackage {
 // initiates the generation of the file manifest
 func (task *taskType) checkTransfer() error {
 	// has the data transfer completed?
-	source, err := databases.NewDatabase(task.Orcid, task.Source)
+	source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 	if err != nil {
 		return err
 	}
@@ -331,7 +340,7 @@ func (task *taskType) checkTransfer() error {
 			}
 
 			// construct the source/destination file manifest paths
-			destination, err := databases.NewDatabase(task.Orcid, task.Destination)
+			destination, err := databases.NewDatabase(task.UserInfo.Orcid, task.Destination)
 			if err != nil {
 				return err
 			}
@@ -414,7 +423,7 @@ func (task *taskType) Cancel() error {
 	if task.Transfer.Valid { // we're transferring
 		// fetch the source endpoint
 		var endpoint endpoints.Endpoint
-		source, err := databases.NewDatabase(task.Orcid, task.Source)
+		source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
 		if err != nil {
 			return err
 		}
@@ -784,18 +793,18 @@ func Create(spec Specification) (uuid.UUID, error) {
 
 	// verify that we can fetch the task's source and destination databases
 	// without incident
-	_, err := databases.NewDatabase(spec.Orcid, spec.Source)
+	_, err := databases.NewDatabase(spec.UserInfo.Orcid, spec.Source)
 	if err != nil {
 		return taskId, err
 	}
-	_, err = databases.NewDatabase(spec.Orcid, spec.Destination)
+	_, err = databases.NewDatabase(spec.UserInfo.Orcid, spec.Destination)
 	if err != nil {
 		return taskId, err
 	}
 
 	// create a new task and send it along for processing
 	taskChannels.CreateTask <- taskType{
-		Orcid:       spec.Orcid,
+		UserInfo:    spec.UserInfo,
 		Source:      spec.Source,
 		Destination: spec.Destination,
 		FileIds:     spec.FileIds,

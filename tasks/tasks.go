@@ -64,14 +64,33 @@ const (
 	TransferStatusSucceeded  = endpoints.TransferStatusSucceeded
 )
 
+// this type holds a specification used to create a valid transfer task
+type Specification struct {
+	// the ORCID for the user requesting the task
+	Orcid string
+	// the name of source database from which files are transferred (as specified
+	// in the DTS config file)
+	Source string
+	// the name of destination database from which files are transferred (as
+	// specified in the DTS config file)
+	Destination string
+	// an array of identifiers for files to be transferred from Source to
+	// Destination
+	FileIds []string
+	// a Markdown description of the transfer task (can contain machine-readable
+	// instructions for processing the payload at its destination)
+	Description string
+}
+
 // this type holds multiple (possibly null) UUIDs corresponding to different
-// portions of a file transfer
+// states in the file transfer lifecycle
 type taskType struct {
 	Id                  uuid.UUID      // task identifier
 	DestinationFolder   string         // folder path to which files are transferred
 	Orcid               string         // Orcid ID for user requesting transfer
 	Source, Destination string         // names of source and destination databases
 	FileIds             []string       // IDs of files within Source
+	Description         string         // Markdown description of the task
 	Resources           []DataResource // Frictionless DataResources for files
 	PayloadSize         float64        // Size of payload (gigabytes)
 	Canceled            bool           // set if a cancellation request has been made
@@ -248,6 +267,19 @@ func (task *taskType) checkStaging() error {
 	return nil
 }
 
+// creates a DataPackage that serves as the transfer manifest
+func (task *taskType) createManifest() frictionless.DataPackage {
+	manifest := DataPackage{
+		Name:      "manifest",
+		Resources: make([]DataResource, len(task.Resources)),
+		Created:   time.Now().Format(time.RFC3339),
+		Profile:   "data-package",
+		Keywords:  []string{"dts", "manifest"},
+	}
+	copy(manifest.Resources, task.Resources)
+	return manifest
+}
+
 // checks whether files for a task are finished transferring and, if so,
 // initiates the generation of the file manifest
 func (task *taskType) checkTransfer() error {
@@ -273,11 +305,7 @@ func (task *taskType) checkTransfer() error {
 				return err
 			}
 			// generate a manifest for the transfer
-			manifest := DataPackage{
-				Name:      "manifest",
-				Resources: make([]DataResource, len(task.Resources)),
-			}
-			copy(manifest.Resources, task.Resources)
+			manifest := task.createManifest()
 
 			// write the manifest to disk and begin transferring it to the
 			// destination endpoint
@@ -751,26 +779,27 @@ func Running() bool {
 // ID to the manager's set, returning a UUID for the task. The task is defined
 // by specifying the names of the source and destination databases and a set of
 // file IDs associated with the source.
-func Create(orcid, source, destination string, fileIDs []string) (uuid.UUID, error) {
+func Create(spec Specification) (uuid.UUID, error) {
 	var taskId uuid.UUID
 
 	// verify that we can fetch the task's source and destination databases
 	// without incident
-	_, err := databases.NewDatabase(orcid, source)
+	_, err := databases.NewDatabase(spec.Orcid, spec.Source)
 	if err != nil {
 		return taskId, err
 	}
-	_, err = databases.NewDatabase(orcid, destination)
+	_, err = databases.NewDatabase(spec.Orcid, spec.Destination)
 	if err != nil {
 		return taskId, err
 	}
 
 	// create a new task and send it along for processing
 	taskChannels.CreateTask <- taskType{
-		Orcid:       orcid,
-		Source:      source,
-		Destination: destination,
-		FileIds:     fileIDs,
+		Orcid:       spec.Orcid,
+		Source:      spec.Source,
+		Destination: spec.Destination,
+		FileIds:     spec.FileIds,
+		Description: spec.Description,
 	}
 	select {
 	case taskId = <-taskChannels.ReturnTaskId:

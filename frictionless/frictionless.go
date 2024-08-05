@@ -40,6 +40,27 @@ type DataPackage struct {
 	Licenses []DataLicense `json:"licenses,omitempty"`
 	// a list identifying the sources for this resource (optional)
 	Sources []DataSource `json:"sources,omitempty"`
+	// a timestamp indicated when the package was created
+	Created string `json:"created,omitempty"`
+	// the profile of this descriptor per the DataPackage profiles specification
+	// (https://specs.frictionlessdata.io/profiles/#language)
+	Profile string `json:"profile,omitempty"`
+	// a title or one sentence description for the data package
+	Title string `json:"title,omitempty"`
+	// a Markdown description of the data package
+	Description string `json:"description,omitempty"`
+	// a URL for a web address related to the data package
+	Homepage string `json:"homepage,omitempty"`
+	// a version string identifying the version of the data package, conforming to
+	// semantic versioning if relevant
+	Version string `json:"version,omitempty"`
+	// an array of string keywords to assist users searching for the data package
+	// in catalogs
+	Keywords []string `json:"keywords,omitempty"`
+	// list of contributors to the data package
+	Contributors []Contributor `json:"contributors,omitempty"`
+	// an image to use for this data package (URL or POSIX path)
+	Image string `json:"image,omitempty"`
 }
 
 // a Frictionless data resource describing a file in a search
@@ -106,4 +127,20 @@ type DataLicense struct {
 	Path string `json:"path"`
 	// the descriptive title of the license (optional)
 	Title string `json:"title,omitempty"`
+}
+
+// information about a contributor to a DataPackage
+type Contributor struct {
+	// name/title of the contributor (name for person, name/title of organization)
+	Title string `json:"title"`
+	// the contributor's email address
+	Email string `json:"email"`
+	// a fully qualified http URL pointing to a relevant location online for the
+	// contributor
+	Path string `json:"path"`
+	// the role of the contributor ("author", "publisher", "maintainer",
+	// "wrangler", "contributor")
+	Role string `json:"role"`
+	// a string describing the contributor's organization
+	Organization string `json:"organization"`
 }

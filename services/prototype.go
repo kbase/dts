@@ -458,8 +458,13 @@ func (service *prototype) createTransfer(ctx context.Context,
 		return nil, err
 	}
 
-	taskId, err := tasks.Create(orcid, input.Body.Source,
-		input.Body.Destination, input.Body.FileIds)
+	taskId, err := tasks.Create(tasks.Specification{
+		Orcid:       orcid,
+		Source:      input.Body.Source,
+		Destination: input.Body.Destination,
+		FileIds:     input.Body.FileIds,
+		Description: input.Body.Description,
+	})
 	if err != nil {
 		return nil, err
 	}

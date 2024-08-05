@@ -70,18 +70,15 @@ func authorize(authorizationHeader string) (string, error) {
 	// check the access token against the KBase auth server
 	// and fetch the first ORCID associated with it
 	authServer, err := auth.NewKBaseAuthServer(accessToken)
-	var orcid string
-	var orcids []string
-	if err == nil {
-		orcids, err = authServer.Orcids()
-		if err == nil {
-			orcid = orcids[0]
-		}
-	}
 	if err != nil {
-		return orcid, huma.Error401Unauthorized(err.Error())
+		return "", huma.Error401Unauthorized(err.Error())
 	}
-	return orcid, nil
+	userInfo, err := authServer.UserInfo()
+	orcids, err := userInfo.Orcids()
+	if err != nil {
+		return "", huma.Error401Unauthorized(err.Error())
+	}
+	return orcids[0], nil // return the first ORCID encountered
 }
 
 type ServiceInfoOutput struct {

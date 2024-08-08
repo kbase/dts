@@ -54,8 +54,9 @@ type prototype struct {
 	Server *http.Server
 }
 
-// authorize clients for the DTS, returning the client's ORCID ID and an error
-// describing any issue encountered
+// authorize clients for the DTS, returning information about the user
+// corresponding to the token in the header (or an error describing any issue
+// encountered)
 func authorize(authorizationHeader string) (auth.UserInfo, error) {
 	if !strings.Contains(authorizationHeader, "Bearer") {
 		return auth.UserInfo{}, fmt.Errorf("Invalid authorization header")
@@ -68,7 +69,7 @@ func authorize(authorizationHeader string) (auth.UserInfo, error) {
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
 	// check the access token against the KBase auth server
-	// and fetch the first ORCID associated with it
+	// and return info about the corresponding user
 	authServer, err := auth.NewKBaseAuthServer(accessToken)
 	if err != nil {
 		return auth.UserInfo{}, huma.Error401Unauthorized(err.Error())
@@ -77,7 +78,7 @@ func authorize(authorizationHeader string) (auth.UserInfo, error) {
 	if err != nil {
 		return userInfo, huma.Error401Unauthorized(err.Error())
 	}
-	return userInfo, nil // return the first ORCID encountered
+	return userInfo, nil
 }
 
 type ServiceInfoOutput struct {

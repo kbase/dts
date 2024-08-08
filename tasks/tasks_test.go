@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 )
@@ -178,8 +179,15 @@ func (t *SerialTests) TestCreateTask() {
 	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
 
 	// queue up a transfer task between two phony databases
-	orcid := "1234-5678-9012-3456"
-	taskId, err := Create(orcid, "test-source", "test-destination", []string{"file1", "file2"})
+	taskId, err := Create(Specification{
+		UserInfo: auth.UserInfo{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2"},
+	})
 	assert.Nil(err)
 	assert.True(taskId != uuid.UUID{})
 
@@ -234,8 +242,15 @@ func (t *SerialTests) TestCancelTask() {
 	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
 
 	// queue up a transfer task between two phony databases
-	orcid := "1234-5678-9012-3456"
-	taskId, err := Create(orcid, "test-source", "test-destination", []string{"file1", "file2"})
+	taskId, err := Create(Specification{
+		UserInfo: auth.UserInfo{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2"},
+	})
 	assert.Nil(err)
 	assert.True(taskId != uuid.UUID{})
 
@@ -270,11 +285,18 @@ func (t *SerialTests) TestStopAndRestart() {
 	// start up, add a bunch of tasks, then immediately close
 	err := Start()
 	assert.Nil(err)
-	orcid := "1234-5678-9012-3456"
 	numTasks := 10
 	taskIds := make([]uuid.UUID, numTasks)
 	for i := 0; i < numTasks; i++ {
-		taskId, _ := Create(orcid, "test-source", "test-destination", []string{"file1", "file2"})
+		taskId, _ := Create(Specification{
+			UserInfo: auth.UserInfo{
+				Name:  "Joe-bob",
+				Orcid: "1234-5678-9012-3456",
+			},
+			Source:      "test-source",
+			Destination: "test-destination",
+			FileIds:     []string{"file1", "file2"},
+		})
 		taskIds[i] = taskId
 	}
 	time.Sleep(100 * time.Millisecond) // let things settle

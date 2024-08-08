@@ -44,6 +44,22 @@ type KBaseAuthServer struct {
 	AccessToken string
 }
 
+// a record containing information about a user logged into the KBase Auth2
+// server
+type kbaseUserInfo struct {
+	// KBase username
+	Username string `json:"user"`
+	// KBase user display name
+	Display string `json:"display"`
+	// User email address
+	Email string `json:"email"`
+	// Identities with associated providers
+	Idents []struct {
+		Provider string `json:"provider"`
+		UserName string `json:"provusername"`
+	} `json:"idents"`
+}
+
 // here's how KBase represents errors in responses to API calls
 type kbaseAuthErrorResponse struct {
 	HttpCode   int           `json:"httpcode"`
@@ -53,15 +69,6 @@ type kbaseAuthErrorResponse struct {
 	Message    string        `json:"message"`
 	CallId     int64         `json:"callid"`
 	Time       time.Duration `json:"time"`
-}
-
-// here's what we use to fetch user information
-type kbaseAuthUserInfo struct {
-	Username string `json:"user"`
-	Idents   []struct {
-		Provider string `json:"provider"`
-		UserName string `json:"provusername"`
-	} `json:"idents"`
 }
 
 // here's a set of instances to the KBase auth server, mapped by OAuth2
@@ -87,7 +94,7 @@ func NewKBaseAuthServer(accessToken string) (*KBaseAuthServer, error) {
 		}
 
 		// verify that the access token works (i.e. that the user is logged in)
-		userInfo, err := server.getUserInfo()
+		userInfo, err := server.kbaseUserInfo()
 		if err != nil {
 			return nil, err
 		}
@@ -162,8 +169,9 @@ func (server *KBaseAuthServer) get(resource string) (*http.Response, error) {
 	return client.Do(req)
 }
 
-func (server *KBaseAuthServer) getUserInfo() (kbaseAuthUserInfo, error) {
-	var userInfo kbaseAuthUserInfo
+// returns information for the current KBase user accessing the auth server
+func (server *KBaseAuthServer) kbaseUserInfo() (kbaseUserInfo, error) {
+	var userInfo kbaseUserInfo
 	resp, err := server.get("me")
 	if err != nil {
 		return userInfo, err
@@ -180,31 +188,39 @@ func (server *KBaseAuthServer) getUserInfo() (kbaseAuthUserInfo, error) {
 		return userInfo, err
 	}
 	err = json.Unmarshal(body, &userInfo)
+
+	// make sure we have at least one ORCID for this user
+	if len(userInfo.Idents) < 1 {
+		return userInfo, fmt.Errorf("KBase Auth2: No providers associated with this user!")
+	}
+	foundOrcid := false
+	for _, pid := range userInfo.Idents {
+		if pid.Provider == "OrcID" {
+			foundOrcid = true
+			break
+		}
+	}
+	if !foundOrcid {
+		return userInfo, fmt.Errorf("KBase Auth2: No ORCID IDs associated with this user!")
+	}
 	return userInfo, err
 }
 
-// returns the username for the current KBase user accessing the
-// KBase auth server
-func (server *KBaseAuthServer) Username() (string, error) {
-	userInfo, err := server.getUserInfo()
-	return userInfo.Username, err
-}
-
-// returns the current KBase user's registered ORCID identifiers (and/or an error)
-// a user can have 0, 1, or many associated ORCID identifiers
-func (server *KBaseAuthServer) Orcids() ([]string, error) {
-	userInfo, err := server.getUserInfo()
+// returns a normalized user info record for the current KBase user
+func (server *KBaseAuthServer) UserInfo() (UserInfo, error) {
+	kbUserInfo, err := server.kbaseUserInfo()
 	if err != nil {
-		return nil, err
+		return UserInfo{}, err
 	}
-	if len(userInfo.Idents) < 1 {
-		return nil, fmt.Errorf("No ORCID IDs associated with this user!")
+	userInfo := UserInfo{
+		Name:     kbUserInfo.Display,
+		Username: kbUserInfo.Username,
+		Email:    kbUserInfo.Email,
 	}
-	orcidIds := make([]string, 0)
-	for _, pid := range userInfo.Idents {
+	for _, pid := range kbUserInfo.Idents {
 		if pid.Provider == "OrcID" {
-			orcidIds = append(orcidIds, pid.UserName)
+			userInfo.Orcid = pid.UserName
 		}
 	}
-	return orcidIds, nil
+	return userInfo, nil
 }

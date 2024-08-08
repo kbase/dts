@@ -44,34 +44,17 @@ func TestNewKBaseAuthServer(t *testing.T) {
 	assert.Nil(err, "Authentication server constructor triggered an error")
 }
 
-// tests whether the authentication server can return the username for the
-// for the owner of the developer token
-func TestUsername(t *testing.T) {
+// tests whether the authentication server can return information for the
+// user associated with the specified developer token
+func TestUserInfo(t *testing.T) {
 	assert := assert.New(t)
 	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
 	server, _ := NewKBaseAuthServer(devToken)
 	assert.NotNil(server)
-	username, err := server.Username()
+	userInfo, err := server.UserInfo()
 	assert.Nil(err)
-	assert.True(len(username) > 0)
-}
 
-// tests whether the authentication server can return the proper credentials
-// for the owner of the developer token
-func TestOrchids(t *testing.T) {
-	assert := assert.New(t)
-	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	assert.False(orcid == "")
-	server, _ := NewKBaseAuthServer(devToken)
-	orcids, err := server.Orcids()
-	assert.Nil(err)
-	var foundOrcid bool
-	for _, id := range orcids {
-		if orcid == id {
-			foundOrcid = true
-			break
-		}
-	}
-	assert.True(foundOrcid)
+	assert.True(len(userInfo.Username) > 0)
+	assert.True(len(userInfo.Email) > 0)
+	assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), userInfo.Orcid)
 }

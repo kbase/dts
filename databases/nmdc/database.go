@@ -461,14 +461,24 @@ type DataGeneration struct {
 
 func (db Database) dataResourceFromDataObject(dataObject DataObject) (frictionless.DataResource, error) {
 	resource := frictionless.DataResource{
-		Id:          dataObject.Id,
-		Name:        dataResourceName(dataObject.Name),
+		Bytes: dataObject.FileSizeBytes,
+		Credit: credit.CreditMetadata{
+			Descriptions: []credit.Description{
+				{
+					DescriptionText: dataObject.Description,
+					Language:        "en",
+				},
+			},
+			Identifier: dataObject.Id,
+			Url:        dataObject.URL,
+		},
 		Description: dataObject.Description,
-		Path:        dataObject.URL,
 		Format:      formatFromType(dataObject.Type),
-		MediaType:   mimeTypeFromFormat(formatFromType(dataObject.Type)),
-		Bytes:       dataObject.FileSizeBytes,
 		Hash:        dataObject.MD5Checksum,
+		Id:          dataObject.Id,
+		MediaType:   mimeTypeFromFormat(formatFromType(dataObject.Type)),
+		Name:        dataResourceName(dataObject.Name),
+		Path:        dataObject.URL,
 	}
 
 	// strip the host from the resource's path and assign it an endpoint
@@ -691,17 +701,16 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 
 	// https://microbiomedata.github.io/nmdc-schema/Study/
 	type Study struct { // partial representation, includes only relevant fields
-		Id                    string              `json:"id"`
-		AlternativeNames      []string            `json:"alternative_names,omitempty"`
-		AlternativeTitles     []string            `json:"alternative_titles,omitempty"`
-		AssociatedDois        []Doi               `json:"associated_dois,omitempty"`
-		Description           string              `json:"description,omitempty"`
-		FundingSources        []string            `json:"funding_sources,omitempty"`
-		CreditAssociations    []CreditAssociation `json:"has_credit_associations,omitempty"`
-		Name                  string              `json:"name,omitempty"`
-		PrincipalInvestigator PersonValue         `json:"principal_investigator,omitempty"`
-		RelatedIdentifiers    string              `json:"related_identifiers,omitempty"`
-		Title                 string              `json:"title,omitempty"`
+		Id                 string              `json:"id"`
+		AlternativeNames   []string            `json:"alternative_names,omitempty"`
+		AlternativeTitles  []string            `json:"alternative_titles,omitempty"`
+		AssociatedDois     []Doi               `json:"associated_dois,omitempty"`
+		Description        string              `json:"description,omitempty"`
+		FundingSources     []string            `json:"funding_sources,omitempty"`
+		CreditAssociations []CreditAssociation `json:"has_credit_associations,omitempty"`
+		Name               string              `json:"name,omitempty"`
+		RelatedIdentifiers string              `json:"related_identifiers,omitempty"`
+		Title              string              `json:"title,omitempty"`
 	}
 
 	// fetch the study with the given ID
@@ -718,6 +727,7 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 
 	// fish metadata out of the study
 
+	// NOTE: principal investigator role is included with credit associations
 	contributors := make([]credit.Contributor, len(study.CreditAssociations))
 	for i, association := range study.CreditAssociations {
 		contributors[i] = credit.Contributor{
@@ -763,16 +773,31 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 		}
 	}
 
+	var fundingSources []credit.FundingReference
+	if len(study.FundingSources) > 0 {
+		fundingSources = make([]credit.FundingReference, len(study.FundingSources))
+		for i, fundingSource := range study.FundingSources {
+			// FIXME: fundingSource is just a string, so we must make assumptions!
+			if strings.Index(fundingSource, "Department of Energy") != -1 {
+				fundingSources[i].Funder = credit.Organization{
+					OrganizationId:   "ROR:01bj3aw27",
+					OrganizationName: "United States Department of Energy",
+				}
+			}
+		}
+	}
+
 	creditMetadata = credit.CreditMetadata{
 		// Identifier, Dates, and Version fields are specific to DataResources, omitted here
-		ResourceType: "dataset",
-		Titles:       titles,
+		Contributors: contributors,
+		Funding:      fundingSources,
 		Publisher: credit.Organization{
 			OrganizationId:   "ROR:05cwx3318",
 			OrganizationName: "National Microbiome Data Collaborative",
 		},
 		RelatedIdentifiers: relatedIdentifiers,
-		Contributors:       contributors,
+		ResourceType:       "dataset",
+		Titles:             titles,
 	}
 	// FIXME: we can probably chase down credit metadata dates using the
 	// FIXME: generated_by (Activity) field, instantiated as one of the
@@ -812,14 +837,18 @@ func (db Database) dataObjectsForStudy(studyId string) (databases.SearchResults,
 		}
 	}
 
-	// add the credit metadata to each resource
-	creditMetadata, err := db.creditMetadataForStudy(studyId)
+	// fill in study-level credit metadata for each resource
+	studyCreditMetadata, err := db.creditMetadataForStudy(studyId)
 	if err != nil {
 		return results, err
 	}
-	for i, resource := range results.Resources {
-		results.Resources[i].Credit = creditMetadata
-		results.Resources[i].Credit.Identifier = resource.Id
+	for i := range results.Resources {
+		results.Resources[i].Credit.Contributors = studyCreditMetadata.Contributors
+		results.Resources[i].Credit.Funding = studyCreditMetadata.Funding
+		results.Resources[i].Credit.Publisher = studyCreditMetadata.Publisher
+		results.Resources[i].Credit.RelatedIdentifiers = studyCreditMetadata.RelatedIdentifiers
+		results.Resources[i].Credit.ResourceType = studyCreditMetadata.ResourceType
+		results.Resources[i].Credit.Titles = studyCreditMetadata.Titles
 	}
 
 	return results, nil

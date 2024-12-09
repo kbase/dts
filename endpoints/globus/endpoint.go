@@ -442,8 +442,9 @@ func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if errResp.Code == "ConsentRequired" {
-			// we're missing a required scope, so reauthenticate with it
+		if errResp.Code == "ConsentRequired" || errResp.Code == "AuthenticationFailed" {
+			// our token has expired or we're missing a required scope,
+			// so reauthenticate
 			ep.Scopes = errResp.RequiredScopes
 			err = ep.authenticate()
 			if err != nil {

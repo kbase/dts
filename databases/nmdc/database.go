@@ -156,14 +156,17 @@ func (db *Database) Search(params databases.SearchParameters) (databases.SearchR
 		}
 	}
 
-	// if we are given a study ID, fetch data objects associated with it
-	if p.Has("study_id") {
-		return db.dataObjectsForStudy(p.Get("study_id"))
+	// NOTE: NMDC doesn't do "search" at the moment, so we interpret a query as
+	// NOTE: a filter
+	if params.Query != "" {
+		p.Add("filter", params.Query)
 	}
 
-	// otherwise, simply call the data_objects/ endpoint with the given query string
-	//p.Add("search", params.Query) // FIXME: not yet supported by NMDC!
-	p.Add("filter", params.Query)
+	if p.Has("study_id") { // fetch data objects associated with this study
+		return db.dataObjectsForStudy(p.Get("study_id"), p)
+	}
+
+	// otherwise, simply call the data_objects/ endpoint (possibly with a filter applied)
 	return db.dataObjects(p)
 }
 
@@ -807,10 +810,10 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 }
 
 // fetches file metadata for data objects associated with the given study
-func (db Database) dataObjectsForStudy(studyId string) (databases.SearchResults, error) {
+func (db Database) dataObjectsForStudy(studyId string, params url.Values) (databases.SearchResults, error) {
 	var results databases.SearchResults
 
-	body, err := db.get(fmt.Sprintf("data_objects/study/%s", studyId), url.Values{})
+	body, err := db.get(fmt.Sprintf("data_objects/study/%s", studyId), params)
 	if err != nil {
 		return results, err
 	}
@@ -825,10 +828,26 @@ func (db Database) dataObjectsForStudy(studyId string) (databases.SearchResults,
 		return results, err
 	}
 
+	// FIXME: I'm not able to get filters to work as (seems to be) intended, so
+	// FIXME: this is a short-term hack.
+	var dataObjectType string
+	if params.Has("filter") {
+		filter := params.Get("filter")
+		colon := strings.Index(filter, ":")
+		if strings.Contains(filter, "data_object_type:") {
+			dataObjectType = filter[colon+1:]
+		}
+	}
+
 	// create resources for the data objects
 	results.Resources = make([]frictionless.DataResource, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
+			// FIXME: apply hack!
+			if dataObjectType != "" && dataObject.DataObjectType != dataObjectType {
+				slog.Debug(fmt.Sprintf("Data object type mismatch (want %s, got %s)", dataObjectType, dataObject.DataObjectType))
+				continue
+			}
 			resource, err := db.dataResourceFromDataObject(dataObject)
 			if err != nil {
 				return results, err

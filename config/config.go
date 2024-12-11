@@ -56,6 +56,9 @@ type serviceConfig struct {
 	DeleteAfter int `json:"delete_after" yaml:"delete_after"`
 	// flag indicating whether debug logging and other tools are enabled
 	Debug bool `json:"debug" yaml:"debug"`
+	// flag indicating whether an endpoint double-checks that files are staged
+	// (if not set, the endpoint will trust a database for staging status)
+	DoubleCheckStaging bool `json:"double_check_staging" yaml:"double_check_staging"`
 }
 
 // global config variables

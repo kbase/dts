@@ -27,12 +27,14 @@ Each of these sections is described below, with a motivating example.
 service:
   port: 8080
   max_connections: 100
+  max_payload_size: 50
   poll_interval:   60000
   endpoint: globus-local
   data_dir: /path/to/dir
   manifest_dir: /path/to/dir
   delete_after: 604800
   debug: true
+  double_check_staging: false
 ```
 
 The `service` section contains parameters that control nuts-and-bolts behavior
@@ -43,6 +45,9 @@ section are:
 * `max_connections`: the maximum number of connections that are simultaneously
   available for DTS clients. If a client sends a request to the DTS when all
   connections are occupied, the request is denied.
+* `max_payload_size`: the maximum payload size (in GB) allowed by the service.
+  If a client requests the transfer of a payload larger than this size, the
+  request is denied.
 * `poll_interval`: the interval (in milliseconds) at which the DTS checks for
   progress in any ongoing transfers. Because the file transfers orchestrated by
   the DTS typically take a long time, it's reasonable to set this parameter to
@@ -67,6 +72,9 @@ section are:
 * `debug`: an optional parameter that, if set to `true`, enables more detailed
   logging and other features that are helpful for troubleshooting and
   development work. The default value is `false`.
+* `double_check_staging`: an optional parameter that, if set to `true`, performs
+  additional checks for staged files. This parameter can be useful for figuring
+  out the appropriate `root` for an endpoint.
 
 ## `endpoints`
 

@@ -119,7 +119,11 @@ func (t *SerialTests) TestCreateTask() {
 
 	// queue up a transfer task between two phony databases
 	taskId, err := Create(Specification{
-		UserInfo: auth.UserInfo{
+		Client: auth.Client{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
+		User: auth.User{
 			Name:  "Joe-bob",
 			Orcid: "1234-5678-9012-3456",
 		},
@@ -182,7 +186,11 @@ func (t *SerialTests) TestCancelTask() {
 
 	// queue up a transfer task between two phony databases
 	taskId, err := Create(Specification{
-		UserInfo: auth.UserInfo{
+		Client: auth.Client{
+			Name:  "Joe-bob",
+			Orcid: "1234-5678-9012-3456",
+		},
+		User: auth.User{
 			Name:  "Joe-bob",
 			Orcid: "1234-5678-9012-3456",
 		},
@@ -228,7 +236,11 @@ func (t *SerialTests) TestStopAndRestart() {
 	taskIds := make([]uuid.UUID, numTasks)
 	for i := 0; i < numTasks; i++ {
 		taskId, _ := Create(Specification{
-			UserInfo: auth.UserInfo{
+			Client: auth.Client{
+				Name:  "Joe-bob",
+				Orcid: "1234-5678-9012-3456",
+			},
+			User: auth.User{
 				Name:  "Joe-bob",
 				Orcid: "1234-5678-9012-3456",
 			},

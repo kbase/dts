@@ -55,16 +55,16 @@ func TestInvalidToken(t *testing.T) {
 }
 
 // tests whether the authentication server can return information for the
-// user associated with the specified developer token
-func TestUserInfo(t *testing.T) {
+// client (the user associated with the specified developer token)
+func TestClient(t *testing.T) {
 	assert := assert.New(t)
 	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
 	server, _ := NewKBaseAuthServer(devToken)
 	assert.NotNil(server)
-	userInfo, err := server.UserInfo()
+	client, err := server.Client()
 	assert.Nil(err)
 
-	assert.True(len(userInfo.Username) > 0)
-	assert.True(len(userInfo.Email) > 0)
-	assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), userInfo.Orcid)
+	assert.True(len(client.Username) > 0)
+	assert.True(len(client.Email) > 0)
+	assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), client.Orcid)
 }

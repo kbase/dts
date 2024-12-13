@@ -34,6 +34,36 @@ import (
 // users who have made requests to the DTS. This prevents us from having to
 // rely on a secondary data source for this information.
 
+// associates the given KBase username with the given ORCID ID
+func SetKBaseLocalUsernameForOrcid(orcid, username string) error {
+	if !kbaseUserFederationStarted {
+		// fire it up!
+		started := make(chan struct{})
+		go kbaseUserFederation(started)
+
+		// wait for it to start
+		<-started
+	}
+	kbaseOrcidUserChan <- [2]string{orcid, username}
+	err := <-kbaseErrorChan
+	return err
+}
+
+// returns the local KBase username associated with the given ORCID ID
+func KBaseLocalUsernameForOrcid(orcid string) (string, error) {
+	if !kbaseUserFederationStarted { // no one's logged in!
+		return "", fmt.Errorf("KBase federated user table not available!")
+	}
+	kbaseOrcidChan <- orcid
+	username := <-kbaseUserChan
+	err := <-kbaseErrorChan
+	return username, err
+}
+
+//-----------
+// Internals
+//-----------
+
 var kbaseUserFederationStarted = false
 var kbaseOrcidChan chan string        // passes ORCIDs in
 var kbaseOrcidUserChan chan [2]string // passes (ORCIDs, username) pairs in
@@ -79,30 +109,4 @@ func kbaseUserFederation(started chan struct{}) {
 			}
 		}
 	}
-}
-
-// associates the given KBase username with the given ORCID ID
-func SetKBaseLocalUsernameForOrcid(orcid, username string) error {
-	if !kbaseUserFederationStarted {
-		// fire it up!
-		started := make(chan struct{})
-		go kbaseUserFederation(started)
-
-		// wait for it to start
-		<-started
-	}
-	kbaseOrcidUserChan <- [2]string{orcid, username}
-	err := <-kbaseErrorChan
-	return err
-}
-
-// returns the local KBase username associated with the given ORCID ID
-func KBaseLocalUsernameForOrcid(orcid string) (string, error) {
-	if !kbaseUserFederationStarted { // no one's logged in!
-		return "", fmt.Errorf("KBase federated user table not available!")
-	}
-	kbaseOrcidChan <- orcid
-	username := <-kbaseUserChan
-	err := <-kbaseErrorChan
-	return username, err
 }

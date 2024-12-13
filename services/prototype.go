@@ -150,14 +150,14 @@ var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
 // authorize clients for the DTS, returning information about the user
 // corresponding to the token in the header (or an error describing any issue
 // encountered)
-func authorize(authorizationHeader string) (auth.UserInfo, error) {
+func authorize(authorizationHeader string) (auth.Client, error) {
 	if !strings.Contains(authorizationHeader, "Bearer") {
-		return auth.UserInfo{}, fmt.Errorf("Invalid authorization header")
+		return auth.Client{}, fmt.Errorf("Invalid authorization header")
 	}
 	b64Token := authorizationHeader[len("Bearer "):]
 	accessTokenBytes, err := base64.StdEncoding.DecodeString(b64Token)
 	if err != nil {
-		return auth.UserInfo{}, huma.Error401Unauthorized(err.Error())
+		return auth.Client{}, huma.Error401Unauthorized(err.Error())
 	}
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
@@ -165,13 +165,17 @@ func authorize(authorizationHeader string) (auth.UserInfo, error) {
 	// and return info about the corresponding user
 	authServer, err := auth.NewKBaseAuthServer(accessToken)
 	if err != nil {
-		return auth.UserInfo{}, huma.Error401Unauthorized(err.Error())
+		return auth.Client{}, huma.Error401Unauthorized(err.Error())
 	}
-	userInfo, err := authServer.UserInfo()
+	client, err := authServer.Client()
 	if err != nil {
-		return userInfo, huma.Error401Unauthorized(err.Error())
+		return client, huma.Error401Unauthorized(err.Error())
 	}
-	return userInfo, nil
+	// the client needs at least one associated ORCID
+	if client.Orcid == "" {
+		return client, huma.Error403Forbidden("The DTS client has no associated ORCID!")
+	}
+	return client, nil
 }
 
 type ServiceInfoOutput struct {
@@ -342,7 +346,7 @@ func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
 		Database      string `path:"db" example:"jdp" doc:"the abbreviated name of a database"`
 	}) (*SearchParametersOutput, error) {
 
-	userInfo, err := authorize(input.Authorization)
+	client, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +356,7 @@ func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
 	if !ok {
 		return nil, fmt.Errorf("Database %s not found", input.Database)
 	}
-	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
+	db, err := databases.NewDatabase(client.Orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +411,7 @@ func searchDatabase(_ context.Context,
 	input *SearchDatabaseInput,
 	specific map[string]json.RawMessage) (*SearchResultsOutput, error) {
 
-	userInfo, err := authorize(input.Authorization)
+	client, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +436,7 @@ func searchDatabase(_ context.Context,
 	}
 
 	slog.Info(fmt.Sprintf("Searching database %s for files...", input.Database))
-	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
+	db, err := databases.NewDatabase(client.Orcid, input.Database)
 	if err != nil {
 		return nil, databaseError(err)
 	}
@@ -508,7 +512,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		Limit         int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
 	}) (*FileMetadataOutput, error) {
 
-	userInfo, err := authorize(input.Authorization)
+	client, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +531,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 
 	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
 		len(ids), input.Database))
-	db, err := databases.NewDatabase(userInfo.Orcid, input.Database)
+	db, err := databases.NewDatabase(client.Orcid, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -558,13 +562,31 @@ func (service *prototype) createTransfer(ctx context.Context,
 		ContentType   string          `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
 	}) (*TransferOutput, error) {
 
-	userInfo, err := authorize(input.Authorization)
+	client, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
 
+	// fetch information about the requesting user
+	var user auth.User
+	if input.Body.Orcid != "" {
+		// FIXME: we just extract the ORCID at the moment
+		// FIXME: we should get the other stuff from the ORCID public API
+		user.Orcid = input.Body.Orcid
+	} else {
+		// FIXME: for now, while we're in transition, we can fall back to the client's
+		// FIXME: info if a user ORCID is not provided
+		user = auth.User{
+			Name:         client.Name,
+			Email:        client.Email,
+			Orcid:        client.Orcid,
+			Organization: client.Organization,
+		}
+	}
+
 	taskId, err := tasks.Create(tasks.Specification{
-		UserInfo:     userInfo,
+		Client:       client,
+		User:         user,
 		Source:       input.Body.Source,
 		Destination:  input.Body.Destination,
 		FileIds:      input.Body.FileIds,

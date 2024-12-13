@@ -45,6 +45,8 @@ type FileMetadataResponse struct {
 
 // a request for a file transfer (POST)
 type TransferRequest struct {
+	// user ORCID
+	Orcid string `json:"orcid" example:"0000-0002-9227-8514" doc:"ORCID for user requesting transfer"`
 	// name of source database
 	Source string `json:"source" example:"jdp" doc:"source database identifier"`
 	// identifiers for files to be transferred

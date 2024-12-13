@@ -21,13 +21,29 @@
 
 package auth
 
-// a record containing information about a DTS user
-type UserInfo struct {
-	// user's name (human-readable and display-friendly)
+// A record containing information about a DTS client. A DTS client is a KBase
+// user whose KBase developer token is used to authorize with the DTS.
+type Client struct {
+	// client name (human-readable and display-friendly)
 	Name string
-	// username used to access DTS
+	// KBase username used by client to access DTS
 	Username string
-	// user's email address
+	// client email address
+	Email string
+	// ORCID identifier associated with this client
+	Orcid string
+	// organization with which this client is affiliated
+	Organization string
+}
+
+// A record containing information about a DTS user using a DTS client to
+// request file transfers. A DTS user need not have a KBase developer token
+// (but should have a KBase account if they are requesting files be transferred
+// to KBase).
+type User struct {
+	// client name (human-readable and display-friendly)
+	Name string
+	// client email address
 	Email string
 	// ORCID identifier associated with this user
 	Orcid string

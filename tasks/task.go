@@ -54,7 +54,8 @@ type transferTask struct {
 	Source            string            // name of source database (in config)
 	Status            TransferStatus    // status of file transfer operation
 	Subtasks          []transferSubtask // list of constituent file transfer subtasks
-	UserInfo          auth.UserInfo     // info about user requesting transfer
+	Client            auth.Client       // info about the DTS client used for this task
+	User              auth.User         // info about user requesting transfer
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
@@ -68,7 +69,7 @@ func payloadSize(resources []DataResource) float64 {
 
 // starts a task going, initiating staging if needed
 func (task *transferTask) start() error {
-	source, err := databases.NewDatabase(task.UserInfo.Orcid, task.Source)
+	source, err := databases.NewDatabase(task.Client.Orcid, task.Source)
 	if err != nil {
 		return err
 	}
@@ -114,11 +115,11 @@ func (task *transferTask) start() error {
 	destinationEndpoint := config.Databases[task.Destination].Endpoint
 
 	// construct a destination folder name
-	destination, err := databases.NewDatabase(task.UserInfo.Orcid, task.Destination)
+	destination, err := databases.NewDatabase(task.Client.Orcid, task.Destination)
 	if err != nil {
 		return err
 	}
-	username, err := destination.LocalUser(task.UserInfo.Orcid)
+	username, err := destination.LocalUser(task.User.Orcid)
 	if err != nil {
 		return err
 	}
@@ -150,7 +151,7 @@ func (task *transferTask) start() error {
 			Resources:           resourcesForEndpoint,
 			Source:              task.Source,
 			SourceEndpoint:      sourceEndpoint,
-			UserInfo:            task.UserInfo,
+			Client:              task.Client,
 		})
 	}
 
@@ -343,10 +344,10 @@ func (task *transferTask) createManifest() DataPackage {
 		Keywords:  []string{"dts", "manifest"},
 		Contributors: []Contributor{
 			{
-				Title:        task.UserInfo.Name,
-				Email:        task.UserInfo.Email,
+				Title:        task.User.Name,
+				Email:        task.User.Email,
 				Role:         "author",
-				Organization: task.UserInfo.Organization,
+				Organization: task.User.Organization,
 			},
 		},
 		Description:  task.Description,

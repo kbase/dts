@@ -359,7 +359,7 @@ func (task *transferTask) createManifest() DataPackage {
 }
 
 // checks whether the file manifest for a task has been generated and, if so,
-// marks the task as completed
+// finalizes the transfer and marks the task as completed
 func (task *transferTask) checkManifest() error {
 	// has the manifest transfer completed?
 	localEndpoint, err := endpoints.NewEndpoint(config.Service.Endpoint)
@@ -374,6 +374,16 @@ func (task *transferTask) checkManifest() error {
 		xferStatus.Code == TransferStatusFailed { // manifest transferred
 		task.Manifest = uuid.NullUUID{}
 		os.Remove(task.ManifestFile)
+
+		destination, err := databases.NewDatabase(task.Destination)
+		if err != nil {
+			return err
+		}
+		err = destination.Finalize(task.User.Orcid, task.Id)
+		if err != nil {
+			return err
+		}
+
 		task.ManifestFile = ""
 		task.Status.Code = xferStatus.Code
 		task.Status.Message = ""

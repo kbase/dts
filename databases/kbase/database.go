@@ -68,6 +68,10 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 	return databases.StagingStatusUnknown, err
 }
 
+func (db *Database) Finalize(orcid string, id uuid.UUID) error {
+	return nil
+}
+
 func (db *Database) LocalUser(orcid string) (string, error) {
 	return usernameForOrcid(orcid)
 }

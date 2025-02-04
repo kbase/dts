@@ -51,6 +51,9 @@ type Database interface {
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
 	// returns the status of a given staging operation
 	StagingStatus(id uuid.UUID) (StagingStatus, error)
+	// performs any work needed to finalize a transfer with the given UUID,
+	// associated with the user with the given ORCID
+	Finalize(orcid string, id uuid.UUID) error
 	// returns the local username associated with the given ORCID
 	LocalUser(orcid string) (string, error)
 	// returns the saved state of the Database, loadable via Load

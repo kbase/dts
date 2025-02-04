@@ -269,6 +269,10 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 	return databases.StagingStatusUnknown, nil
 }
 
+func (db *Database) Finalize(orcid string, id uuid.UUID) error {
+	return nil
+}
+
 func (db *Database) Endpoint() (endpoints.Endpoint, error) {
 	return db.Endpt, nil
 }

@@ -22,6 +22,13 @@
 package auth
 
 import (
+	"bytes"
+	"crypto/aes"
+	"encoding/csv"
+	"errors"
+	"os"
+	"path/filepath"
+
 	"github.com/kbase/dts/config"
 )
 
@@ -30,12 +37,67 @@ import (
 // short-term solution, as the encrypted file is maintained manually, but it
 // provides a method for adding DTS users without Acts of God.
 type Authenticator struct {
+	UserForToken map[string]User
 }
 
-func NewAuthenticator() (AccessTokens, error) {
+func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
+	key := []byte(config.Service.Secret)
 
+	encryptedText, err := os.ReadFile(tokenFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	cipher, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	plainText := make([]byte, len(encryptedText))
+	cipher.Decrypt(plainText, encryptedText)
+
+	// the plaintext content is a tab-delimited file with records like so:
+	// Name\tEmail\tOrcid\tOrganization\tToken
+	reader := csv.NewReader(bytes.NewReader(plainText))
+	reader.Comma = '\t'
+	reader.FieldsPerRecord = 5
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	userRecords := make(map[string]User)
+	for _, record := range records {
+		token := record[4]
+		userRecords[token] = User{
+			Name:         record[0],
+			Email:        record[1],
+			Orcid:        record[2],
+			Organization: record[3],
+		}
+	}
+
+	return userRecords, nil
+}
+
+func NewAuthenticator() (*Authenticator, error) {
+	var a Authenticator
+	var err error
+	filePath := filepath.Join(config.Service.DataDirectory, "access.dat")
+	a.UserForToken, err = ReadAccessTokenFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &a, nil
 }
 
 // given an access token, returns a User or an error
 func (a *Authenticator) GetUser(accessToken string) (User, error) {
+	if user, found := a.UserForToken[accessToken]; found {
+		return user, nil
+	} else {
+		return User{}, errors.New("Invalid access token!")
+	}
 }

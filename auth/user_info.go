@@ -26,7 +26,7 @@ package auth
 type Client struct {
 	// client name (human-readable and display-friendly)
 	Name string
-	// KBase username used by client to access DTS
+	// KBase username (if any) used by client to access DTS
 	Username string
 	// client email address
 	Email string

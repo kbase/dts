@@ -23,7 +23,7 @@ package auth
 
 import (
 	"bytes"
-	"crypto/aes"
+	//"crypto/aes"
 	"encoding/csv"
 	"errors"
 	"os"
@@ -41,20 +41,21 @@ type Authenticator struct {
 }
 
 func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
-	key := []byte(config.Service.Secret)
+	//key := []byte(config.Service.Secret)
 
 	encryptedText, err := os.ReadFile(tokenFilePath)
 	if err != nil {
 		return nil, err
 	}
 
-	cipher, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
+	//cipher, err := aes.NewCipher(key)
+	//if err != nil {
+	//	return nil, err
+	//}
 
-	plainText := make([]byte, len(encryptedText))
-	cipher.Decrypt(plainText, encryptedText)
+	//plainText := make([]byte, len(encryptedText))
+	//cipher.Decrypt(plainText, encryptedText)
+	plainText := []byte(encryptedText)
 
 	// the plaintext content is a tab-delimited file with records like so:
 	// Name\tEmail\tOrcid\tOrganization\tToken

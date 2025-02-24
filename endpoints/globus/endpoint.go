@@ -147,13 +147,18 @@ func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error)
 		resource := fmt.Sprintf("operation/endpoint/%s/ls", ep.Id.String())
 		body, err := ep.get(resource, values)
 		if err != nil {
-			globusErr := err.(*GlobusError)
-			switch globusErr.Code {
-			case "ClientError.NotFound":
-				// it's okay if the directory doesn't exist -- it might need to be staged
-				return false, nil
+			switch lsErr := err.(type) {
+			case *GlobusError:
+				switch lsErr.Code {
+				case "ClientError.NotFound":
+					// it's okay if the directory doesn't exist -- it might need to be staged
+					return false, nil
+				default:
+					// propagate the error
+					return false, err
+				}
 			default:
-				// propagate the error
+				// propagate all other error types
 				return false, err
 			}
 		}

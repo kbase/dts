@@ -197,9 +197,9 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 						GoldData struct {
 							GoldStampId string `json:"gold_stamp_id"`
 						} `json:"gold_data"`
-						ProposalId      int    `json:"proposal_id"`
-						ContentType     string `json:"content_type"`
-						PmoProjectId    int    `json:"pmo_project_id"`
+						ProposalId  int    `json:"proposal_id"`
+						ContentType string `json:"content_type"`
+						//PmoProjectId    int    `json:"pmo_project_id"`
 						AnalysisProject struct {
 							Status string `json:"status"`
 						} `json:"analysis_project"`
@@ -790,7 +790,12 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 					case "project_id":
 						extras += fmt.Sprintf(`"project_id": "%s"`, org.Id)
 					case "img_taxon_oid":
-						extras += fmt.Sprintf(`"img_taxon_oid": %d`, file.Metadata.IMG.TaxonOID)
+						var taxonOID int
+						err := json.Unmarshal(file.Metadata.IMG.TaxonOID, &taxonOID)
+						if err != nil {
+							return results, err
+						}
+						extras += fmt.Sprintf(`"img_taxon_oid": %d`, taxonOID)
 					}
 				}
 				extras += "}"

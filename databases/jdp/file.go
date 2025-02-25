@@ -99,7 +99,8 @@ type Metadata struct {
 		DisplayName string `json:"display_name"`
 	} `json:"gold_data"`
 	IMG struct {
-		TaxonOID int `json:"taxon_oid"`
+		// TaxonOID can be either a number or a string, because who cares, apparently
+		TaxonOID json.RawMessage `json:"taxon_oid"`
 	} `json:"img,omitempty"`
 	// sequencing project metadata
 	SequencingProject struct {

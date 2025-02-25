@@ -25,6 +25,15 @@ import (
 	"encoding/json"
 )
 
+// This type represents metadata about an organism associated with one or
+// more files.
+type Organism struct {
+	Id    string `json:"id"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	Files []File `json:"files"`
+}
+
 // This type represents a single file entry in a JDP ElasticSearch result.
 type File struct {
 	// unique ID used by the DTS to manipulate the file

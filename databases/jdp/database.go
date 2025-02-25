@@ -581,7 +581,7 @@ func dataResourceName(filename string) string {
 }
 
 // creates a DataResource from a File
-func dataResourceFromFile(file File) frictionless.DataResource {
+func dataResourceFromOrganismAndFile(organism Organism, file File) frictionless.DataResource {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
 	fileTypes := fileTypesFromFile(file)
@@ -606,7 +606,7 @@ func dataResourceFromFile(file File) frictionless.DataResource {
 			ResourceType: "dataset",
 			Titles: []credit.Title{
 				{
-					Title: file.Metadata.FinalDeliveryProject.Name,
+					Title: organism.Title,
 				},
 			},
 			Dates: []credit.EventDate{
@@ -726,10 +726,7 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 		return results, err
 	}
 	type JDPResults struct {
-		Organisms []struct {
-			Id    string `json:"id"`
-			Files []File `json:"files"`
-		} `json:"organisms"`
+		Organisms []Organism `json:"organisms"`
 	}
 	results.Resources = make([]frictionless.DataResource, 0)
 	var jdpResults JDPResults
@@ -740,7 +737,7 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	for _, org := range jdpResults.Organisms {
 		resources := make([]frictionless.DataResource, 0)
 		for _, file := range org.Files {
-			res := dataResourceFromFile(file)
+			res := dataResourceFromOrganismAndFile(org, file)
 
 			// add any requested additional metadata
 			if extraFields != nil {

@@ -61,6 +61,7 @@ func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
 	// Name\tEmail\tOrcid\tOrganization\tToken
 	reader := csv.NewReader(bytes.NewReader(plainText))
 	reader.Comma = '\t'
+	reader.Comment = '#'
 	reader.FieldsPerRecord = 5
 
 	records, err := reader.ReadAll()

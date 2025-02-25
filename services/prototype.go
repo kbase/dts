@@ -161,16 +161,35 @@ func authorize(authorizationHeader string) (auth.Client, error) {
 	}
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
-	// check the access token against the KBase auth server
-	// and return info about the corresponding user
-	authServer, err := auth.NewKBaseAuthServer(accessToken)
-	if err != nil {
-		return auth.Client{}, huma.Error401Unauthorized(err.Error())
+	var client auth.Client
+
+	// first, check the access token against the DTS authenticator
+	authenticator, err := auth.NewAuthenticator()
+	if err == nil {
+		user, err := authenticator.GetUser(accessToken)
+		if err == nil {
+			client = auth.Client{
+				Name:         user.Name,
+				Email:        user.Email,
+				Orcid:        user.Orcid,
+				Organization: user.Organization,
+			}
+		}
 	}
-	client, err := authServer.Client()
 	if err != nil {
-		return client, huma.Error401Unauthorized(err.Error())
+		slog.Error(fmt.Sprintf("authenticator: %s", err.Error()))
+
+		// maybe it's a KBase dev token, so check with the KBase auth server
+		authServer, err := auth.NewKBaseAuthServer(accessToken)
+		if err != nil {
+			return auth.Client{}, huma.Error401Unauthorized(err.Error())
+		}
+		client, err = authServer.Client()
+		if err != nil {
+			return client, huma.Error401Unauthorized(err.Error())
+		}
 	}
+
 	// the client needs at least one associated ORCID
 	if client.Orcid == "" {
 		return client, huma.Error403Forbidden("The DTS client has no associated ORCID!")

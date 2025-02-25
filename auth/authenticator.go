@@ -85,7 +85,7 @@ func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
 func NewAuthenticator() (*Authenticator, error) {
 	var a Authenticator
 	var err error
-	filePath := filepath.Join(config.Service.DataDirectory, "access.dat")
+	filePath := filepath.Join(config.Service.DataDirectory, "access.tsv")
 	a.UserForToken, err = ReadAccessTokenFile(filePath)
 	if err != nil {
 		return nil, err

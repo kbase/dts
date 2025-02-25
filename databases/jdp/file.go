@@ -65,7 +65,56 @@ type File struct {
 
 // this type represents metadata associated with a File ^^^
 type Metadata struct {
-	// proposal info
+	AnalysisProject struct {
+		Status string `json:"status"`
+	} `json:"analysis_project"`
+	// analysis project ID, sometimes used as ITS project ID. This type can be a
+	// list or a number, so we have to unmarshal it into a RawMessage
+	AnalysisProjectId    json.RawMessage `json:"analysis_project_id"`
+	ContentType          string          `json:"content_type"`
+	FinalDeliveryProject struct {
+		Name                  string `json:"final_deliv_product_name"`
+		ProductSearchCategory string `json:"product_search_category"`
+	} `json:"final_deliv_project"`
+	GoldData struct {
+		// stamp ID
+		StampId string `json:"gold_stamp_id"`
+		// project URL
+		ProjectURL string `json:"gold_project_url"`
+		// display name
+		DisplayName string `json:"display_name"`
+	} `json:"gold_data"`
+	IMG struct {
+		// TaxonOID can be either a number or a string, because who cares, apparently
+		TaxonOID          json.RawMessage `json:"taxon_oid"`
+		Database          string          `json:"database"`
+		AddDate           string          `json:"add_date"`
+		FileType          string          `json:"file_type"`
+		Domain            string          `json:"domain"`
+		TaxonDisplayName  string          `json:"taxon_display_name"`
+		NScaffolds        int             `json:"n_scaffolds"`
+		JgiProjectId      int             `json:"jgi_project_id"`
+		GcPercent         float64         `json:"gc_percent"`
+		TotalBases        int             `json:"total_bases"`
+		Assembled         string          `json:"assembled"`
+		AnalysisProjectId string          `json:"analysis_project_id"`
+	} `json:"img,omitempty"`
+	NCBITaxon struct {
+		Order   string `json:"ncbi_taxon_order"`
+		Family  string `json:"ncbi_taxon_family"`
+		Genus   string `json:"ncbi_taxon_genus"`
+		Species string `json:"ncbi_taxon_species"`
+	} `json:"ncbi_taxon"`
+	NCBITaxonId int `json:"ncbi_taxon_id"`
+	Portal      struct {
+		DisplayLocation []string `json:"display_location"`
+		JdpKingdom      string   `json:"jdp_kingdom"`
+	} `json:"portal"`
+	PmoProject struct {
+		ScientificProgram string `json:"scientific_program"`
+		PiName            string `json:"pi_name"`
+		Name              string `json:"name"`
+	} `json:"pmo_project"`
 	Proposal struct {
 		// DOI of the awarded proposal
 		AwardDOI string `json:"award_doi"`
@@ -89,19 +138,7 @@ type Metadata struct {
 		// proposal DOI
 		DOI string `json:"doi"`
 	} `json:"proposal"`
-	// GOLD-related metadata
-	GoldData struct {
-		// stamp ID
-		StampId string `json:"gold_stamp_id"`
-		// project URL
-		ProjectURL string `json:"gold_project_url"`
-		// display name
-		DisplayName string `json:"display_name"`
-	} `json:"gold_data"`
-	IMG struct {
-		// TaxonOID can be either a number or a string, because who cares, apparently
-		TaxonOID json.RawMessage `json:"taxon_oid"`
-	} `json:"img,omitempty"`
+	ProposalId int `json:"proposal_id"`
 	// sequencing project metadata
 	SequencingProject struct {
 		// name of scientific program to which project belongs
@@ -110,24 +147,4 @@ type Metadata struct {
 	// sequencing project ID, sometimes used as ITS project ID. This type can be a
 	// list or a number, so we have to unmarshal it into a RawMessage
 	SequencingProjectId json.RawMessage `json:"sequencing_project_id"`
-	// NCBI taxon metadata
-	NCBITaxon struct {
-		Order   string `json:"ncbi_taxon_order"`
-		Family  string `json:"ncbi_taxon_family"`
-		Genus   string `json:"ncbi_taxon_genus"`
-		Species string `json:"ncbi_taxon_species"`
-	} `json:"ncbi_taxon"`
-	// NCBI taxon identifier
-	NCBITaxonId int `json:"ncbi_taxon_id"`
-	// portal metadata
-	Portal struct {
-		DisplayLocation []string `json:"display_location"`
-	} `json:"portal"`
-	// final project delivery metadata
-	FinalDeliveryProject struct {
-		ProductSearchCategory string `json:"product_search_category"`
-	} `json:"final_deliv_project"`
-	// analysis project ID, sometimes used as ITS project ID. This type can be a
-	// list or a number, so we have to unmarshal it into a RawMessage
-	AnalysisProjectId json.RawMessage `json:"analysis_project_id"`
 }

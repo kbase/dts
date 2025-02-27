@@ -23,12 +23,13 @@ package auth
 
 import (
 	"bytes"
-	//"crypto/aes"
 	"encoding/csv"
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/fernet/fernet-go"
 	"github.com/kbase/dts/config"
 )
 
@@ -41,25 +42,25 @@ type Authenticator struct {
 }
 
 func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
-	//key := []byte(config.Service.Secret)
-
-	encryptedText, err := os.ReadFile(tokenFilePath)
+	key, err := fernet.DecodeKey(config.Service.Secret)
 	if err != nil {
 		return nil, err
 	}
 
-	//cipher, err := aes.NewCipher(key)
-	//if err != nil {
-	//	return nil, err
-	//}
+	cipherText, err := os.ReadFile(tokenFilePath)
+	if err != nil {
+		return nil, err
+	}
 
-	//plainText := make([]byte, len(encryptedText))
-	//cipher.Decrypt(plainText, encryptedText)
-	plainText := []byte(encryptedText)
+	ttl := time.Hour * 24 * 365 // accept secrets signed <= 1 year ago
+	plaintext := fernet.VerifyAndDecrypt(cipherText, ttl, []*fernet.Key{key})
+	if plaintext == nil {
+		return nil, errors.New("Authentication failed: invalid secret")
+	}
 
 	// the plaintext content is a tab-delimited file with records like so:
 	// Name\tEmail\tOrcid\tOrganization\tToken
-	reader := csv.NewReader(bytes.NewReader(plainText))
+	reader := csv.NewReader(bytes.NewReader(plaintext))
 	reader.Comma = '\t'
 	reader.Comment = '#'
 	reader.FieldsPerRecord = 5
@@ -86,7 +87,7 @@ func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
 func NewAuthenticator() (*Authenticator, error) {
 	var a Authenticator
 	var err error
-	filePath := filepath.Join(config.Service.DataDirectory, "access.tsv")
+	filePath := filepath.Join(config.Service.DataDirectory, "access.dat")
 	a.UserForToken, err = ReadAccessTokenFile(filePath)
 	if err != nil {
 		return nil, err

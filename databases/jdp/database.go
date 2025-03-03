@@ -158,57 +158,20 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 		return nil, err
 	}
 
-	// NOTE: The metadata returned by this endpoint is different from what's
-	// NOTE: in search results, so we construct a DataResource gingerly here.
-	// NOTE: Someday things may make more sense...
 	type MetadataResponse struct {
 		Hits struct {
 			Hits []struct {
 				Type   string `json:"_type"`
 				Id     string `json:"_id"`
 				Source struct {
-					Date         string `json:"file_date"`
-					AddedDate    string `json:"added_date"`
-					ModifiedDate string `json:"modified_date"`
-					FilePath     string `json:"file_path"`
-					FileName     string `json:"file_name"`
-					FileSize     int    `json:"file_size"`
-					MD5Sum       string `json:"md5sum"`
-					Metadata     struct {
-						Img struct {
-							TaxonOid          int     `json:"taxon_oid"`
-							Database          string  `json:"database"`
-							AddDate           string  `json:"add_date"`
-							FileType          string  `json:"file_type"`
-							Domain            string  `json:"domain"`
-							TaxonDisplayName  string  `json:"taxon_display_name"`
-							NScaffolds        int     `json:"n_scaffolds"`
-							JgiProjectId      int     `json:"jgi_project_id"`
-							GcPercent         float64 `json:"gc_percent"`
-							TotalBases        int     `json:"total_bases"`
-							Assembled         string  `json:"assembled"`
-							AnalysisProjectId string  `json:"analysis_project_id"`
-						} `json:"img"`
-						PmoProject struct {
-							ScientificProgram string `json:"scientific_program"`
-							PiName            string `json:"pi_name"`
-							Name              string `json:"name"`
-						} `json:"pmo_project"`
-						GoldData struct {
-							GoldStampId string `json:"gold_stamp_id"`
-						} `json:"gold_data"`
-						ProposalId      int    `json:"proposal_id"`
-						ContentType     string `json:"content_type"`
-						PmoProjectId    int    `json:"pmo_project_id"`
-						AnalysisProject struct {
-							Status string `json:"status"`
-						} `json:"analysis_project"`
-						Portal struct {
-							DisplayLocation []string `json:"display_location"`
-							JdpKingdom      string   `json:"jdp_kingdom"`
-						} `json:"portal"`
-						// AnalysisProjectId string `json:"analysis_project_id"` <-- too polymorphic!
-					} `json:"metadata"`
+					Date         string   `json:"file_date"`
+					AddedDate    string   `json:"added_date"`
+					ModifiedDate string   `json:"modified_date"`
+					FilePath     string   `json:"file_path"`
+					FileName     string   `json:"file_name"`
+					FileSize     int      `json:"file_size"`
+					MD5Sum       string   `json:"md5sum"`
+					Metadata     Metadata `json:"metadata"`
 				} `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
@@ -247,7 +210,7 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 				ResourceType: "dataset",
 				Titles: []credit.Title{
 					{
-						Title: dataResourceName(md.Source.FileName),
+						Title: md.Source.Metadata.FinalDeliveryProject.Name,
 					},
 				},
 				Dates: []credit.EventDate{
@@ -618,7 +581,7 @@ func dataResourceName(filename string) string {
 }
 
 // creates a DataResource from a File
-func dataResourceFromFile(file File) frictionless.DataResource {
+func dataResourceFromOrganismAndFile(organism Organism, file File) frictionless.DataResource {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
 	fileTypes := fileTypesFromFile(file)
@@ -643,7 +606,7 @@ func dataResourceFromFile(file File) frictionless.DataResource {
 			ResourceType: "dataset",
 			Titles: []credit.Title{
 				{
-					Title: filePath,
+					Title: organism.Title,
 				},
 			},
 			Dates: []credit.EventDate{
@@ -763,10 +726,7 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 		return results, err
 	}
 	type JDPResults struct {
-		Organisms []struct {
-			Id    string `json:"id"`
-			Files []File `json:"files"`
-		} `json:"organisms"`
+		Organisms []Organism `json:"organisms"`
 	}
 	results.Resources = make([]frictionless.DataResource, 0)
 	var jdpResults JDPResults
@@ -777,7 +737,7 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	for _, org := range jdpResults.Organisms {
 		resources := make([]frictionless.DataResource, 0)
 		for _, file := range org.Files {
-			res := dataResourceFromFile(file)
+			res := dataResourceFromOrganismAndFile(org, file)
 
 			// add any requested additional metadata
 			if extraFields != nil {
@@ -790,7 +750,12 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 					case "project_id":
 						extras += fmt.Sprintf(`"project_id": "%s"`, org.Id)
 					case "img_taxon_oid":
-						extras += fmt.Sprintf(`"img_taxon_oid": %d`, file.Metadata.IMG.TaxonOID)
+						var taxonOID int
+						err := json.Unmarshal(file.Metadata.IMG.TaxonOID, &taxonOID)
+						if err != nil {
+							return results, err
+						}
+						extras += fmt.Sprintf(`"img_taxon_oid": %d`, taxonOID)
 					}
 				}
 				extras += "}"

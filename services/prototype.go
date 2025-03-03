@@ -178,6 +178,7 @@ func authorize(authorizationHeader string) (auth.Client, error) {
 	}
 	if err != nil {
 		slog.Error(fmt.Sprintf("authenticator: %s", err.Error()))
+		slog.Info("Falling back to KBase authentication.")
 
 		// maybe it's a KBase dev token, so check with the KBase auth server
 		authServer, err := auth.NewKBaseAuthServer(accessToken)

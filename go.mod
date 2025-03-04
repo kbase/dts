@@ -7,6 +7,7 @@ toolchain go1.23.1
 require (
 	github.com/StalkR/hsts v1.0.3
 	github.com/danielgtaylor/huma/v2 v2.27.0
+	github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/stretchr/testify v1.9.0

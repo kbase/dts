@@ -32,6 +32,8 @@ import (
 
 // a type with service configuration parameters
 type serviceConfig struct {
+	// secret for decrypting access key authorization file
+	Secret string `json:"secret,omitempty" yaml:"secret,omitempty"`
 	// port on which the service listens
 	Port int `json:"port,omitempty" yaml:"port,omitempty"`
 	// maximum number of allowed incoming connections

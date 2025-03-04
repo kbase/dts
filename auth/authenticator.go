@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/fernet/fernet-go"
+
 	"github.com/kbase/dts/config"
 )
 
@@ -41,7 +42,28 @@ type Authenticator struct {
 	UserForToken map[string]User
 }
 
-func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
+func NewAuthenticator() (*Authenticator, error) {
+	var a Authenticator
+	var err error
+	filePath := filepath.Join(config.Service.DataDirectory, "access.dat")
+	a.UserForToken, err = readAccessTokenFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &a, nil
+}
+
+// given an access token, returns a User or an error
+func (a *Authenticator) GetUser(accessToken string) (User, error) {
+	if user, found := a.UserForToken[accessToken]; found {
+		return user, nil
+	} else {
+		return User{}, errors.New("Invalid access token!")
+	}
+}
+
+func readAccessTokenFile(tokenFilePath string) (map[string]User, error) {
 	key, err := fernet.DecodeKey(config.Service.Secret)
 	if err != nil {
 		return nil, err
@@ -82,25 +104,4 @@ func ReadAccessTokenFile(tokenFilePath string) (map[string]User, error) {
 	}
 
 	return userRecords, nil
-}
-
-func NewAuthenticator() (*Authenticator, error) {
-	var a Authenticator
-	var err error
-	filePath := filepath.Join(config.Service.DataDirectory, "access.dat")
-	a.UserForToken, err = ReadAccessTokenFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return &a, nil
-}
-
-// given an access token, returns a User or an error
-func (a *Authenticator) GetUser(accessToken string) (User, error) {
-	if user, found := a.UserForToken[accessToken]; found {
-		return user, nil
-	} else {
-		return User{}, errors.New("Invalid access token!")
-	}
 }

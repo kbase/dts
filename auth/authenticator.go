@@ -58,9 +58,8 @@ func NewAuthenticator() (*Authenticator, error) {
 func (a *Authenticator) GetUser(accessToken string) (User, error) {
 	if user, found := a.UserForToken[accessToken]; found {
 		return user, nil
-	} else {
-		return User{}, errors.New("Invalid access token!")
 	}
+	return User{}, errors.New("Invalid access token!")
 }
 
 func readAccessTokenFile(tokenFilePath string) (map[string]User, error) {

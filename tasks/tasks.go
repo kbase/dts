@@ -40,6 +40,7 @@ import (
 	"github.com/kbase/dts/databases/jdp"
 	"github.com/kbase/dts/databases/kbase"
 	"github.com/kbase/dts/databases/nmdc"
+	"github.com/kbase/dts/databases/essdive"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/local"
@@ -100,6 +101,9 @@ func Start() error {
 			if err != nil {
 				return err
 			}
+		}
+		if _, found := config.Databases["ess-dive"]; found {
+			databases.RegisterDatabase("ess-dive", essdive.NewDatabase)
 		}
 		firstCall = false
 	}

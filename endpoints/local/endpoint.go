@@ -28,11 +28,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
+	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 type xferRecord struct {
@@ -90,9 +91,10 @@ func (ep *Endpoint) Root() string {
 	return ep.root
 }
 
-func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
 	for _, resource := range files {
-		absPath := filepath.Join(ep.root, resource.Path)
+		descriptor := resource.Descriptor()
+		absPath := filepath.Join(ep.root, descriptor["path"].(string))
 		_, err := os.Stat(absPath)
 		if err != nil {
 			return false, nil
@@ -181,9 +183,15 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// first, we check that all requested files are staged on this endpoint
-	requestedFiles := make([]frictionless.DataResource, len(files))
+	requestedFiles := make([]*datapackage.Resource, len(files))
 	for i, file := range files {
-		requestedFiles[i].Path = file.SourcePath // only the Path field is required
+		var err error
+		requestedFiles[i], err = datapackage.NewResource(map[string]interface{}{
+			"path": file.SourcePath, // only the Path field is required
+		}, validator.MustInMemoryRegistry())
+		if err != nil {
+			return xferId, err
+		}
 	}
 	staged, err := ep.FilesStaged(requestedFiles)
 	if err != nil {

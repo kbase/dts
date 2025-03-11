@@ -29,12 +29,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 // Enables DEBUG log messages for DTS's structured log (slog).
@@ -53,7 +53,7 @@ func EnableDebugLogging() {
 // Each endpoint test fixture is created with the given set of options and
 // resources.
 func RegisterTestFixturesFromConfig(endpointOptions EndpointOptions,
-	resources map[string]frictionless.DataResource) error {
+	resources map[string]*datapackage.Resource) error {
 	// has config.Init() been called?
 	if len(config.Endpoints) == 0 && len(config.Databases) == 0 {
 		return fmt.Errorf(`No endpoints or databases were found in the configuration.
@@ -126,12 +126,13 @@ func (ep *Endpoint) Root() string {
 	return ep.RootPath
 }
 
-func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
 	if ep.Database != nil {
 		// are there any unrecognized files?
 		for _, file := range files {
-			if _, found := ep.Database.resources[file.Id]; !found {
-				return false, fmt.Errorf("Unrecognized file: %s\n", file.Id)
+			fileId := file.Descriptor()["id"].(string)
+			if _, found := ep.Database.resources[fileId]; !found {
+				return false, fmt.Errorf("Unrecognized file: %s\n", fileId)
 			}
 		}
 		// the source endpoint should report true for the staged files as long
@@ -194,12 +195,12 @@ type stagingRequest struct {
 // This type implements a databases.Database test fixture
 type Database struct {
 	Endpt     endpoints.Endpoint
-	resources map[string]frictionless.DataResource
+	resources map[string]*datapackage.Resource
 	Staging   map[uuid.UUID]stagingRequest
 }
 
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, resources map[string]frictionless.DataResource) error {
+func RegisterDatabase(databaseName string, resources map[string]*datapackage.Resource) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
 	newDatabaseFunc := func() (databases.Database, error) {
 		endpoint, err := endpoints.NewEndpoint(config.Databases[databaseName].Endpoint)
@@ -229,7 +230,7 @@ func (db Database) SpecificSearchParameters() map[string]interface{} {
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
 	// look for file IDs in the search query
 	results := databases.SearchResults{
-		Resources: make([]frictionless.DataResource, 0),
+		Resources: make([]*datapackage.Resource, 0),
 	}
 	for fileId, resource := range db.resources {
 		if strings.Contains(params.Query, fileId) {
@@ -239,8 +240,8 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return results, nil
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error) {
-	resources := make([]frictionless.DataResource, 0)
+func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
+	resources := make([]*datapackage.Resource, 0)
 	for _, fileId := range fileIds {
 		if resource, found := db.resources[fileId]; found {
 			resources = append(resources, resource)

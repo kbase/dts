@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
-
-	"github.com/kbase/dts/frictionless"
 )
 
 // this type encodes a JSON object for responding to root queries
@@ -32,7 +31,7 @@ type SearchResultsResponse struct {
 	// ElasticSearch query string
 	Query string `json:"query" example:"prochlorococcus" doc:"the given query string"`
 	// resources matching the query
-	Resources []frictionless.DataResource `json:"resources" doc:"an array of Frictionless DataResources"`
+	Resources []*datapackage.Resource `json:"resources" doc:"an array of Frictionless DataResources"`
 }
 
 // a response for a file metadata query (GET)
@@ -40,7 +39,7 @@ type FileMetadataResponse struct {
 	// name of organization database
 	Database string `json:"database" example:"jdp" doc:"the database searched"`
 	// resources corresponding to given file IDs
-	Resources []frictionless.DataResource `json:"resources" doc:"an array of Frictionless DataResources"`
+	Resources []*datapackage.Resource `json:"resources" doc:"an array of Frictionless DataResources"`
 }
 
 // a request for a file transfer (POST)

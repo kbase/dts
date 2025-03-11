@@ -29,13 +29,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
+	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 // we test our Globus endpoint implementation using two endpoints:
@@ -126,31 +127,35 @@ func TestGlobusFilesStaged(t *testing.T) {
 	endpoint, _ := NewEndpoint("source")
 
 	// provide an empty slice of filenames, which should return true
-	staged, err := endpoint.FilesStaged([]frictionless.DataResource{})
+	staged, err := endpoint.FilesStaged([]*datapackage.Resource{})
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a file that's known to be on the source endpoint, which
 	// should return true
-	resources := make([]frictionless.DataResource, 0)
+	resources := make([]*datapackage.Resource, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
-		resources = append(resources, frictionless.DataResource{
-			Id:   id,
-			Path: sourceFilesById[id],
-		})
+		res, err := datapackage.NewResource(
+			map[string]interface{}{ // descriptor
+				"id":   id,
+				"path": sourceFilesById[id],
+			}, validator.MustInMemoryRegistry())
+		assert.Nil(err)
+		resources = append(resources, res)
 	}
 	staged, err = endpoint.FilesStaged(resources)
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a nonexistent file, which should return false
-	resources = []frictionless.DataResource{
-		frictionless.DataResource{
-			Id:   "yadda",
-			Path: "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
-		},
-	}
+	res, err := datapackage.NewResource(
+		map[string]interface{}{ // descriptor
+			"id":   "yadda",
+			"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
+		}, validator.MustInMemoryRegistry())
+	assert.Nil(err)
+	resources = []*datapackage.Resource{res}
 	staged, err = endpoint.FilesStaged(resources)
 	assert.False(staged)
 	assert.Nil(err)

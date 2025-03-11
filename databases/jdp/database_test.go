@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kbase/dts/config"
+	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
@@ -86,23 +87,23 @@ func TestResources(t *testing.T) {
 	results, _ := db.Search(orcid, params)
 	fileIds := make([]string, len(results.Resources))
 	for i, res := range results.Resources {
-		fileIds[i] = res.Id
+		fileIds[i] = res.Descriptor()["id"].(string)
 	}
 	resources, err := db.Resources(orcid, fileIds[:10])
 	assert.Nil(err, "JDP resource query encountered an error")
 	assert.Equal(10, len(resources),
 		"JDP resource query didn't return requested number of results")
-	for i := range resources {
-		jdpSearchResult := results.Resources[i]
-		resource := resources[i]
-		assert.Equal(jdpSearchResult.Id, resource.Id, "Resource ID mismatch")
-		assert.Equal(jdpSearchResult.Name, resource.Name, "Resource name mismatch")
-		assert.Equal(jdpSearchResult.Path, resource.Path, "Resource path mismatch")
-		assert.Equal(jdpSearchResult.Format, resource.Format, "Resource format mismatch")
-		assert.Equal(jdpSearchResult.Bytes, resource.Bytes, "Resource size mismatch")
-		assert.Equal(jdpSearchResult.MediaType, resource.MediaType, "Resource media type mismatch")
-		assert.Equal(jdpSearchResult.Credit.Identifier, resource.Credit.Identifier, "Resource credit ID mismatch")
-		assert.Equal(jdpSearchResult.Credit.ResourceType, resource.Credit.ResourceType, "Resource credit resource type mismatch")
+	for i, resource := range resources {
+		jdpSearchResult := results.Resources[i].Descriptor()
+		resDesc := resource.Descriptor()
+		assert.Equal(jdpSearchResult["id"], resDesc["id"], "Resource ID mismatch")
+		assert.Equal(jdpSearchResult["name"], resDesc["name"], "Resource name mismatch")
+		assert.Equal(jdpSearchResult["path"], resDesc["path"], "Resource path mismatch")
+		assert.Equal(jdpSearchResult["format"], resDesc["format"], "Resource format mismatch")
+		assert.Equal(jdpSearchResult["bytes"], resDesc["bytes"], "Resource size mismatch")
+		assert.Equal(jdpSearchResult["mediatype"], resDesc["mediatype"], "Resource media type mismatch")
+		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).Identifier, resDesc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
+		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).ResourceType, resDesc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
 }
 

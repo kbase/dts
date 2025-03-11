@@ -36,12 +36,13 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
+	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/frictionless"
 )
 
 // file database appropriate for handling searches and transfers
@@ -161,7 +162,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.dataObjects(p)
 }
 
-func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error) {
+func (db Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
 	if err := db.renewAccessTokenIfExpired(); err != nil {
 		return nil, err
 	}
@@ -187,7 +188,7 @@ func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.Dat
 	}
 
 	// construct data resources from the IDs
-	resources := make([]frictionless.DataResource, len(fileIds))
+	resources := make([]*datapackage.Resource, len(fileIds))
 	for i, fileId := range fileIds {
 		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
 		if err != nil {
@@ -198,16 +199,20 @@ func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.Dat
 		if err != nil {
 			return nil, err
 		}
-		resources[i], err = db.dataResourceFromDataObject(dataObject)
+		resources[i], err = db.resourceFromDataObject(dataObject)
 		if err != nil {
 			return nil, err
 		}
 
 		// add credit metadata
-		studyId := studyIdForDataObjectId[resources[i].Id]
-		resources[i].Credit = creditForStudyId[studyId]
-		resources[i].Credit.ResourceType = "dataset"
-		resources[i].Credit.Identifier = resources[i].Id
+		descriptor := resources[i].Descriptor()
+		resourceId := descriptor["id"].(string)
+		studyId := studyIdForDataObjectId[resourceId]
+		credit := creditForStudyId[studyId]
+		credit.ResourceType = "dataset"
+		credit.Identifier = resourceId
+		descriptor["credit"] = credit
+		resources[i].Update(descriptor, validator.InMemoryLoader())
 	}
 	return resources, nil
 }
@@ -458,10 +463,10 @@ type DataGeneration struct {
 	AssociatedStudies []string
 }
 
-func (db Database) dataResourceFromDataObject(dataObject DataObject) (frictionless.DataResource, error) {
-	resource := frictionless.DataResource{
-		Bytes: dataObject.FileSizeBytes,
-		Credit: credit.CreditMetadata{
+func (db Database) resourceFromDataObject(dataObject DataObject) (*datapackage.Resource, error) {
+	descriptor := map[string]interface{}{
+		"bytes": dataObject.FileSizeBytes,
+		"credit": credit.CreditMetadata{
 			Descriptions: []credit.Description{
 				{
 					DescriptionText: dataObject.Description,
@@ -471,24 +476,24 @@ func (db Database) dataResourceFromDataObject(dataObject DataObject) (frictionle
 			Identifier: dataObject.Id,
 			Url:        dataObject.URL,
 		},
-		Description: dataObject.Description,
-		Format:      formatFromType(dataObject.Type),
-		Hash:        dataObject.MD5Checksum,
-		Id:          dataObject.Id,
-		MediaType:   mimeTypeFromFormat(formatFromType(dataObject.Type)),
-		Name:        dataResourceName(dataObject.Name),
-		Path:        dataObject.URL,
+		"description": dataObject.Description,
+		"format":      formatFromType(dataObject.Type),
+		"hash":        dataObject.MD5Checksum,
+		"id":          dataObject.Id,
+		"mediatype":   mimeTypeFromFormat(formatFromType(dataObject.Type)),
+		"name":        dataResourceName(dataObject.Name),
+		"path":        dataObject.URL,
 	}
 
 	// strip the host from the resource's path and assign it an endpoint
 	for hostURL, endpoint := range db.EndpointForHost {
-		if strings.Contains(resource.Path, hostURL) {
-			resource.Path = strings.Replace(resource.Path, hostURL, "", 1)
-			resource.Endpoint = endpoint
+		if strings.Contains(descriptor["path"].(string), hostURL) {
+			descriptor["path"] = strings.Replace(descriptor["path"].(string), hostURL, "", 1)
+			descriptor["endpoint"] = endpoint
 		}
 	}
 
-	return resource, nil
+	return datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
 }
 
 func (db Database) studyIdsForDataObjectIds(dataObjectIds []string) (map[string]string, error) {
@@ -650,7 +655,7 @@ func (db Database) dataObjects(params url.Values) (databases.SearchResults, erro
 
 	// create data resources from data objects, fetch study metadata, and fill in
 	// data resource credit information
-	results.Resources = make([]frictionless.DataResource, len(dataObjectResults.Results))
+	results.Resources = make([]*datapackage.Resource, len(dataObjectResults.Results))
 	creditForStudyId := make(map[string]credit.CreditMetadata)
 	for i, dataObject := range dataObjectResults.Results {
 		studyId := studyIdForDataObjectId[dataObject.Id]
@@ -662,11 +667,15 @@ func (db Database) dataObjects(params url.Values) (databases.SearchResults, erro
 			}
 			creditForStudyId[studyId] = credit // cache for other data objects
 		}
-		results.Resources[i], err = db.dataResourceFromDataObject(dataObject)
+		results.Resources[i], err = db.resourceFromDataObject(dataObject)
 		if err != nil {
 			return results, err
 		}
-		results.Resources[i].Credit = credit
+
+		// add credit
+		descriptor := results.Resources[i].Descriptor()
+		descriptor["credit"] = credit
+		results.Resources[i].Update(descriptor, validator.InMemoryLoader())
 	}
 
 	return results, nil
@@ -837,7 +846,7 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 	}
 
 	// create resources for the data objects
-	results.Resources = make([]frictionless.DataResource, 0)
+	results.Resources = make([]*datapackage.Resource, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
 			// FIXME: apply hack!
@@ -845,7 +854,7 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 				slog.Debug(fmt.Sprintf("Data object type mismatch (want %s, got %s)", dataObjectType, dataObject.DataObjectType))
 				continue
 			}
-			resource, err := db.dataResourceFromDataObject(dataObject)
+			resource, err := db.resourceFromDataObject(dataObject)
 			if err != nil {
 				return results, err
 			}
@@ -859,12 +868,16 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 		return results, err
 	}
 	for i := range results.Resources {
-		results.Resources[i].Credit.Contributors = studyCreditMetadata.Contributors
-		results.Resources[i].Credit.Funding = studyCreditMetadata.Funding
-		results.Resources[i].Credit.Publisher = studyCreditMetadata.Publisher
-		results.Resources[i].Credit.RelatedIdentifiers = studyCreditMetadata.RelatedIdentifiers
-		results.Resources[i].Credit.ResourceType = studyCreditMetadata.ResourceType
-		results.Resources[i].Credit.Titles = studyCreditMetadata.Titles
+		descriptor := results.Resources[i].Descriptor()
+		credit := descriptor["credit"].(credit.CreditMetadata)
+		credit.Contributors = studyCreditMetadata.Contributors
+		credit.Funding = studyCreditMetadata.Funding
+		credit.Publisher = studyCreditMetadata.Publisher
+		credit.RelatedIdentifiers = studyCreditMetadata.RelatedIdentifiers
+		credit.ResourceType = studyCreditMetadata.ResourceType
+		credit.Titles = studyCreditMetadata.Titles
+		descriptor["credit"] = credit
+		results.Resources[i].Update(descriptor, validator.InMemoryLoader())
 	}
 
 	return results, nil

@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/auth"
@@ -42,7 +43,7 @@ type transferSubtask struct {
 	Destination         string                  // name of destination database (in config)
 	DestinationEndpoint string                  // name of destination database (in config)
 	DestinationFolder   string                  // folder path to which files are transferred
-	Resources           []DataResource          // Frictionless DataResources for files
+	Resources           []*datapackage.Resource // Frictionless DataResources for files
 	Source              string                  // name of source database (in config)
 	SourceEndpoint      string                  // name of source endpoint (in config)
 	Staging             uuid.NullUUID           // staging UUID (if any)
@@ -74,7 +75,7 @@ func (subtask *transferSubtask) start() error {
 		}
 		fileIds := make([]string, len(subtask.Resources))
 		for i, resource := range subtask.Resources {
-			fileIds[i] = resource.Id
+			fileIds[i] = resource.Descriptor()["id"].(string)
 		}
 		taskId, err := source.StageFiles(subtask.User.Orcid, fileIds)
 		if err != nil {
@@ -196,11 +197,13 @@ func (subtask *transferSubtask) beginTransfer() error {
 	// assemble a list of file transfers
 	fileXfers := make([]FileTransfer, len(subtask.Resources))
 	for i, resource := range subtask.Resources {
-		destinationPath := filepath.Join(subtask.DestinationFolder, resource.Path)
+		descriptor := resource.Descriptor()
+		path := descriptor["path"].(string)
+		destinationPath := filepath.Join(subtask.DestinationFolder, path)
 		fileXfers[i] = FileTransfer{
-			SourcePath:      resource.Path,
+			SourcePath:      path,
 			DestinationPath: destinationPath,
-			Hash:            resource.Hash,
+			Hash:            descriptor["hash"].(string),
 		}
 	}
 

@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/auth"
@@ -58,10 +59,10 @@ type transferTask struct {
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
-func payloadSize(resources []DataResource) float64 {
+func payloadSize(resources []*datapackage.Resource) float64 {
 	var size uint64
 	for _, resource := range resources {
-		size += uint64(resource.Bytes)
+		size += uint64(resource.Descriptor()["bytes"].(uint64))
 	}
 	return float64(size) / float64(1024*1024*1024)
 }
@@ -83,23 +84,26 @@ func (task *transferTask) start() error {
 	// resource is associated with a valid endpoint
 	if len(config.Databases[task.Source].Endpoints) > 1 {
 		for _, resource := range resources {
-			if resource.Endpoint == "" {
+			descriptor := resource.Descriptor()
+			id := descriptor["id"].(string)
+			endpoint := descriptor["endpoint"].(string)
+			if endpoint == "" {
 				return databases.ResourceEndpointNotFoundError{
 					Database:   task.Source,
-					ResourceId: resource.Id,
+					ResourceId: id,
 				}
 			}
-			if _, found := config.Endpoints[resource.Endpoint]; !found {
+			if _, found := config.Endpoints[endpoint]; !found {
 				return databases.InvalidResourceEndpointError{
 					Database:   task.Source,
-					ResourceId: resource.Id,
-					Endpoint:   resource.Endpoint,
+					ResourceId: id,
+					Endpoint:   endpoint,
 				}
 			}
 		}
 	} else { // otherwise, just assign the database's endpoint to the resources
-		for i := range resources {
-			resources[i].Endpoint = config.Databases[task.Source].Endpoint
+		for _, resource := range resources {
+			resource.Descriptor()["endpoint"] = config.Databases[task.Source].Endpoint
 		}
 	}
 
@@ -127,17 +131,19 @@ func (task *transferTask) start() error {
 	// assemble distinct endpoints and create a subtask for each
 	distinctEndpoints := make(map[string]interface{})
 	for _, resource := range resources {
-		if _, found := distinctEndpoints[resource.Endpoint]; !found {
-			distinctEndpoints[resource.Endpoint] = struct{}{}
+		endpoint := resource.Descriptor()["endpoint"].(string)
+		if _, found := distinctEndpoints[endpoint]; !found {
+			distinctEndpoints[endpoint] = struct{}{}
 		}
 	}
 	task.Subtasks = make([]transferSubtask, 0)
 	for sourceEndpoint := range distinctEndpoints {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
-		resourcesForEndpoint := make([]DataResource, 0)
+		resourcesForEndpoint := make([]*datapackage.Resource, 0)
 		for _, resource := range resources {
-			if resource.Endpoint == sourceEndpoint {
+			endpoint := resource.Descriptor()["endpoint"].(string)
+			if endpoint == sourceEndpoint {
 				resourcesForEndpoint = append(resourcesForEndpoint, resource)
 			}
 		}
@@ -323,37 +329,40 @@ func (task transferTask) Completed() bool {
 }
 
 // creates a DataPackage that serves as the transfer manifest
-func (task *transferTask) createManifest() DataPackage {
+func (task *transferTask) createManifest() *datapackage.Package {
 	numResources := 0
 	for _, subtask := range task.Subtasks {
 		numResources += len(subtask.Resources)
 	}
-	resources := make([]DataResource, numResources)
+	resources := make([]*datapackage.Resource, numResources)
 	n := 0
 	for _, subtask := range task.Subtasks {
 		copy(resources[n:], subtask.Resources)
 		n += len(subtask.Resources)
 	}
 
-	manifest := DataPackage{
-		Name:      "manifest",
-		Resources: resources,
-		Created:   time.Now().Format(time.RFC3339),
-		Profile:   "data-package",
-		Keywords:  []string{"dts", "manifest"},
-		Contributors: []Contributor{
+	descriptor := map[string]interface{}{
+		"name":      "manifest",
+		"resources": resources,
+		"created":   time.Now().Format(time.RFC3339),
+		"profile":   "data-package",
+		"keywords":  []string{"dts", "manifest"},
+		"contributors": []map[string]interface{}{
 			{
-				Title:        task.User.Name,
-				Email:        task.User.Email,
-				Role:         "author",
-				Organization: task.User.Organization,
+				"title":        task.User.Name,
+				"email":        task.User.Email,
+				"role":         "author",
+				"organization": task.User.Organization,
 			},
 		},
-		Description:  task.Description,
-		Instructions: make(json.RawMessage, len(task.Instructions)),
+		"description":  task.Description,
+		"instructions": task.Instructions,
 	}
-	copy(manifest.Resources, resources)
-	copy(manifest.Instructions, task.Instructions)
+	manifest, _ := datapackage.New(descriptor, ".")
+	for _, resource := range resources {
+		manifest.AddResource(resource.Descriptor())
+	}
+	//copy(manifest.Instructions, task.Instructions)
 
 	return manifest
 }

@@ -24,10 +24,10 @@ package endpoints
 import (
 	"fmt"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
-	"github.com/kbase/dts/frictionless"
 )
 
 // this type holds all relevant information for the transfer of an individual
@@ -72,7 +72,7 @@ type Endpoint interface {
 	Root() string
 	// returns true if the files associated with the given DataResources are
 	// staged at this endpoint AND are valid, false otherwise
-	FilesStaged(files []frictionless.DataResource) (bool, error)
+	FilesStaged(files []*datapackage.Resource) (bool, error)
 	// returns a list of UUIDs for all transfers associated with this endpoint
 	Transfers() ([]uuid.UUID, error)
 	// begins a transfer task that moves the files identified by the FileTransfer

@@ -32,11 +32,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 // This file implements a Globus endpoint. It uses the Globus Transfer API
@@ -126,11 +126,12 @@ func (ep *Endpoint) Root() string {
 	return ep.RootDir
 }
 
-func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
 	// find all the directories in which these files reside
 	filesInDir := make(map[string][]string)
 	for _, resource := range files {
-		dir, file := filepath.Split(resource.Path)
+		descriptor := resource.Descriptor()
+		dir, file := filepath.Split(descriptor["path"].(string))
 		dir = filepath.Join(ep.RootDir, dir)
 		if _, found := filesInDir[dir]; !found {
 			filesInDir[dir] = make([]string, 0)

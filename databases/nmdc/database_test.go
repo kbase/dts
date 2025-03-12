@@ -109,16 +109,16 @@ func TestResources(t *testing.T) {
 	assert.Equal(10, len(resources),
 		"NMDC resource query didn't return requested number of results")
 	for i, resource := range resources {
+		nmdcSearchResult := results.Resources[i].Descriptor()
 		resDesc := resource.Descriptor()
-		jdpSearchResult := results.Resources[i].Descriptor()
-		assert.Equal(jdpSearchResult["id"], resDesc["id"], "Resource ID mismatch")
-		assert.Equal(jdpSearchResult["name"], resDesc["name"], "Resource name mismatch")
-		assert.Equal(jdpSearchResult["path"], resDesc["path"], "Resource path mismatch")
-		assert.Equal(jdpSearchResult["format"], resDesc["format"], "Resource format mismatch")
-		assert.Equal(jdpSearchResult["bytes"], resDesc["bytes"], "Resource size mismatch")
-		assert.Equal(jdpSearchResult["mediatype"], resDesc["mediaType"], "Resource media type mismatch")
-		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).Identifier, resDesc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
-		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).ResourceType, resDesc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
+		assert.Equal(nmdcSearchResult["id"], resDesc["id"], "Resource ID mismatch")
+		assert.Equal(nmdcSearchResult["name"], resDesc["name"], "Resource name mismatch")
+		assert.Equal(nmdcSearchResult["path"], resDesc["path"], "Resource path mismatch")
+		assert.Equal(nmdcSearchResult["format"], resDesc["format"], "Resource format mismatch")
+		assert.Equal(nmdcSearchResult["bytes"], resDesc["bytes"], "Resource size mismatch")
+		assert.Equal(nmdcSearchResult["mediatype"], resDesc["mediatype"], "Resource media type mismatch")
+		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, resDesc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
+		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, resDesc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
 }
 

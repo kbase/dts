@@ -488,7 +488,9 @@ func (db Database) resourceFromDataObject(dataObject DataObject) (*datapackage.R
 	// strip the host from the resource's path and assign it an endpoint
 	for hostURL, endpoint := range db.EndpointForHost {
 		if strings.Contains(descriptor["path"].(string), hostURL) {
-			descriptor["path"] = strings.Replace(descriptor["path"].(string), hostURL, "", 1)
+			path := strings.Replace(descriptor["path"].(string), hostURL, "", 1)
+			// URL-encode the path to prevent "nmdc:" from being interpreted as a URL protocol
+			descriptor["path"] = url.QueryEscape(path)
 			descriptor["endpoint"] = endpoint
 		}
 	}

@@ -62,7 +62,7 @@ type transferTask struct {
 func payloadSize(resources []*datapackage.Resource) float64 {
 	var size uint64
 	for _, resource := range resources {
-		size += uint64(resource.Descriptor()["bytes"].(uint64))
+		size += uint64(resource.Descriptor()["bytes"].(int))
 	}
 	return float64(size) / float64(1024*1024*1024)
 }
@@ -347,8 +347,8 @@ func (task *transferTask) createManifest() *datapackage.Package {
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
 		"keywords":  []string{"dts", "manifest"},
-		"contributors": []map[string]interface{}{
-			{
+		"contributors": []interface{}{
+			map[string]interface{}{
 				"title":        task.User.Name,
 				"email":        task.User.Email,
 				"role":         "author",

@@ -127,9 +127,7 @@ const (
 // to allow for e.g. test database implementations
 func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 	if firstTime {
-		// register the credit metadata type so it can be used in Frictionless
-		// Descriptors
-		gob.Register(credit.CreditMetadata{})
+		gob.Register(credit.CreditMetadata{}) // for Frictionless Descriptors
 
 		firstTime = false
 	}

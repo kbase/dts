@@ -27,9 +27,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -480,7 +482,7 @@ func (db Database) resourceFromDataObject(dataObject DataObject) (*datapackage.R
 		"format":      formatFromType(dataObject.Type),
 		"hash":        dataObject.MD5Checksum,
 		"id":          dataObject.Id,
-		"mediatype":   mimeTypeFromFormat(formatFromType(dataObject.Type)),
+		"mediatype":   mimetypeForFile(dataObject.URL),
 		"name":        dataResourceName(dataObject.Name),
 		"path":        dataObject.URL,
 	}
@@ -953,27 +955,6 @@ var fileTypeToFormat = map[string]string{
 	"TRNA Annotation GFF":                                 "gff3",
 }
 
-// a mapping from file format labels to mime types
-var formatToMimeType = map[string]string{
-	"agp":     "application/octet-stream",
-	"bam":     "application/octet-stream",
-	"bai":     "application/octet-stream",
-	"csv":     "text/csv",
-	"fasta":   "text/plain",
-	"fastq":   "text/plain",
-	"gff":     "text/plain",
-	"gff3":    "text/plain",
-	"gz":      "application/gzip",
-	"bz":      "application/x-bzip",
-	"bz2":     "application/x-bzip2",
-	"json":    "application/json",
-	"raw":     "application/octet-stream",
-	"tar":     "application/x-tar",
-	"text":    "text/plain",
-	"texinfo": "text/plain",
-	"tsv":     "text/plain",
-}
-
 // extracts the file format from the name and type of the file
 func formatFromType(fileType string) string {
 	if format, found := fileTypeToFormat[fileType]; found {
@@ -983,11 +964,12 @@ func formatFromType(fileType string) string {
 }
 
 // extracts the file format from the name and type of the file
-func mimeTypeFromFormat(format string) string {
-	if mimeType, ok := formatToMimeType[format]; ok {
-		return mimeType
+func mimetypeForFile(filename string) string {
+	mimetype := mime.TypeByExtension(filepath.Ext(filename))
+	if mimetype == "" {
+		mimetype = "application/octet-stream"
 	}
-	return "application/octet-stream"
+	return mimetype
 }
 
 // creates a Frictionless DataResource-savvy name for a file:

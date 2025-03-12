@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -197,15 +198,15 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Re
 		filePath := filepath.Join(strings.TrimPrefix(md.Source.FilePath, filePathPrefix), md.Source.FileName)
 		format := formatFromFileName(filePath)
 		piName := strings.TrimSpace(md.Source.Metadata.PmoProject.PiName)
+		sources := sourcesFromMetadata(md.Source.Metadata)
 		descriptor := map[string]interface{}{
 			"id":        id,
 			"name":      dataResourceName(md.Source.FileName),
 			"path":      filePath,
 			"format":    format,
-			"mediatype": mimeTypeFromFormatAndTypes(format, []string{}),
+			"mediatype": mimetypeForFile(md.Source.FileName),
 			"bytes":     md.Source.FileSize,
 			"hash":      md.Source.MD5Sum,
-			"sources":   []string{},
 			"credit": credit.CreditMetadata{
 				Identifier:   id,
 				ResourceType: "dataset",
@@ -242,6 +243,9 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Re
 				},
 				Version: md.Source.ModifiedDate,
 			},
+		}
+		if len(sources) > 0 {
+			descriptor["sources"] = sources
 		}
 
 		if descriptor["path"] == "" || descriptor["path"] == "/" { // permissions problem
@@ -432,21 +436,6 @@ var suffixToFormat = map[string]string{
 var supportedSuffixes []string
 
 // a mapping from file format labels to mime types
-var formatToMimeType = map[string]string{
-	"bam":   "application/octet-stream",
-	"bai":   "application/octet-stream",
-	"csv":   "text/csv",
-	"fasta": "text/plain",
-	"fastq": "text/plain",
-	"gff":   "text/plain",
-	"gff3":  "text/plain",
-	"gz":    "application/gzip",
-	"bz":    "application/x-bzip",
-	"bz2":   "application/x-bzip2",
-	"tar":   "application/x-tar",
-	"text":  "text/plain",
-}
-
 // a mapping from the JDP's reported file types to mime types
 // (backup method for determining mime types)
 var fileTypeToMimeType = map[string]string{
@@ -484,21 +473,6 @@ func formatFromFileName(fileName string) string {
 	return format
 }
 
-// extracts the file format from the name and type of the file
-func mimeTypeFromFormatAndTypes(format string, fileTypes []string) string {
-	// try to match the file type to a mime type
-	for _, fileType := range fileTypes {
-		if mimeType, ok := fileTypeToMimeType[fileType]; ok {
-			return mimeType
-		}
-	}
-	// check the file format to see whether it matches a mime type
-	if mimeType, ok := formatToMimeType[format]; ok {
-		return mimeType
-	}
-	return ""
-}
-
 // extracts file type information from the given File
 func fileTypesFromFile(_ File) []string {
 	// TODO: See https://pkg.go.dev/encoding/json?utm_source=godoc#example-RawMessage-Unmarshal
@@ -507,8 +481,8 @@ func fileTypesFromFile(_ File) []string {
 }
 
 // extracts source information from the given metadata
-func sourcesFromMetadata(md Metadata) []map[string]interface{} {
-	sources := make([]map[string]interface{}, 0)
+func sourcesFromMetadata(md Metadata) []interface{} {
+	sources := make([]interface{}, 0)
 	piInfo := md.Proposal.PI
 	if len(piInfo.LastName) > 0 {
 		var title string
@@ -580,10 +554,9 @@ func dataResourceName(filename string) string {
 }
 
 // creates a DataResource from a File
-func resourceFromOrganismAndFile(organism Organism, file File) *datapackage.Resource {
+func resourceFromOrganismAndFile(organism Organism, file File) (*datapackage.Resource, error) {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
-	fileTypes := fileTypesFromFile(file)
 	sources := sourcesFromMetadata(file.Metadata)
 
 	// we use relative file paths in accordance with the Frictionless
@@ -596,10 +569,9 @@ func resourceFromOrganismAndFile(organism Organism, file File) *datapackage.Reso
 		"name":      dataResourceName(file.Name),
 		"path":      filePath,
 		"format":    format,
-		"mediatype": mimeTypeFromFormatAndTypes(format, fileTypes),
+		"mediatype": mimetypeForFile(file.Name),
 		"bytes":     file.Size,
 		"hash":      file.MD5Sum,
-		"sources":   sources,
 		"credit": credit.CreditMetadata{
 			Identifier:   id,
 			ResourceType: "dataset",
@@ -656,8 +628,10 @@ func resourceFromOrganismAndFile(organism Organism, file File) *datapackage.Reso
 			Version: file.Date,
 		},
 	}
-	resource, _ := datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
-	return resource
+	if len(sources) > 0 {
+		descriptor["sources"] = sources
+	}
+	return datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
 }
 
 // adds an appropriate authorization header to given HTTP request
@@ -738,7 +712,11 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	for _, org := range jdpResults.Organisms {
 		resources := make([]*datapackage.Resource, 0)
 		for _, file := range org.Files {
-			res := resourceFromOrganismAndFile(org, file)
+			res, err := resourceFromOrganismAndFile(org, file)
+			if err != nil {
+				slog.Error(err.Error())
+				return results, err
+			}
 
 			// add any requested additional metadata
 			descriptor := res.Descriptor()
@@ -903,4 +881,12 @@ func (db *Database) pruneStagingRequests() {
 			delete(db.StagingRequests, uuid)
 		}
 	}
+}
+
+func mimetypeForFile(filename string) string {
+	mimetype := mime.TypeByExtension(filepath.Ext(filename))
+	if mimetype == "" {
+		mimetype = "application/octet-stream"
+	}
+	return mimetype
 }

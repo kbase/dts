@@ -22,11 +22,14 @@
 package databases
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 
 	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
+
+	"github.com/kbase/dts/credit"
 )
 
 // Database defines the interface for a database that is used to search for
@@ -123,6 +126,14 @@ const (
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
 func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
+	if firstTime {
+		// register the credit metadata type so it can be used in Frictionless
+		// Descriptors
+		gob.Register(credit.CreditMetadata{})
+
+		firstTime = false
+	}
+
 	if _, found := createDatabaseFuncs_[dbName]; found {
 		return AlreadyRegisteredError{
 			Database: dbName,
@@ -192,6 +203,9 @@ func Load(states DatabaseSaveStates) error {
 //-----------
 // Internals
 //-----------
+
+// set to false after the first database is registered
+var firstTime = true
 
 // we maintain a table of database instances, identified by their names
 var allDatabases_ = make(map[string]Database)

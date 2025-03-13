@@ -37,8 +37,8 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+  "github.com/piprate/json-gold/ld"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/frictionless"
@@ -114,10 +114,10 @@ func (db Database) SpecificSearchParameters() map[string]interface{} {
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
 	p := url.Values{}
 
-	// fetch pagination parameters
+	// translate pagination parameters
 	pageNumber, pageSize := pageNumberAndSize(params.Pagination.Offset, params.Pagination.MaxNum)
-	p.Add("page", strconv.Itoa(pageNumber))
-	p.Add("per_page", strconv.Itoa(pageSize))
+	p.Add("rowStart", strconv.Itoa(pageNumber * pageSize))
+	p.Add("pageSize", strconv.Itoa(pageSize))
 
 	// add any NMDC-specific search parameters
 	if params.Specific != nil {
@@ -127,18 +127,13 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		}
 	}
 
-	// NOTE: NMDC doesn't do "search" at the moment, so we interpret a query as
-	// NOTE: a filter
+  // NOTE: currently, the query string is used to specify a dataset
 	if params.Query != "" {
-		p.Add("filter", params.Query)
-	}
-
-	if p.Has("study_id") { // fetch data objects associated with this study
-		return db.dataObjectsForStudy(p.Get("study_id"), p)
+		p.Add("text", params.Query)
 	}
 
 	// otherwise, simply call the data_objects/ endpoint (possibly with a filter applied)
-	return db.dataObjects(p)
+	return db.dataObjectsForDataset(p)
 }
 
 func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error) {
@@ -146,8 +141,7 @@ func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.Dat
 		return nil, err
 	}
 
-	// we use the /data_objects/{data_object_id} GET endpoint to retrieve metadata
-	// for individual files
+	// we use ESS-DIVE's Fusion API to retrieve metadata for individual files
 
 	// gather relevant study IDs and use them to build credit metadata
 	studyIdForDataObjectId, err := db.studyIdsForDataObjectIds(fileIds)
@@ -193,16 +187,10 @@ func (db Database) Resources(orcid string, fileIds []string) ([]frictionless.Dat
 }
 
 func (db Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
-	// NMDC keeps all of its NERSC data on disk, so all files are already staged.
-	// We simply generate a new UUID that can be handed to db.StagingStatus,
-	// which returns databases.StagingStatusSucceeded.
-	//
-	// "We may eventually use tape but don't need to yet." -Shreyas Cholia, 2024-09-04
 	return uuid.New(), nil
 }
 
 func (db Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
-	// all files are hot!
 	return databases.StagingStatusSucceeded, nil
 }
 
@@ -233,6 +221,7 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 
 const (
 	baseApiURL  = "https://api.ess-dive.lbl.gov/"
+  fusionApiURL = "https://fusion.ess-dive.lbl.gov/"
 )
 
 // Authorization / authentication
@@ -269,8 +258,7 @@ func (db *Database) getAccessToken() error {
 }
 
 func (db *Database) renewAccessTokenIfExpired() error {
-  // FIXME: ESS-DIVE doesn't support this yet, so nothing we can do
-  return nil
+  // FIXME: programmatic token renewal is not yet supported
 }
 
 // adds an appropriate authorization header to given HTTP request

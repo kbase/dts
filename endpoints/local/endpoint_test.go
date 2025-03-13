@@ -28,8 +28,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
@@ -146,36 +144,31 @@ func TestGlobusFilesStaged(t *testing.T) {
 	endpoint, _ := NewEndpoint("source")
 
 	// provide an empty slice of filenames, which should return true
-	staged, err := endpoint.FilesStaged([]*datapackage.Resource{})
+	staged, err := endpoint.FilesStaged([]interface{}{})
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide files that are known to be on the source endpoint
-	resources := make([]*datapackage.Resource, 0)
+	descriptors := make([]interface{}, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
-		res, err := datapackage.NewResource(
-			map[string]interface{}{ // descriptor
-				"id":   id,
-				"path": sourceFilesById[id],
-			},
-			validator.MustInMemoryRegistry())
-		assert.Nil(err)
-		resources = append(resources, res)
+		d := map[string]interface{}{
+			"id":   id,
+			"path": sourceFilesById[id],
+		}
+		descriptors = append(descriptors, d)
 	}
-	staged, err = endpoint.FilesStaged(resources)
+	staged, err = endpoint.FilesStaged(descriptors)
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a nonexistent file, which should return false
-	nonexistent, _ := datapackage.NewResource(
-		map[string]interface{}{ // descriptor
-			"id":   "yadda",
-			"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
-		},
-		validator.MustInMemoryRegistry())
-	resources = []*datapackage.Resource{nonexistent}
-	staged, err = endpoint.FilesStaged(resources)
+	nonexistent := map[string]interface{}{ // descriptor
+		"id":   "yadda",
+		"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
+	}
+	descriptors = []interface{}{nonexistent}
+	staged, err = endpoint.FilesStaged(descriptors)
 	assert.False(staged)
 	assert.Nil(err)
 }

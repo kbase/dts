@@ -16,6 +16,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/frictionlessdata/datapackage-go/datapackage"
+	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"golang.org/x/net/netutil"
@@ -481,11 +483,15 @@ func searchDatabase(_ context.Context,
 	if err != nil {
 		return nil, databaseError(err)
 	}
+	resources := make([]*datapackage.Resource, len(results.Descriptors))
+	for i, d := range results.Descriptors {
+		resources[i], err = datapackage.NewResource(d.(map[string]interface{}), validator.MustInMemoryRegistry())
+	}
 	return &SearchResultsOutput{
 		Body: SearchResultsResponse{
 			Database:  input.Database,
 			Query:     input.Query,
-			Resources: results.Resources,
+			Resources: resources,
 		},
 	}, nil
 }
@@ -572,15 +578,19 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		orcid = client.Orcid
 	}
 
-	results, err := db.Resources(orcid, ids)
+	results, err := db.Descriptors(orcid, ids)
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
+	resources := make([]*datapackage.Resource, len(results))
+	for i, d := range results {
+		resources[i], err = datapackage.NewResource(d.(map[string]interface{}), validator.MustInMemoryRegistry())
+	}
 	return &FileMetadataOutput{
 		Body: FileMetadataResponse{
 			Database:  input.Database,
-			Resources: results,
+			Resources: resources,
 		},
 	}, nil
 }

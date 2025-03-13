@@ -28,8 +28,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -91,9 +89,9 @@ func (ep *Endpoint) Root() string {
 	return ep.root
 }
 
-func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
 	for _, resource := range files {
-		descriptor := resource.Descriptor()
+		descriptor := resource.(map[string]interface{})
 		absPath := filepath.Join(ep.root, descriptor["path"].(string))
 		_, err := os.Stat(absPath)
 		if err != nil {
@@ -183,14 +181,10 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// first, we check that all requested files are staged on this endpoint
-	requestedFiles := make([]*datapackage.Resource, len(files))
+	requestedFiles := make([]interface{}, len(files))
 	for i, file := range files {
-		var err error
-		requestedFiles[i], err = datapackage.NewResource(map[string]interface{}{
+		requestedFiles[i] = map[string]interface{}{
 			"path": file.SourcePath, // only the Path field is required
-		}, validator.MustInMemoryRegistry())
-		if err != nil {
-			return xferId, err
 		}
 	}
 	staged, err := ep.FilesStaged(requestedFiles)

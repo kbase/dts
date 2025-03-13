@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/credit"
@@ -45,9 +44,9 @@ type Database interface {
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
 	Search(orcid string, params SearchParameters) (SearchResults, error)
-	// returns a slice of Frictionless DataResources for the files visible to the
-	// user with the given ORCID that match the given IDs
-	Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error)
+	// returns a slice of Frictionless descriptors for the resources visible to
+	// the user with the given ORCID that match the given IDs
+	Descriptors(orcid string, fileIds []string) ([]interface{}, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
@@ -93,7 +92,8 @@ type SearchParameters struct {
 
 // results from a file search
 type SearchResults struct {
-	Resources []*datapackage.Resource `json:"resources"`
+	// Frictionless data descriptors
+	Descriptors []interface{} `json:"resources"`
 }
 
 type SearchPaginationParameters struct {

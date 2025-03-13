@@ -20,8 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kbase/dts/config"
@@ -99,7 +97,7 @@ endpoints:
 `
 
 // file test metadata
-var testResources map[string]*datapackage.Resource
+var testDescriptors map[string]interface{}
 
 // performs testing setup
 func setup() {
@@ -134,7 +132,7 @@ func setup() {
 	}
 
 	// create source files and corresponding data resources
-	testResources = make(map[string]*datapackage.Resource)
+	testDescriptors = make(map[string]interface{})
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
 		name := fmt.Sprintf("file%d", i)
@@ -146,18 +144,14 @@ func setup() {
 			log.Panicf("Couldn't create source file: %s", err)
 			break
 		}
-		testResources[id], err = datapackage.NewResource(
-			map[string]interface{}{ // descriptor
-				"id":        id,
-				"name":      name,
-				"path":      path,
-				"format":    "text",
-				"mediatype": "text/plain",
-				"bytes":     len(data),
-				"hash":      string(hash[:]),
-			}, validator.MustInMemoryRegistry())
-		if err != nil {
-			log.Panicf("Couldn't create data resource: %s", err)
+		testDescriptors[id] = map[string]interface{}{
+			"id":        id,
+			"name":      name,
+			"path":      path,
+			"format":    "text",
+			"mediatype": "text/plain",
+			"bytes":     len(data),
+			"hash":      string(hash[:]),
 		}
 	}
 
@@ -172,7 +166,7 @@ func setup() {
 	}
 
 	// register test databases referred to in config file
-	dtstest.RegisterDatabase("source", testResources)
+	dtstest.RegisterDatabase("source", testDescriptors)
 	dtstest.RegisterDatabase("destination1", nil)
 	dtstest.RegisterDatabase("destination2", nil)
 

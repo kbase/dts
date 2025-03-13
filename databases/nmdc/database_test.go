@@ -87,11 +87,11 @@ func TestSearch(t *testing.T) {
 		Specific: nmdcSearchParams,
 	}
 	results, err := db.Search(orcid, params)
-	assert.True(len(results.Resources) > 0, "NMDC search query returned no results")
+	assert.True(len(results.Descriptors) > 0, "NMDC search query returned no results")
 	assert.Nil(err, "NMDC search query encountered an error")
 }
 
-func TestResources(t *testing.T) {
+func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 	db, _ := NewDatabase()
@@ -100,25 +100,26 @@ func TestResources(t *testing.T) {
 		Specific: nmdcSearchParams,
 	}
 	results, _ := db.Search(orcid, params)
-	fileIds := make([]string, len(results.Resources))
-	for i, res := range results.Resources {
-		fileIds[i] = res.Descriptor()["id"].(string)
+	fileIds := make([]string, len(results.Descriptors))
+	for i, d := range results.Descriptors {
+		descriptor := d.(map[string]interface{})
+		fileIds[i] = descriptor["id"].(string)
 	}
-	resources, err := db.Resources(orcid, fileIds[:10])
+	descriptors, err := db.Descriptors(orcid, fileIds[:10])
 	assert.Nil(err, "NMDC resource query encountered an error")
-	assert.Equal(10, len(resources),
+	assert.Equal(10, len(descriptors),
 		"NMDC resource query didn't return requested number of results")
-	for i, resource := range resources {
-		nmdcSearchResult := results.Resources[i].Descriptor()
-		resDesc := resource.Descriptor()
-		assert.Equal(nmdcSearchResult["id"], resDesc["id"], "Resource ID mismatch")
-		assert.Equal(nmdcSearchResult["name"], resDesc["name"], "Resource name mismatch")
-		assert.Equal(nmdcSearchResult["path"], resDesc["path"], "Resource path mismatch")
-		assert.Equal(nmdcSearchResult["format"], resDesc["format"], "Resource format mismatch")
-		assert.Equal(nmdcSearchResult["bytes"], resDesc["bytes"], "Resource size mismatch")
-		assert.Equal(nmdcSearchResult["mediatype"], resDesc["mediatype"], "Resource media type mismatch")
-		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, resDesc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
-		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, resDesc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
+	for i, d := range descriptors {
+		nmdcSearchResult := results.Descriptors[i].(map[string]interface{})
+		desc := d.(map[string]interface{})
+		assert.Equal(nmdcSearchResult["id"], desc["id"], "Resource ID mismatch")
+		assert.Equal(nmdcSearchResult["name"], desc["name"], "Resource name mismatch")
+		assert.Equal(nmdcSearchResult["path"], desc["path"], "Resource path mismatch")
+		assert.Equal(nmdcSearchResult["format"], desc["format"], "Resource format mismatch")
+		assert.Equal(nmdcSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
+		assert.Equal(nmdcSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
+		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
+		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
 }
 

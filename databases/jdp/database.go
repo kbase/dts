@@ -39,8 +39,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -128,7 +126,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.filesFromSearch(p)
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
 	// strip the "JDP:" prefix from our files and create a mapping from IDs to
 	// their original order so we can hand back metadata accordingly
 	strippedFileIds := make([]string, len(fileIds))
@@ -185,7 +183,7 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Re
 	}
 
 	// translate the response
-	resources := make([]*datapackage.Resource, len(strippedFileIds))
+	descriptors := make([]interface{}, len(strippedFileIds))
 	for i, md := range jdpResp.Hits.Hits {
 		if md.Id == "" { // permissions problem
 			return nil, &PermissionDeniedError{fileIds[i]}
@@ -251,13 +249,9 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Re
 		if descriptor["path"] == "" || descriptor["path"] == "/" { // permissions problem
 			return nil, &PermissionDeniedError{fileIds[index]}
 		}
-		resource, err := datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
-		if err != nil {
-			return nil, err
-		}
-		resources[index] = resource
+		descriptors[index] = descriptor
 	}
-	return resources, err
+	return descriptors, err
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
@@ -553,8 +547,8 @@ func dataResourceName(filename string) string {
 	return name
 }
 
-// creates a DataResource from a File
-func resourceFromOrganismAndFile(organism Organism, file File) (*datapackage.Resource, error) {
+// creates a Frictionless descriptor from a File
+func descriptorFromOrganismAndFile(organism Organism, file File) map[string]interface{} {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
 	sources := sourcesFromMetadata(file.Metadata)
@@ -631,7 +625,7 @@ func resourceFromOrganismAndFile(organism Organism, file File) (*datapackage.Res
 	if len(sources) > 0 {
 		descriptor["sources"] = sources
 	}
-	return datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
+	return descriptor
 }
 
 // adds an appropriate authorization header to given HTTP request
@@ -703,23 +697,18 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
 	}
-	results.Resources = make([]*datapackage.Resource, 0)
+	results.Descriptors = make([]interface{}, 0)
 	var jdpResults JDPResults
 	err = json.Unmarshal(body, &jdpResults)
 	if err != nil {
 		return results, err
 	}
 	for _, org := range jdpResults.Organisms {
-		resources := make([]*datapackage.Resource, 0)
+		descriptors := make([]interface{}, 0)
 		for _, file := range org.Files {
-			res, err := resourceFromOrganismAndFile(org, file)
-			if err != nil {
-				slog.Error(err.Error())
-				return results, err
-			}
+			descriptor := descriptorFromOrganismAndFile(org, file)
 
 			// add any requested additional metadata
-			descriptor := res.Descriptor()
 			if extraFields != nil {
 				extras := "{"
 				for i, field := range extraFields {
@@ -740,17 +729,16 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 				}
 				extras += "}"
 				descriptor["extra"] = json.RawMessage(extras)
-				res.Update(descriptor, validator.InMemoryLoader())
 			}
 
-			// add the resource to our results if it's not there already
+			// add the descriptors to our results if it's not there already
 			id := descriptor["id"].(string)
 			if _, encountered := idEncountered[id]; !encountered {
-				resources = append(resources, res)
+				descriptors = append(descriptors, descriptor)
 				idEncountered[id] = true
 			}
 		}
-		results.Resources = append(results.Resources, resources...)
+		results.Descriptors = append(results.Descriptors, descriptors...)
 	}
 	return results, nil
 }

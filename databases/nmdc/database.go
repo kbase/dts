@@ -38,8 +38,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -164,7 +162,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.dataObjects(p)
 }
 
-func (db Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
+func (db Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
 	if err := db.renewAccessTokenIfExpired(); err != nil {
 		return nil, err
 	}
@@ -190,7 +188,7 @@ func (db Database) Resources(orcid string, fileIds []string) ([]*datapackage.Res
 	}
 
 	// construct data resources from the IDs
-	resources := make([]*datapackage.Resource, len(fileIds))
+	descriptors := make([]interface{}, len(fileIds))
 	for i, fileId := range fileIds {
 		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
 		if err != nil {
@@ -201,22 +199,18 @@ func (db Database) Resources(orcid string, fileIds []string) ([]*datapackage.Res
 		if err != nil {
 			return nil, err
 		}
-		resources[i], err = db.resourceFromDataObject(dataObject)
-		if err != nil {
-			return nil, err
-		}
+		descriptor := db.descriptorFromDataObject(dataObject)
 
 		// add credit metadata
-		descriptor := resources[i].Descriptor()
 		resourceId := descriptor["id"].(string)
 		studyId := studyIdForDataObjectId[resourceId]
 		credit := creditForStudyId[studyId]
 		credit.ResourceType = "dataset"
 		credit.Identifier = resourceId
 		descriptor["credit"] = credit
-		resources[i].Update(descriptor, validator.InMemoryLoader())
+		descriptors[i] = descriptor
 	}
-	return resources, nil
+	return descriptors, nil
 }
 
 func (db Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
@@ -465,7 +459,7 @@ type DataGeneration struct {
 	AssociatedStudies []string
 }
 
-func (db Database) resourceFromDataObject(dataObject DataObject) (*datapackage.Resource, error) {
+func (db Database) descriptorFromDataObject(dataObject DataObject) map[string]interface{} {
 	descriptor := map[string]interface{}{
 		"bytes": dataObject.FileSizeBytes,
 		"credit": credit.CreditMetadata{
@@ -497,7 +491,7 @@ func (db Database) resourceFromDataObject(dataObject DataObject) (*datapackage.R
 		}
 	}
 
-	return datapackage.NewResource(descriptor, validator.MustInMemoryRegistry())
+	return descriptor
 }
 
 func (db Database) studyIdsForDataObjectIds(dataObjectIds []string) (map[string]string, error) {
@@ -659,7 +653,7 @@ func (db Database) dataObjects(params url.Values) (databases.SearchResults, erro
 
 	// create data resources from data objects, fetch study metadata, and fill in
 	// data resource credit information
-	results.Resources = make([]*datapackage.Resource, len(dataObjectResults.Results))
+	results.Descriptors = make([]interface{}, len(dataObjectResults.Results))
 	creditForStudyId := make(map[string]credit.CreditMetadata)
 	for i, dataObject := range dataObjectResults.Results {
 		studyId := studyIdForDataObjectId[dataObject.Id]
@@ -671,15 +665,9 @@ func (db Database) dataObjects(params url.Values) (databases.SearchResults, erro
 			}
 			creditForStudyId[studyId] = credit // cache for other data objects
 		}
-		results.Resources[i], err = db.resourceFromDataObject(dataObject)
-		if err != nil {
-			return results, err
-		}
-
-		// add credit
-		descriptor := results.Resources[i].Descriptor()
+		descriptor := db.descriptorFromDataObject(dataObject)
 		descriptor["credit"] = credit
-		results.Resources[i].Update(descriptor, validator.InMemoryLoader())
+		results.Descriptors[i] = descriptor
 	}
 
 	return results, nil
@@ -849,8 +837,8 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 		}
 	}
 
-	// create resources for the data objects
-	results.Resources = make([]*datapackage.Resource, 0)
+	// create Frictionless descriptors for the data objects
+	results.Descriptors = make([]interface{}, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
 			// FIXME: apply hack!
@@ -858,11 +846,11 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 				slog.Debug(fmt.Sprintf("Data object type mismatch (want %s, got %s)", dataObjectType, dataObject.DataObjectType))
 				continue
 			}
-			resource, err := db.resourceFromDataObject(dataObject)
+			descriptor := db.descriptorFromDataObject(dataObject)
 			if err != nil {
 				return results, err
 			}
-			results.Resources = append(results.Resources, resource)
+			results.Descriptors = append(results.Descriptors, descriptor)
 		}
 	}
 
@@ -871,8 +859,8 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 	if err != nil {
 		return results, err
 	}
-	for i := range results.Resources {
-		descriptor := results.Resources[i].Descriptor()
+	for i := range results.Descriptors {
+		descriptor := results.Descriptors[i].(map[string]interface{})
 		credit := descriptor["credit"].(credit.CreditMetadata)
 		credit.Contributors = studyCreditMetadata.Contributors
 		credit.Funding = studyCreditMetadata.Funding
@@ -881,7 +869,7 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 		credit.ResourceType = studyCreditMetadata.ResourceType
 		credit.Titles = studyCreditMetadata.Titles
 		descriptor["credit"] = credit
-		results.Resources[i].Update(descriptor, validator.InMemoryLoader())
+		results.Descriptors[i] = descriptor
 	}
 
 	return results, nil

@@ -24,7 +24,6 @@ package kbase
 import (
 	"fmt"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/databases"
@@ -53,8 +52,8 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return databases.SearchResults{}, err
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
-	err := fmt.Errorf("Resources not implemented for kbase database!")
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
+	err := fmt.Errorf("Descriptors not implemented for kbase database!")
 	return nil, err
 }
 

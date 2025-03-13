@@ -32,7 +32,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -126,11 +125,11 @@ func (ep *Endpoint) Root() string {
 	return ep.RootDir
 }
 
-func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
 	// find all the directories in which these files reside
 	filesInDir := make(map[string][]string)
 	for _, resource := range files {
-		descriptor := resource.Descriptor()
+		descriptor := resource.(map[string]interface{})
 		dir, file := filepath.Split(descriptor["path"].(string))
 		dir = filepath.Join(ep.RootDir, dir)
 		if _, found := filesInDir[dir]; !found {

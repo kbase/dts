@@ -60,10 +60,11 @@ type transferTask struct {
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
-func payloadSize(resources []*datapackage.Resource) float64 {
+func payloadSize(resources []interface{}) float64 {
 	var size uint64
 	for _, resource := range resources {
-		size += uint64(resource.Descriptor()["bytes"].(int))
+		descriptor := resource.(map[string]interface{})
+		size += uint64(descriptor["bytes"].(int))
 	}
 	return float64(size) / float64(1024*1024*1024)
 }
@@ -76,7 +77,7 @@ func (task *transferTask) start() error {
 	}
 
 	// resolve resource data using file IDs
-	resources, err := source.Resources(task.User.Orcid, task.FileIds)
+	descriptors, err := source.Descriptors(task.User.Orcid, task.FileIds)
 	if err != nil {
 		return err
 	}
@@ -84,8 +85,8 @@ func (task *transferTask) start() error {
 	// if the database stores its files in more than one location, check that each
 	// resource is associated with a valid endpoint
 	if len(config.Databases[task.Source].Endpoints) > 1 {
-		for _, resource := range resources {
-			descriptor := resource.Descriptor()
+		for _, d := range descriptors {
+			descriptor := d.(map[string]interface{})
 			id := descriptor["id"].(string)
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == "" {
@@ -103,13 +104,14 @@ func (task *transferTask) start() error {
 			}
 		}
 	} else { // otherwise, just assign the database's endpoint to the resources
-		for _, resource := range resources {
-			resource.Descriptor()["endpoint"] = config.Databases[task.Source].Endpoint
+		for _, d := range descriptors {
+			descriptor := d.(map[string]interface{})
+			descriptor["endpoint"] = config.Databases[task.Source].Endpoint
 		}
 	}
 
 	// make sure the size of the payload doesn't exceed our specified limit
-	task.PayloadSize = payloadSize(resources) // (in GB)
+	task.PayloadSize = payloadSize(descriptors) // (in GB)
 	if task.PayloadSize > config.Service.MaxPayloadSize {
 		return &PayloadTooLargeError{Size: task.PayloadSize}
 	}
@@ -131,8 +133,9 @@ func (task *transferTask) start() error {
 
 	// assemble distinct endpoints and create a subtask for each
 	distinctEndpoints := make(map[string]interface{})
-	for _, resource := range resources {
-		endpoint := resource.Descriptor()["endpoint"].(string)
+	for _, d := range descriptors {
+		descriptor := d.(map[string]interface{})
+		endpoint := descriptor["endpoint"].(string)
 		if _, found := distinctEndpoints[endpoint]; !found {
 			distinctEndpoints[endpoint] = struct{}{}
 		}
@@ -141,11 +144,12 @@ func (task *transferTask) start() error {
 	for sourceEndpoint := range distinctEndpoints {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
-		resourcesForEndpoint := make([]*datapackage.Resource, 0)
-		for _, resource := range resources {
-			endpoint := resource.Descriptor()["endpoint"].(string)
+		descriptorsForEndpoint := make([]interface{}, 0)
+		for _, d := range descriptors {
+			descriptor := d.(map[string]interface{})
+			endpoint := descriptor["endpoint"].(string)
 			if endpoint == sourceEndpoint {
-				resourcesForEndpoint = append(resourcesForEndpoint, resource)
+				descriptorsForEndpoint = append(descriptorsForEndpoint, descriptor)
 			}
 		}
 
@@ -154,7 +158,7 @@ func (task *transferTask) start() error {
 			Destination:         task.Destination,
 			DestinationEndpoint: destinationEndpoint,
 			DestinationFolder:   task.DestinationFolder,
-			Resources:           resourcesForEndpoint,
+			Descriptors:         descriptorsForEndpoint,
 			Source:              task.Source,
 			SourceEndpoint:      sourceEndpoint,
 			User:                task.User,
@@ -331,27 +335,25 @@ func (task transferTask) Completed() bool {
 
 // creates a DataPackage that serves as the transfer manifest
 func (task *transferTask) createManifest() *datapackage.Package {
-	resources := make([]interface{}, 0)
+	descriptors := make([]interface{}, 0)
 	for _, subtask := range task.Subtasks {
-		for _, r := range subtask.Resources {
-			resources = append(resources, r)
-		}
+		descriptors = append(descriptors, subtask.Descriptors...)
 	}
 
 	taskUser := map[string]interface{}{
-		"title":        task.User.Name,
-		"role":         "author",
+		"title": task.User.Name,
+		"role":  "author",
 	}
 	if task.User.Organization != "" {
 		taskUser["organization"] = task.User.Organization
-  }
+	}
 	if task.User.Email != "" {
 		taskUser["email"] = task.User.Email
 	}
 
 	descriptor := map[string]interface{}{
 		"name":      "manifest",
-		"resources": resources,
+		"resources": descriptors,
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
 		"keywords":  []interface{}{"dts", "manifest"},

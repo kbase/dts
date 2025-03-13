@@ -29,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -51,9 +50,9 @@ func EnableDebugLogging() {
 // * a database contains the word "test" in its identifier (YAML key)
 // * an endpoint contains the word "test" in its "provider" field
 // Each endpoint test fixture is created with the given set of options and
-// resources.
+// descriptorß.
 func RegisterTestFixturesFromConfig(endpointOptions EndpointOptions,
-	resources map[string]*datapackage.Resource) error {
+	descriptors map[string]interface{}) error {
 	// has config.Init() been called?
 	if len(config.Endpoints) == 0 && len(config.Databases) == 0 {
 		return fmt.Errorf(`No endpoints or databases were found in the configuration.
@@ -70,7 +69,7 @@ Did you call config.Init()?`)
 	// register database fixtures
 	for databaseName := range config.Databases {
 		if strings.Contains(databaseName, "test") {
-			RegisterDatabase(databaseName, resources)
+			RegisterDatabase(databaseName, descriptors)
 		}
 	}
 
@@ -108,7 +107,7 @@ type Endpoint struct {
 
 // Registers an endpoint test fixture with the given name in the configuration,
 // assigning it options that govern its testing behavior, and assigning it the
-// given set of Frictionless DataResources as "test files."
+// given set of Frictionless descriptors as "test files."
 func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	slog.Debug(fmt.Sprintf("Registering test endpoint %s...", endpointName))
 	newEndpointFunc := func(name string) (endpoints.Endpoint, error) {
@@ -126,12 +125,13 @@ func (ep *Endpoint) Root() string {
 	return ep.RootPath
 }
 
-func (ep *Endpoint) FilesStaged(files []*datapackage.Resource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
 	if ep.Database != nil {
 		// are there any unrecognized files?
 		for _, file := range files {
-			fileId := file.Descriptor()["id"].(string)
-			if _, found := ep.Database.resources[fileId]; !found {
+			descriptor := file.(map[string]interface{})
+			fileId := descriptor["id"].(string)
+			if _, found := ep.Database.descriptors[fileId]; !found {
 				return false, fmt.Errorf("Unrecognized file: %s\n", fileId)
 			}
 		}
@@ -194,13 +194,13 @@ type stagingRequest struct {
 
 // This type implements a databases.Database test fixture
 type Database struct {
-	Endpt     endpoints.Endpoint
-	resources map[string]*datapackage.Resource
-	Staging   map[uuid.UUID]stagingRequest
+	Endpt       endpoints.Endpoint
+	descriptors map[string]interface{}
+	Staging     map[uuid.UUID]stagingRequest
 }
 
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, resources map[string]*datapackage.Resource) error {
+func RegisterDatabase(databaseName string, descriptors map[string]interface{}) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
 	newDatabaseFunc := func() (databases.Database, error) {
 		endpoint, err := endpoints.NewEndpoint(config.Databases[databaseName].Endpoint)
@@ -208,9 +208,9 @@ func RegisterDatabase(databaseName string, resources map[string]*datapackage.Res
 			return nil, err
 		}
 		db := Database{
-			Endpt:     endpoint,
-			resources: resources,
-			Staging:   make(map[uuid.UUID]stagingRequest),
+			Endpt:       endpoint,
+			descriptors: descriptors,
+			Staging:     make(map[uuid.UUID]stagingRequest),
 		}
 		if testEndpoint, isTestEndpoint := db.Endpt.(*Endpoint); isTestEndpoint {
 			testEndpoint.Database = &db
@@ -230,24 +230,24 @@ func (db Database) SpecificSearchParameters() map[string]interface{} {
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
 	// look for file IDs in the search query
 	results := databases.SearchResults{
-		Resources: make([]*datapackage.Resource, 0),
+		Descriptors: make([]interface{}, 0),
 	}
-	for fileId, resource := range db.resources {
+	for fileId, descriptors := range db.descriptors {
 		if strings.Contains(params.Query, fileId) {
-			results.Resources = append(results.Resources, resource)
+			results.Descriptors = append(results.Descriptors, descriptors)
 		}
 	}
 	return results, nil
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]*datapackage.Resource, error) {
-	resources := make([]*datapackage.Resource, 0)
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
+	descriptors := make([]interface{}, 0)
 	for _, fileId := range fileIds {
-		if resource, found := db.resources[fileId]; found {
-			resources = append(resources, resource)
+		if descriptor, found := db.descriptors[fileId]; found {
+			descriptors = append(descriptors, descriptor)
 		}
 	}
-	return resources, nil
+	return descriptors, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

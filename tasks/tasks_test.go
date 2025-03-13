@@ -31,8 +31,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
-	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
@@ -79,8 +77,8 @@ func setup() {
 	}
 
 	// create test resources
-	file1, err := datapackage.NewResource(
-		map[string]interface{}{ // descriptor
+	testDescriptors := map[string]interface{}{
+		"file1": map[string]interface{}{
 			"id":       "file1",
 			"name":     "file1.dat",
 			"path":     "dir1/file1.dat",
@@ -88,12 +86,8 @@ func setup() {
 			"bytes":    1024,
 			"hash":     "d91f97974d06563cab48d4d43a17e08a",
 			"endpoint": "source-endpoint",
-		}, validator.MustInMemoryRegistry())
-	if err != nil {
-		log.Panicf("Couldn't initialize file1: %s", err)
-	}
-	file2, err := datapackage.NewResource(
-		map[string]interface{}{
+		},
+		"file2": map[string]interface{}{
 			"id":       "file2",
 			"name":     "file2.dat",
 			"path":     "dir2/file2.dat",
@@ -101,9 +95,8 @@ func setup() {
 			"bytes":    2048,
 			"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
 			"endpoint": "source-endpoint",
-		}, validator.MustInMemoryRegistry())
-	file3, err := datapackage.NewResource(
-		map[string]interface{}{
+		},
+		"file3": map[string]interface{}{
 			"id":       "file3",
 			"name":     "file3.dat",
 			"path":     "dir3/file3.dat",
@@ -111,15 +104,11 @@ func setup() {
 			"bytes":    4096,
 			"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
 			"endpoint": "source-endpoint",
-		}, validator.MustInMemoryRegistry())
-	testResources = map[string]*datapackage.Resource{
-		"file1": file1,
-		"file2": file2,
-		"file3": file3,
+		},
 	}
 
 	// register test databases/endpoints referred to in config file
-	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testResources)
+	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
 
 	// Create the data and manifest directories
 	os.Mkdir(config.Service.DataDirectory, 0755)
@@ -346,6 +335,3 @@ endpoints:
     provider: test
     root: DESTINATION_ROOT
 `
-
-// file test metadata
-var testResources map[string]*datapackage.Resource

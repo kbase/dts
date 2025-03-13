@@ -35,9 +35,17 @@ github.com/google/uuid
 github.com/gorilla/mux
 # github.com/kr/text v0.2.0
 ## explicit
+# github.com/piprate/json-gold v0.5.0
+## explicit; go 1.18
+github.com/piprate/json-gold/ld
+github.com/piprate/json-gold/ld/internal/jsoncanonicalizer
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
+# github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35
+## explicit
+github.com/pquerna/cachecontrol
+github.com/pquerna/cachecontrol/cacheobject
 # github.com/rogpeppe/go-internal v1.9.0
 ## explicit; go 1.17
 # github.com/santhosh-tekuri/jsonschema v1.2.4

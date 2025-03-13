@@ -24,6 +24,7 @@ package tasks
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -330,15 +331,22 @@ func (task transferTask) Completed() bool {
 
 // creates a DataPackage that serves as the transfer manifest
 func (task *transferTask) createManifest() *datapackage.Package {
-	numResources := 0
+	resources := make([]interface{}, 0)
 	for _, subtask := range task.Subtasks {
-		numResources += len(subtask.Resources)
+		for _, r := range subtask.Resources {
+			resources = append(resources, r)
+		}
 	}
-	resources := make([]*datapackage.Resource, numResources)
-	n := 0
-	for _, subtask := range task.Subtasks {
-		copy(resources[n:], subtask.Resources)
-		n += len(subtask.Resources)
+
+	taskUser := map[string]interface{}{
+		"title":        task.User.Name,
+		"role":         "author",
+	}
+	if task.User.Organization != "" {
+		taskUser["organization"] = task.User.Organization
+  }
+	if task.User.Email != "" {
+		taskUser["email"] = task.User.Email
 	}
 
 	descriptor := map[string]interface{}{
@@ -346,23 +354,18 @@ func (task *transferTask) createManifest() *datapackage.Package {
 		"resources": resources,
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
-		"keywords":  []string{"dts", "manifest"},
+		"keywords":  []interface{}{"dts", "manifest"},
 		"contributors": []interface{}{
-			map[string]interface{}{
-				"title":        task.User.Name,
-				"email":        task.User.Email,
-				"role":         "author",
-				"organization": task.User.Organization,
-			},
+			taskUser,
 		},
 		"description":  task.Description,
 		"instructions": task.Instructions,
 	}
-	manifest, _ := datapackage.New(descriptor, ".")
-	for _, resource := range resources {
-		manifest.AddResource(resource.Descriptor())
+
+	manifest, err := datapackage.New(descriptor, ".")
+	if err != nil {
+		slog.Error(err.Error())
 	}
-	//copy(manifest.Instructions, task.Instructions)
 
 	return manifest
 }

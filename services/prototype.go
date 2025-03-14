@@ -16,7 +16,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -143,7 +142,7 @@ func (service *prototype) Close() {
 
 // Version numbers
 var majorVersion = 0
-var minorVersion = 4
+var minorVersion = 5
 var patchVersion = 0
 
 // Version string
@@ -180,8 +179,8 @@ func authorize(authorizationHeader string) (auth.Client, error) {
 		}
 	}
 	if err != nil {
-		slog.Info(fmt.Sprintf("authenticator: %s", err.Error()))
-		slog.Info("Falling back to KBase authentication.")
+		slog.Debug(fmt.Sprintf("authenticator: %s", err.Error()))
+		slog.Debug("Falling back to KBase authentication.")
 
 		// maybe it's a KBase dev token, so check with the KBase auth server
 		authServer, err := auth.NewKBaseAuthServer(accessToken)
@@ -483,15 +482,19 @@ func searchDatabase(_ context.Context,
 	if err != nil {
 		return nil, databaseError(err)
 	}
-	resources := make([]*datapackage.Resource, len(results.Descriptors))
-	for i, d := range results.Descriptors {
-		resources[i], err = datapackage.NewResource(d.(map[string]interface{}), validator.MustInMemoryRegistry())
+	// validate the descriptors and send them along
+	for _, descriptor := range results.Descriptors {
+		err = validator.Validate(descriptor, "data-resource", validator.MustInMemoryRegistry())
+		if err != nil {
+			slog.Error(err.Error())
+			return nil, err
+		}
 	}
 	return &SearchResultsOutput{
 		Body: SearchResultsResponse{
-			Database:  input.Database,
-			Query:     input.Query,
-			Resources: resources,
+			Database:    input.Database,
+			Query:       input.Query,
+			Descriptors: results.Descriptors,
 		},
 	}, nil
 }
@@ -578,19 +581,24 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		orcid = client.Orcid
 	}
 
-	results, err := db.Descriptors(orcid, ids)
+	descriptors, err := db.Descriptors(orcid, ids)
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
-	resources := make([]*datapackage.Resource, len(results))
-	for i, d := range results {
-		resources[i], err = datapackage.NewResource(d.(map[string]interface{}), validator.MustInMemoryRegistry())
+
+	// validate the descriptors and send them along
+	for _, descriptor := range descriptors {
+		err = validator.Validate(descriptor, "data-resource", validator.MustInMemoryRegistry())
+		if err != nil {
+			slog.Error(err.Error())
+			return nil, err
+		}
 	}
 	return &FileMetadataOutput{
 		Body: FileMetadataResponse{
-			Database:  input.Database,
-			Resources: resources,
+			Database:    input.Database,
+			Descriptors: descriptors,
 		},
 	}, nil
 }

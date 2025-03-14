@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 )
 
@@ -31,7 +30,7 @@ type SearchResultsResponse struct {
 	// ElasticSearch query string
 	Query string `json:"query" example:"prochlorococcus" doc:"the given query string"`
 	// resources matching the query
-	Resources []*datapackage.Resource `json:"resources" doc:"an array of Frictionless DataResources"`
+	Descriptors []map[string]interface{} `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 
 // a response for a file metadata query (GET)
@@ -39,7 +38,7 @@ type FileMetadataResponse struct {
 	// name of organization database
 	Database string `json:"database" example:"jdp" doc:"the database searched"`
 	// resources corresponding to given file IDs
-	Resources []*datapackage.Resource `json:"resources" doc:"an array of Frictionless DataResources"`
+	Descriptors []map[string]interface{} `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 
 // a request for a file transfer (POST)

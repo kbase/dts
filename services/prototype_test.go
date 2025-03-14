@@ -97,7 +97,7 @@ endpoints:
 `
 
 // file test metadata
-var testDescriptors map[string]interface{}
+var testDescriptors map[string]map[string]interface{}
 
 // performs testing setup
 func setup() {
@@ -132,13 +132,13 @@ func setup() {
 	}
 
 	// create source files and corresponding data resources
-	testDescriptors = make(map[string]interface{})
+	testDescriptors = make(map[string]map[string]interface{})
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
 		name := fmt.Sprintf("file%d", i)
 		path := name + ".txt"
 		data := []byte(fmt.Sprintf("This is the content of file %d.", i))
-		hash := md5.Sum(data)
+		hash := fmt.Sprintf("%x", md5.Sum(data))
 		err = os.WriteFile(filepath.Join(sourceRoot, path), data, 0600)
 		if err != nil {
 			log.Panicf("Couldn't create source file: %s", err)
@@ -411,8 +411,8 @@ func TestSearchDatabase(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal("source", results.Database)
 	assert.Equal("1", results.Query)
-	assert.Equal(1, len(results.Resources))
-	assert.Equal("file1", results.Resources[0].Name)
+	assert.Equal(1, len(results.Descriptors))
+	assert.Equal("file1", results.Descriptors[0]["name"])
 }
 
 // fetches file metadata from the JDP for some specific files
@@ -435,13 +435,14 @@ func TestFetchJdpMetadata(t *testing.T) {
 	defer resp.Body.Close()
 
 	var results SearchResultsResponse
+	print(string(respBody))
 	err = json.Unmarshal(respBody, &results)
 	assert.Nil(err)
 	assert.Equal("jdp", results.Database)
-	assert.Equal(3, len(results.Resources))
-	assert.Equal("JDP:6101cc0f2b1f2eeea564c978", results.Resources[0].Descriptor()["id"])
-	assert.Equal("JDP:613a7baa72d3a08c9a54b32d", results.Resources[1].Descriptor()["id"])
-	assert.Equal("JDP:61412246cc4ff44f36c8913d", results.Resources[2].Descriptor()["id"])
+	assert.Equal(3, len(results.Descriptors))
+	assert.Equal("JDP:6101cc0f2b1f2eeea564c978", results.Descriptors[0]["id"])
+	assert.Equal("JDP:613a7baa72d3a08c9a54b32d", results.Descriptors[1]["id"])
+	assert.Equal("JDP:61412246cc4ff44f36c8913d", results.Descriptors[2]["id"])
 }
 
 // creates a transfer from source -> destination1

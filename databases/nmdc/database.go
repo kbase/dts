@@ -162,7 +162,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.dataObjects(p)
 }
 
-func (db Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
+func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
 	if err := db.renewAccessTokenIfExpired(); err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]interface{}, e
 	}
 
 	// construct data resources from the IDs
-	descriptors := make([]interface{}, len(fileIds))
+	descriptors := make([]map[string]interface{}, len(fileIds))
 	for i, fileId := range fileIds {
 		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
 		if err != nil {
@@ -653,7 +653,7 @@ func (db Database) dataObjects(params url.Values) (databases.SearchResults, erro
 
 	// create data resources from data objects, fetch study metadata, and fill in
 	// data resource credit information
-	results.Descriptors = make([]interface{}, len(dataObjectResults.Results))
+	results.Descriptors = make([]map[string]interface{}, len(dataObjectResults.Results))
 	creditForStudyId := make(map[string]credit.CreditMetadata)
 	for i, dataObject := range dataObjectResults.Results {
 		studyId := studyIdForDataObjectId[dataObject.Id]
@@ -838,7 +838,7 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 	}
 
 	// create Frictionless descriptors for the data objects
-	results.Descriptors = make([]interface{}, 0)
+	results.Descriptors = make([]map[string]interface{}, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
 			// FIXME: apply hack!
@@ -859,8 +859,7 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 	if err != nil {
 		return results, err
 	}
-	for i := range results.Descriptors {
-		descriptor := results.Descriptors[i].(map[string]interface{})
+	for i, descriptor := range results.Descriptors {
 		credit := descriptor["credit"].(credit.CreditMetadata)
 		credit.Contributors = studyCreditMetadata.Contributors
 		credit.Funding = studyCreditMetadata.Funding

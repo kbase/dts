@@ -46,7 +46,7 @@ type Database interface {
 	Search(orcid string, params SearchParameters) (SearchResults, error)
 	// returns a slice of Frictionless descriptors for the resources visible to
 	// the user with the given ORCID that match the given IDs
-	Descriptors(orcid string, fileIds []string) ([]interface{}, error)
+	Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
@@ -93,7 +93,7 @@ type SearchParameters struct {
 // results from a file search
 type SearchResults struct {
 	// Frictionless data descriptors
-	Descriptors []interface{} `json:"resources"`
+	Descriptors []map[string]interface{} `json:"resources"`
 }
 
 type SearchPaginationParameters struct {

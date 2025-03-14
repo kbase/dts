@@ -52,7 +52,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return databases.SearchResults{}, err
 }
 
-func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
 	err := fmt.Errorf("Descriptors not implemented for kbase database!")
 	return nil, err
 }

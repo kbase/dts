@@ -77,8 +77,8 @@ func setup() {
 	}
 
 	// create test resources
-	testDescriptors := map[string]interface{}{
-		"file1": map[string]interface{}{
+	testDescriptors := map[string]map[string]interface{}{
+		"file1": {
 			"id":       "file1",
 			"name":     "file1.dat",
 			"path":     "dir1/file1.dat",
@@ -87,7 +87,7 @@ func setup() {
 			"hash":     "d91f97974d06563cab48d4d43a17e08a",
 			"endpoint": "source-endpoint",
 		},
-		"file2": map[string]interface{}{
+		"file2": {
 			"id":       "file2",
 			"name":     "file2.dat",
 			"path":     "dir2/file2.dat",
@@ -96,7 +96,7 @@ func setup() {
 			"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
 			"endpoint": "source-endpoint",
 		},
-		"file3": map[string]interface{}{
+		"file3": {
 			"id":       "file3",
 			"name":     "file3.dat",
 			"path":     "dir3/file3.dat",

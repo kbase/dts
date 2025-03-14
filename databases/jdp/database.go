@@ -126,7 +126,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.filesFromSearch(p)
 }
 
-func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, error) {
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
 	// strip the "JDP:" prefix from our files and create a mapping from IDs to
 	// their original order so we can hand back metadata accordingly
 	strippedFileIds := make([]string, len(fileIds))
@@ -183,7 +183,7 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]interface{}, 
 	}
 
 	// translate the response
-	descriptors := make([]interface{}, len(strippedFileIds))
+	descriptors := make([]map[string]interface{}, len(strippedFileIds))
 	for i, md := range jdpResp.Hits.Hits {
 		if md.Id == "" { // permissions problem
 			return nil, &PermissionDeniedError{fileIds[i]}
@@ -697,14 +697,14 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
 	}
-	results.Descriptors = make([]interface{}, 0)
+	results.Descriptors = make([]map[string]interface{}, 0)
 	var jdpResults JDPResults
 	err = json.Unmarshal(body, &jdpResults)
 	if err != nil {
 		return results, err
 	}
 	for _, org := range jdpResults.Organisms {
-		descriptors := make([]interface{}, 0)
+		descriptors := make([]map[string]interface{}, 0)
 		for _, file := range org.Files {
 			descriptor := descriptorFromOrganismAndFile(org, file)
 

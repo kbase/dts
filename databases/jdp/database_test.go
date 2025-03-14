@@ -86,17 +86,15 @@ func TestDescriptors(t *testing.T) {
 	}
 	results, _ := db.Search(orcid, params)
 	fileIds := make([]string, len(results.Descriptors))
-	for i, d := range results.Descriptors {
-		descriptor := d.(map[string]interface{})
+	for i, descriptor := range results.Descriptors {
 		fileIds[i] = descriptor["id"].(string)
 	}
 	descriptors, err := db.Descriptors(orcid, fileIds[:10])
 	assert.Nil(err, "JDP resource query encountered an error")
 	assert.Equal(10, len(descriptors),
 		"JDP resource query didn't return requested number of results")
-	for i, d := range descriptors {
-		desc := d.(map[string]interface{})
-		jdpSearchResult := results.Descriptors[i].(map[string]interface{})
+	for i, desc := range descriptors {
+		jdpSearchResult := results.Descriptors[i]
 		assert.Equal(jdpSearchResult["id"], desc["id"], "Resource ID mismatch")
 		assert.Equal(jdpSearchResult["name"], desc["name"], "Resource name mismatch")
 		assert.Equal(jdpSearchResult["path"], desc["path"], "Resource path mismatch")

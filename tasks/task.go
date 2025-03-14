@@ -60,10 +60,9 @@ type transferTask struct {
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
-func payloadSize(resources []interface{}) float64 {
+func payloadSize(descriptors []map[string]interface{}) float64 {
 	var size uint64
-	for _, resource := range resources {
-		descriptor := resource.(map[string]interface{})
+	for _, descriptor := range descriptors {
 		size += uint64(descriptor["bytes"].(int))
 	}
 	return float64(size) / float64(1024*1024*1024)
@@ -85,8 +84,7 @@ func (task *transferTask) start() error {
 	// if the database stores its files in more than one location, check that each
 	// resource is associated with a valid endpoint
 	if len(config.Databases[task.Source].Endpoints) > 1 {
-		for _, d := range descriptors {
-			descriptor := d.(map[string]interface{})
+		for _, descriptor := range descriptors {
 			id := descriptor["id"].(string)
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == "" {
@@ -104,8 +102,7 @@ func (task *transferTask) start() error {
 			}
 		}
 	} else { // otherwise, just assign the database's endpoint to the resources
-		for _, d := range descriptors {
-			descriptor := d.(map[string]interface{})
+		for _, descriptor := range descriptors {
 			descriptor["endpoint"] = config.Databases[task.Source].Endpoint
 		}
 	}
@@ -133,8 +130,7 @@ func (task *transferTask) start() error {
 
 	// assemble distinct endpoints and create a subtask for each
 	distinctEndpoints := make(map[string]interface{})
-	for _, d := range descriptors {
-		descriptor := d.(map[string]interface{})
+	for _, descriptor := range descriptors {
 		endpoint := descriptor["endpoint"].(string)
 		if _, found := distinctEndpoints[endpoint]; !found {
 			distinctEndpoints[endpoint] = struct{}{}
@@ -145,8 +141,7 @@ func (task *transferTask) start() error {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
 		descriptorsForEndpoint := make([]interface{}, 0)
-		for _, d := range descriptors {
-			descriptor := d.(map[string]interface{})
+		for _, descriptor := range descriptors {
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == sourceEndpoint {
 				descriptorsForEndpoint = append(descriptorsForEndpoint, descriptor)

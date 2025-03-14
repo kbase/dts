@@ -252,23 +252,10 @@ func (task *transferTask) Update() error {
 
 			// write the manifest to disk and begin transferring it to the
 			// destination endpoint
-			var manifestBytes []byte
-			manifestBytes, err = json.Marshal(manifest)
-			if err != nil {
-				return fmt.Errorf("marshalling manifest content: %s", err.Error())
-			}
 			task.ManifestFile = filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", task.Id.String()))
-			manifestFile, err := os.Create(task.ManifestFile)
+			err = manifest.SaveDescriptor(task.ManifestFile)
 			if err != nil {
 				return fmt.Errorf("creating manifest file: %s", err.Error())
-			}
-			_, err = manifestFile.Write(manifestBytes)
-			if err != nil {
-				return fmt.Errorf("writing manifest file content: %s", err.Error())
-			}
-			err = manifestFile.Close()
-			if err != nil {
-				return fmt.Errorf("closing manifest file: %s", err.Error())
 			}
 
 			// construct the source/destination file manifest paths

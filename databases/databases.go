@@ -44,8 +44,11 @@ type Database interface {
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
 	Search(orcid string, params SearchParameters) (SearchResults, error)
-	// returns a slice of Frictionless descriptors for the resources visible to
-	// the user with the given ORCID that match the given IDs
+	// Returns a slice of Frictionless descriptors for the resources visible to
+	// the user with the given ORCID that match the given IDs. A descriptor can
+	// refer to a file or inline data, depending respectively on the presence of
+	// a `path` or `data` field. Descriptors with inline data are not involved in
+	// file transfers and appear only in a transfer manifest.
 	Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation

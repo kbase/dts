@@ -44,6 +44,7 @@ import (
 type transferTask struct {
 	Canceled          bool              // set if a cancellation request has been made
 	CompletionTime    time.Time         // time at which the transfer completed
+	DataDescriptors   []interface{}     // in-line data descriptors
 	Description       string            // Markdown description of the task
 	Destination       string            // name of destination database (in config)
 	DestinationFolder string            // folder path to which files are transferred
@@ -76,15 +77,30 @@ func (task *transferTask) start() error {
 	}
 
 	// resolve resource data using file IDs
-	descriptors, err := source.Descriptors(task.User.Orcid, task.FileIds)
-	if err != nil {
-		return err
+	fileDescriptors := make([]map[string]interface{}, 0)
+	{
+		descriptors, err := source.Descriptors(task.User.Orcid, task.FileIds)
+		if err != nil {
+			return err
+		}
+
+		// sift through the descriptors and separate files from in-line data
+		for _, descriptor := range descriptors {
+			if _, found := descriptor["path"]; found { // file to be transferred
+				fileDescriptors = append(fileDescriptors, descriptor)
+			} else if _, found := descriptor["data"]; found { // inline data
+				task.DataDescriptors = append(task.DataDescriptors, descriptor)
+			} else { // neither!
+				return fmt.Errorf("Descriptor '%s' (ID: %s) has no 'path' or 'data' field!",
+					descriptor["name"], descriptor["id"])
+			}
+		}
 	}
 
 	// if the database stores its files in more than one location, check that each
 	// resource is associated with a valid endpoint
 	if len(config.Databases[task.Source].Endpoints) > 1 {
-		for _, descriptor := range descriptors {
+		for _, descriptor := range fileDescriptors {
 			id := descriptor["id"].(string)
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == "" {
@@ -102,13 +118,13 @@ func (task *transferTask) start() error {
 			}
 		}
 	} else { // otherwise, just assign the database's endpoint to the resources
-		for _, descriptor := range descriptors {
+		for _, descriptor := range fileDescriptors {
 			descriptor["endpoint"] = config.Databases[task.Source].Endpoint
 		}
 	}
 
 	// make sure the size of the payload doesn't exceed our specified limit
-	task.PayloadSize = payloadSize(descriptors) // (in GB)
+	task.PayloadSize = payloadSize(fileDescriptors) // (in GB)
 	if task.PayloadSize > config.Service.MaxPayloadSize {
 		return &PayloadTooLargeError{Size: task.PayloadSize}
 	}
@@ -130,7 +146,7 @@ func (task *transferTask) start() error {
 
 	// assemble distinct endpoints and create a subtask for each
 	distinctEndpoints := make(map[string]interface{})
-	for _, descriptor := range descriptors {
+	for _, descriptor := range fileDescriptors {
 		endpoint := descriptor["endpoint"].(string)
 		if _, found := distinctEndpoints[endpoint]; !found {
 			distinctEndpoints[endpoint] = struct{}{}
@@ -141,7 +157,7 @@ func (task *transferTask) start() error {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
 		descriptorsForEndpoint := make([]interface{}, 0)
-		for _, descriptor := range descriptors {
+		for _, descriptor := range fileDescriptors {
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == sourceEndpoint {
 				descriptorsForEndpoint = append(descriptorsForEndpoint, descriptor)
@@ -317,9 +333,13 @@ func (task transferTask) Completed() bool {
 
 // creates a DataPackage that serves as the transfer manifest
 func (task *transferTask) createManifest() *datapackage.Package {
+	// gather all file and data descriptors
 	descriptors := make([]interface{}, 0)
 	for _, subtask := range task.Subtasks {
 		descriptors = append(descriptors, subtask.Descriptors...)
+	}
+	for _, dataDescriptor := range task.DataDescriptors {
+		descriptors = append(descriptors, dataDescriptor)
 	}
 
 	taskUser := map[string]interface{}{

@@ -170,21 +170,19 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]int
 	// we use the /data_objects/{data_object_id} GET endpoint to retrieve metadata
 	// for individual files
 
-	// gather relevant study IDs and use them to build credit metadata
+	// gather relevant study IDs and credit metadata
 	studyIdForDataObjectId, err := db.studyIdsForDataObjectIds(fileIds)
 	if err != nil {
 		return nil, err
 	}
 	creditForStudyId := make(map[string]credit.CreditMetadata)
 	for _, studyId := range studyIdForDataObjectId {
-		credit, foundStudyCredit := creditForStudyId[studyId]
-		if !foundStudyCredit {
-			credit, err = db.creditMetadataForStudy(studyId)
-			if err != nil {
-				return nil, err
-			}
-			creditForStudyId[studyId] = credit // cache for other data objects
+		var credit credit.CreditMetadata
+		credit, err = db.creditMetadataForStudy(studyId)
+		if err != nil {
+			return nil, err
 		}
+		creditForStudyId[studyId] = credit
 	}
 
 	// construct data resources from the IDs
@@ -210,6 +208,22 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]int
 		descriptor["credit"] = credit
 		descriptors[i] = descriptor
 	}
+
+	// include any relevant biosample metadata (inline data) descriptors
+	for _, studyId := range studyIdForDataObjectId {
+		var biosampleMd json.RawMessage
+		biosampleMd, err = db.biosampleMetadataForStudy(studyId)
+		if err != nil {
+			return nil, err
+		}
+		descriptor := map[string]interface{}{
+			"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
+			"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
+			"data":  biosampleMd,
+		}
+		descriptors = append(descriptors, descriptor)
+	}
+
 	return descriptors, nil
 }
 
@@ -807,6 +821,19 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 	return creditMetadata, err
 }
 
+// fetches biosample (JSON) metadata for the given study
+func (db *Database) biosampleMetadataForStudy(studyId string) (json.RawMessage, error) {
+	var results json.RawMessage
+	var p url.Values
+	p.Add("associated_studies", studyId)
+	body, err := db.get("biosamples", p)
+	if err != nil {
+		return results, err
+	}
+	err = json.Unmarshal(body, &results)
+	return results, err
+}
+
 // fetches file metadata for data objects associated with the given study
 func (db Database) dataObjectsForStudy(studyId string, params url.Values) (databases.SearchResults, error) {
 	var results databases.SearchResults
@@ -847,9 +874,6 @@ func (db Database) dataObjectsForStudy(studyId string, params url.Values) (datab
 				continue
 			}
 			descriptor := db.descriptorFromDataObject(dataObject)
-			if err != nil {
-				return results, err
-			}
 			results.Descriptors = append(results.Descriptors, descriptor)
 		}
 	}

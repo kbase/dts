@@ -24,7 +24,6 @@ import (
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
-	"github.com/kbase/dts/frictionless"
 )
 
 // working directory from which the tests were invoked
@@ -98,7 +97,7 @@ endpoints:
 `
 
 // file test metadata
-var testResources map[string]frictionless.DataResource
+var testDescriptors map[string]map[string]interface{}
 
 // performs testing setup
 func setup() {
@@ -133,26 +132,26 @@ func setup() {
 	}
 
 	// create source files and corresponding data resources
-	testResources = make(map[string]frictionless.DataResource)
+	testDescriptors = make(map[string]map[string]interface{})
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
 		name := fmt.Sprintf("file%d", i)
 		path := name + ".txt"
 		data := []byte(fmt.Sprintf("This is the content of file %d.", i))
-		hash := md5.Sum(data)
+		hash := fmt.Sprintf("%x", md5.Sum(data))
 		err = os.WriteFile(filepath.Join(sourceRoot, path), data, 0600)
 		if err != nil {
 			log.Panicf("Couldn't create source file: %s", err)
 			break
 		}
-		testResources[id] = frictionless.DataResource{
-			Id:        id,
-			Name:      name,
-			Path:      path,
-			Format:    "text",
-			MediaType: "text/plain",
-			Bytes:     len(data),
-			Hash:      string(hash[:]),
+		testDescriptors[id] = map[string]interface{}{
+			"id":        id,
+			"name":      name,
+			"path":      path,
+			"format":    "text",
+			"mediatype": "text/plain",
+			"bytes":     len(data),
+			"hash":      string(hash[:]),
 		}
 	}
 
@@ -167,7 +166,7 @@ func setup() {
 	}
 
 	// register test databases referred to in config file
-	dtstest.RegisterDatabase("source", testResources)
+	dtstest.RegisterDatabase("source", testDescriptors)
 	dtstest.RegisterDatabase("destination1", nil)
 	dtstest.RegisterDatabase("destination2", nil)
 
@@ -412,8 +411,8 @@ func TestSearchDatabase(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal("source", results.Database)
 	assert.Equal("1", results.Query)
-	assert.Equal(1, len(results.Resources))
-	assert.Equal("file1", results.Resources[0].Name)
+	assert.Equal(1, len(results.Descriptors))
+	assert.Equal("file1", results.Descriptors[0]["name"])
 }
 
 // fetches file metadata from the JDP for some specific files
@@ -436,13 +435,14 @@ func TestFetchJdpMetadata(t *testing.T) {
 	defer resp.Body.Close()
 
 	var results SearchResultsResponse
+	print(string(respBody))
 	err = json.Unmarshal(respBody, &results)
 	assert.Nil(err)
 	assert.Equal("jdp", results.Database)
-	assert.Equal(3, len(results.Resources))
-	assert.Equal("JDP:6101cc0f2b1f2eeea564c978", results.Resources[0].Id)
-	assert.Equal("JDP:613a7baa72d3a08c9a54b32d", results.Resources[1].Id)
-	assert.Equal("JDP:61412246cc4ff44f36c8913d", results.Resources[2].Id)
+	assert.Equal(3, len(results.Descriptors))
+	assert.Equal("JDP:6101cc0f2b1f2eeea564c978", results.Descriptors[0]["id"])
+	assert.Equal("JDP:613a7baa72d3a08c9a54b32d", results.Descriptors[1]["id"])
+	assert.Equal("JDP:61412246cc4ff44f36c8913d", results.Descriptors[2]["id"])
 }
 
 // creates a transfer from source -> destination1

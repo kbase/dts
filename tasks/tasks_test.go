@@ -76,8 +76,39 @@ func setup() {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
 
+	// create test resources
+	testDescriptors := map[string]map[string]interface{}{
+		"file1": {
+			"id":       "file1",
+			"name":     "file1.dat",
+			"path":     "dir1/file1.dat",
+			"format":   "text",
+			"bytes":    1024,
+			"hash":     "d91f97974d06563cab48d4d43a17e08a",
+			"endpoint": "source-endpoint",
+		},
+		"file2": {
+			"id":       "file2",
+			"name":     "file2.dat",
+			"path":     "dir2/file2.dat",
+			"format":   "text",
+			"bytes":    2048,
+			"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
+			"endpoint": "source-endpoint",
+		},
+		"file3": {
+			"id":       "file3",
+			"name":     "file3.dat",
+			"path":     "dir3/file3.dat",
+			"format":   "text",
+			"bytes":    4096,
+			"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
+			"endpoint": "source-endpoint",
+		},
+	}
+
 	// register test databases/endpoints referred to in config file
-	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testResources)
+	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
 
 	// Create the data and manifest directories
 	os.Mkdir(config.Service.DataDirectory, 0755)
@@ -304,31 +335,3 @@ endpoints:
     provider: test
     root: DESTINATION_ROOT
 `
-
-// file test metadata
-var testResources map[string]DataResource = map[string]DataResource{
-	"file1": {
-		Id:     "file1",
-		Name:   "file1.dat",
-		Path:   "dir1/file1.dat",
-		Format: "text",
-		Bytes:  1024,
-		Hash:   "d91f97974d06563cab48d4d43a17e08a",
-	},
-	"file2": {
-		Id:     "file2",
-		Name:   "file2.dat",
-		Path:   "dir2/file2.dat",
-		Format: "text",
-		Bytes:  2048,
-		Hash:   "d91f9e974d0e563cab48d4d43a17e08a",
-	},
-	"file3": {
-		Id:     "file3",
-		Name:   "file3.dat",
-		Path:   "dir3/file3.dat",
-		Format: "text",
-		Bytes:  4096,
-		Hash:   "e91f9e974d0e563cab48d4d43a17e08e",
-	},
-}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/frictionlessdata/datapackage-go/validator"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"golang.org/x/net/netutil"
@@ -141,7 +142,7 @@ func (service *prototype) Close() {
 
 // Version numbers
 var majorVersion = 0
-var minorVersion = 4
+var minorVersion = 5
 var patchVersion = 0
 
 // Version string
@@ -178,8 +179,8 @@ func authorize(authorizationHeader string) (auth.Client, error) {
 		}
 	}
 	if err != nil {
-		slog.Info(fmt.Sprintf("authenticator: %s", err.Error()))
-		slog.Info("Falling back to KBase authentication.")
+		slog.Debug(fmt.Sprintf("authenticator: %s", err.Error()))
+		slog.Debug("Falling back to KBase authentication.")
 
 		// maybe it's a KBase dev token, so check with the KBase auth server
 		authServer, err := auth.NewKBaseAuthServer(accessToken)
@@ -481,11 +482,19 @@ func searchDatabase(_ context.Context,
 	if err != nil {
 		return nil, databaseError(err)
 	}
+	// validate the descriptors and send them along
+	for _, descriptor := range results.Descriptors {
+		err = validator.Validate(descriptor, "data-resource", validator.MustInMemoryRegistry())
+		if err != nil {
+			slog.Error(err.Error())
+			return nil, err
+		}
+	}
 	return &SearchResultsOutput{
 		Body: SearchResultsResponse{
-			Database:  input.Database,
-			Query:     input.Query,
-			Resources: results.Resources,
+			Database:    input.Database,
+			Query:       input.Query,
+			Descriptors: results.Descriptors,
 		},
 	}, nil
 }
@@ -572,15 +581,24 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		orcid = client.Orcid
 	}
 
-	results, err := db.Resources(orcid, ids)
+	descriptors, err := db.Descriptors(orcid, ids)
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
+
+	// validate the descriptors and send them along
+	for _, descriptor := range descriptors {
+		err = validator.Validate(descriptor, "data-resource", validator.MustInMemoryRegistry())
+		if err != nil {
+			slog.Error(err.Error())
+			return nil, err
+		}
+	}
 	return &FileMetadataOutput{
 		Body: FileMetadataResponse{
-			Database:  input.Database,
-			Resources: results,
+			Database:    input.Database,
+			Descriptors: descriptors,
 		},
 	}, nil
 }

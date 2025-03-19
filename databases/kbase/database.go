@@ -27,7 +27,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/frictionless"
 )
 
 // file database appropriate for handling KBase searches and transfers
@@ -53,8 +52,8 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return databases.SearchResults{}, err
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error) {
-	err := fmt.Errorf("Resources not implemented for kbase database!")
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
+	err := fmt.Errorf("Descriptors not implemented for kbase database!")
 	return nil, err
 }
 

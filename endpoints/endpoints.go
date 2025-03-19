@@ -27,7 +27,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
-	"github.com/kbase/dts/frictionless"
 )
 
 // this type holds all relevant information for the transfer of an individual
@@ -70,9 +69,9 @@ type TransferStatus struct {
 type Endpoint interface {
 	// returns the path on the file system that serves as the endpoint's root
 	Root() string
-	// returns true if the files associated with the given DataResources are
-	// staged at this endpoint AND are valid, false otherwise
-	FilesStaged(files []frictionless.DataResource) (bool, error)
+	// returns true if the files associated with the given Frictionless
+	// descriptors are staged at this endpoint AND are valid, false otherwise
+	FilesStaged(files []interface{}) (bool, error)
 	// returns a list of UUIDs for all transfers associated with this endpoint
 	Transfers() ([]uuid.UUID, error)
 	// begins a transfer task that moves the files identified by the FileTransfer

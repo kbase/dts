@@ -35,7 +35,6 @@ import (
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 // we test our Globus endpoint implementation using two endpoints:
@@ -126,32 +125,33 @@ func TestGlobusFilesStaged(t *testing.T) {
 	endpoint, _ := NewEndpoint("source")
 
 	// provide an empty slice of filenames, which should return true
-	staged, err := endpoint.FilesStaged([]frictionless.DataResource{})
+	staged, err := endpoint.FilesStaged([]interface{}{})
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a file that's known to be on the source endpoint, which
 	// should return true
-	resources := make([]frictionless.DataResource, 0)
+	descriptors := make([]interface{}, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
-		resources = append(resources, frictionless.DataResource{
-			Id:   id,
-			Path: sourceFilesById[id],
-		})
+		d := map[string]interface{}{ // descriptor
+			"id":   id,
+			"path": sourceFilesById[id],
+		}
+		descriptors = append(descriptors, d)
 	}
-	staged, err = endpoint.FilesStaged(resources)
+	staged, err = endpoint.FilesStaged(descriptors)
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a nonexistent file, which should return false
-	resources = []frictionless.DataResource{
-		frictionless.DataResource{
-			Id:   "yadda",
-			Path: "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
-		},
+	nonexistent := map[string]interface{}{ // descriptor
+		"id":   "yadda",
+		"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
 	}
-	staged, err = endpoint.FilesStaged(resources)
+	assert.Nil(err)
+	descriptors = []interface{}{nonexistent}
+	staged, err = endpoint.FilesStaged(descriptors)
 	assert.False(staged)
 	assert.Nil(err)
 }

@@ -32,7 +32,6 @@ import (
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
-	"github.com/kbase/dts/frictionless"
 )
 
 type xferRecord struct {
@@ -90,9 +89,10 @@ func (ep *Endpoint) Root() string {
 	return ep.root
 }
 
-func (ep *Endpoint) FilesStaged(files []frictionless.DataResource) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
 	for _, resource := range files {
-		absPath := filepath.Join(ep.root, resource.Path)
+		descriptor := resource.(map[string]interface{})
+		absPath := filepath.Join(ep.root, descriptor["path"].(string))
 		_, err := os.Stat(absPath)
 		if err != nil {
 			return false, nil
@@ -181,9 +181,11 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// first, we check that all requested files are staged on this endpoint
-	requestedFiles := make([]frictionless.DataResource, len(files))
+	requestedFiles := make([]interface{}, len(files))
 	for i, file := range files {
-		requestedFiles[i].Path = file.SourcePath // only the Path field is required
+		requestedFiles[i] = map[string]interface{}{
+			"path": file.SourcePath, // only the Path field is required
+		}
 	}
 	staged, err := ep.FilesStaged(requestedFiles)
 	if err != nil {

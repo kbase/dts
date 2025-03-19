@@ -93,8 +93,8 @@ func (t *SerialTests) TestResources() {
 	assert := assert.New(t.Test)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 	db, _ := NewDatabase()
-	_, err := db.Resources(orcid, nil)
-	assert.NotNil(err, "Resources not implemented for kbase database!")
+	_, err := db.Descriptors(orcid, nil)
+	assert.NotNil(err, "Descriptors not implemented for kbase database!")
 }
 
 func (t *SerialTests) TestLocalUser() {

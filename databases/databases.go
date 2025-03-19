@@ -22,12 +22,13 @@
 package databases
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
 
-	"github.com/kbase/dts/frictionless"
+	"github.com/kbase/dts/credit"
 )
 
 // Database defines the interface for a database that is used to search for
@@ -43,9 +44,9 @@ type Database interface {
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
 	Search(orcid string, params SearchParameters) (SearchResults, error)
-	// returns a slice of Frictionless DataResources for the files visible to the
-	// user with the given ORCID that match the given IDs
-	Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error)
+	// returns a slice of Frictionless descriptors for the resources visible to
+	// the user with the given ORCID that match the given IDs
+	Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
@@ -91,7 +92,8 @@ type SearchParameters struct {
 
 // results from a file search
 type SearchResults struct {
-	Resources []frictionless.DataResource `json:"resources"`
+	// Frictionless data descriptors
+	Descriptors []map[string]interface{} `json:"resources"`
 }
 
 type SearchPaginationParameters struct {
@@ -124,6 +126,14 @@ const (
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
 func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
+	if firstTime {
+		// register types that appear in Frictionless Descriptors (for manifests)
+		gob.Register(credit.CreditMetadata{})
+		gob.Register(json.RawMessage{})
+
+		firstTime = false
+	}
+
 	if _, found := createDatabaseFuncs_[dbName]; found {
 		return AlreadyRegisteredError{
 			Database: dbName,
@@ -193,6 +203,9 @@ func Load(states DatabaseSaveStates) error {
 //-----------
 // Internals
 //-----------
+
+// set to false after the first database is registered
+var firstTime = true
 
 // we maintain a table of database instances, identified by their names
 var allDatabases_ = make(map[string]Database)

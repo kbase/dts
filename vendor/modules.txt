@@ -16,6 +16,17 @@ github.com/davecgh/go-spew/spew
 # github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
 ## explicit; go 1.18
 github.com/fernet/fernet-go
+# github.com/frictionlessdata/datapackage-go v1.0.4
+## explicit; go 1.18
+github.com/frictionlessdata/datapackage-go/clone
+github.com/frictionlessdata/datapackage-go/datapackage
+github.com/frictionlessdata/datapackage-go/validator
+github.com/frictionlessdata/datapackage-go/validator/profile_cache
+# github.com/frictionlessdata/tableschema-go v1.1.4-0.20220401172006-6cc5f3b2411c
+## explicit; go 1.14
+github.com/frictionlessdata/tableschema-go/csv
+github.com/frictionlessdata/tableschema-go/schema
+github.com/frictionlessdata/tableschema-go/table
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -29,14 +40,23 @@ github.com/gorilla/mux
 github.com/pmezard/go-difflib/difflib
 # github.com/rogpeppe/go-internal v1.9.0
 ## explicit; go 1.17
+# github.com/santhosh-tekuri/jsonschema v1.2.4
+## explicit
+github.com/santhosh-tekuri/jsonschema
+github.com/santhosh-tekuri/jsonschema/decoders
+github.com/santhosh-tekuri/jsonschema/formats
+github.com/santhosh-tekuri/jsonschema/httploader
+github.com/santhosh-tekuri/jsonschema/loader
+github.com/santhosh-tekuri/jsonschema/mediatypes
+# github.com/satori/go.uuid v1.2.0
+## explicit
+github.com/satori/go.uuid
 # github.com/stretchr/testify v1.9.0
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 # golang.org/x/net v0.36.0
 ## explicit; go 1.23.0
 golang.org/x/net/netutil
-# gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15
-## explicit
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3

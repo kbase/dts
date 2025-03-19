@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,7 +44,6 @@ import (
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/frictionless"
 )
 
 // file database appropriate for handling JDP searches and transfers
@@ -126,7 +126,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return db.filesFromSearch(p)
 }
 
-func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.DataResource, error) {
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
 	// strip the "JDP:" prefix from our files and create a mapping from IDs to
 	// their original order so we can hand back metadata accordingly
 	strippedFileIds := make([]string, len(fileIds))
@@ -183,7 +183,7 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 	}
 
 	// translate the response
-	resources := make([]frictionless.DataResource, len(strippedFileIds))
+	descriptors := make([]map[string]interface{}, len(strippedFileIds))
 	for i, md := range jdpResp.Hits.Hits {
 		if md.Id == "" { // permissions problem
 			return nil, &PermissionDeniedError{fileIds[i]}
@@ -193,19 +193,19 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 			return nil, &FileIdNotFoundError{fileIds[i]}
 		}
 		id := "JDP:" + md.Id
-		format := formatFromFileName(md.Source.FileName)
 		filePath := filepath.Join(strings.TrimPrefix(md.Source.FilePath, filePathPrefix), md.Source.FileName)
+		format := formatFromFileName(filePath)
 		piName := strings.TrimSpace(md.Source.Metadata.PmoProject.PiName)
-		resources[index] = frictionless.DataResource{
-			Id:        id,
-			Name:      dataResourceName(md.Source.FileName),
-			Path:      filePath,
-			Format:    format,
-			MediaType: mimeTypeFromFormatAndTypes(format, []string{}),
-			Bytes:     md.Source.FileSize,
-			Hash:      md.Source.MD5Sum,
-			Sources:   []frictionless.DataSource{},
-			Credit: credit.CreditMetadata{
+		sources := sourcesFromMetadata(md.Source.Metadata)
+		descriptor := map[string]interface{}{
+			"id":        id,
+			"name":      dataResourceName(md.Source.FileName),
+			"path":      filePath,
+			"format":    format,
+			"mediatype": mimetypeForFile(md.Source.FileName),
+			"bytes":     md.Source.FileSize,
+			"hash":      md.Source.MD5Sum,
+			"credit": credit.CreditMetadata{
 				Identifier:   id,
 				ResourceType: "dataset",
 				Titles: []credit.Title{
@@ -242,19 +242,16 @@ func (db *Database) Resources(orcid string, fileIds []string) ([]frictionless.Da
 				Version: md.Source.ModifiedDate,
 			},
 		}
-
-		if resources[index].Path == "" || resources[index].Path == "/" { // permissions problem
-			return nil, &PermissionDeniedError{fileIds[index]}
+		if len(sources) > 0 {
+			descriptor["sources"] = sources
 		}
 
-		// fill in holes where we can and patch up discrepancies
-		// NOTE: we don't retrieve hits.hits._source.file_type because it can be
-		// NOTE: either a string or an array of strings, and I'm just trying for a
-		// NOTE: solution
-		resources[index].Format = formatFromFileName(resources[index].Path)
-		resources[index].MediaType = mimeTypeFromFormatAndTypes(resources[index].Format, []string{})
+		if descriptor["path"] == "" || descriptor["path"] == "/" { // permissions problem
+			return nil, &PermissionDeniedError{fileIds[index]}
+		}
+		descriptors[index] = descriptor
 	}
-	return resources, err
+	return descriptors, err
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
@@ -433,21 +430,6 @@ var suffixToFormat = map[string]string{
 var supportedSuffixes []string
 
 // a mapping from file format labels to mime types
-var formatToMimeType = map[string]string{
-	"bam":   "application/octet-stream",
-	"bai":   "application/octet-stream",
-	"csv":   "text/csv",
-	"fasta": "text/plain",
-	"fastq": "text/plain",
-	"gff":   "text/plain",
-	"gff3":  "text/plain",
-	"gz":    "application/gzip",
-	"bz":    "application/x-bzip",
-	"bz2":   "application/x-bzip2",
-	"tar":   "application/x-tar",
-	"text":  "text/plain",
-}
-
 // a mapping from the JDP's reported file types to mime types
 // (backup method for determining mime types)
 var fileTypeToMimeType = map[string]string{
@@ -485,21 +467,6 @@ func formatFromFileName(fileName string) string {
 	return format
 }
 
-// extracts the file format from the name and type of the file
-func mimeTypeFromFormatAndTypes(format string, fileTypes []string) string {
-	// try to match the file type to a mime type
-	for _, fileType := range fileTypes {
-		if mimeType, ok := fileTypeToMimeType[fileType]; ok {
-			return mimeType
-		}
-	}
-	// check the file format to see whether it matches a mime type
-	if mimeType, ok := formatToMimeType[format]; ok {
-		return mimeType
-	}
-	return ""
-}
-
 // extracts file type information from the given File
 func fileTypesFromFile(_ File) []string {
 	// TODO: See https://pkg.go.dev/encoding/json?utm_source=godoc#example-RawMessage-Unmarshal
@@ -508,8 +475,8 @@ func fileTypesFromFile(_ File) []string {
 }
 
 // extracts source information from the given metadata
-func sourcesFromMetadata(md Metadata) []frictionless.DataSource {
-	sources := make([]frictionless.DataSource, 0)
+func sourcesFromMetadata(md Metadata) []interface{} {
+	sources := make([]interface{}, 0)
 	piInfo := md.Proposal.PI
 	if len(piInfo.LastName) > 0 {
 		var title string
@@ -532,10 +499,10 @@ func sourcesFromMetadata(md Metadata) []frictionless.DataSource {
 		if len(md.Proposal.AwardDOI) > 0 {
 			doiURL = fmt.Sprintf("https://doi.org/%s", md.Proposal.AwardDOI)
 		}
-		source := frictionless.DataSource{
-			Title: title,
-			Path:  doiURL,
-			Email: piInfo.EmailAddress,
+		source := map[string]interface{}{
+			"title": title,
+			"path":  doiURL,
+			"email": piInfo.EmailAddress,
 		}
 		sources = append(sources, source)
 	}
@@ -580,11 +547,10 @@ func dataResourceName(filename string) string {
 	return name
 }
 
-// creates a DataResource from a File
-func dataResourceFromOrganismAndFile(organism Organism, file File) frictionless.DataResource {
+// creates a Frictionless descriptor from a File
+func descriptorFromOrganismAndFile(organism Organism, file File) map[string]interface{} {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
-	fileTypes := fileTypesFromFile(file)
 	sources := sourcesFromMetadata(file.Metadata)
 
 	// we use relative file paths in accordance with the Frictionless
@@ -592,16 +558,15 @@ func dataResourceFromOrganismAndFile(organism Organism, file File) frictionless.
 	filePath := filepath.Join(strings.TrimPrefix(file.Path, filePathPrefix), file.Name)
 
 	pi := file.Metadata.Proposal.PI
-	return frictionless.DataResource{
-		Id:        id,
-		Name:      dataResourceName(file.Name),
-		Path:      filePath,
-		Format:    format,
-		MediaType: mimeTypeFromFormatAndTypes(format, fileTypes),
-		Bytes:     file.Size,
-		Hash:      file.MD5Sum,
-		Sources:   sources,
-		Credit: credit.CreditMetadata{
+	descriptor := map[string]interface{}{
+		"id":        id,
+		"name":      dataResourceName(file.Name),
+		"path":      filePath,
+		"format":    format,
+		"mediatype": mimetypeForFile(file.Name),
+		"bytes":     file.Size,
+		"hash":      file.MD5Sum,
+		"credit": credit.CreditMetadata{
 			Identifier:   id,
 			ResourceType: "dataset",
 			Titles: []credit.Title{
@@ -657,6 +622,10 @@ func dataResourceFromOrganismAndFile(organism Organism, file File) frictionless.
 			Version: file.Date,
 		},
 	}
+	if len(sources) > 0 {
+		descriptor["sources"] = sources
+	}
+	return descriptor
 }
 
 // adds an appropriate authorization header to given HTTP request
@@ -728,16 +697,16 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
 	}
-	results.Resources = make([]frictionless.DataResource, 0)
+	results.Descriptors = make([]map[string]interface{}, 0)
 	var jdpResults JDPResults
 	err = json.Unmarshal(body, &jdpResults)
 	if err != nil {
 		return results, err
 	}
 	for _, org := range jdpResults.Organisms {
-		resources := make([]frictionless.DataResource, 0)
+		descriptors := make([]map[string]interface{}, 0)
 		for _, file := range org.Files {
-			res := dataResourceFromOrganismAndFile(org, file)
+			descriptor := descriptorFromOrganismAndFile(org, file)
 
 			// add any requested additional metadata
 			if extraFields != nil {
@@ -759,16 +728,17 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 					}
 				}
 				extras += "}"
-				res.Extra = json.RawMessage(extras)
+				descriptor["extra"] = json.RawMessage(extras)
 			}
 
-			// add the resource to our results if it's not there already
-			if _, encountered := idEncountered[res.Id]; !encountered {
-				resources = append(resources, res)
-				idEncountered[res.Id] = true
+			// add the descriptors to our results if it's not there already
+			id := descriptor["id"].(string)
+			if _, encountered := idEncountered[id]; !encountered {
+				descriptors = append(descriptors, descriptor)
+				idEncountered[id] = true
 			}
 		}
-		results.Resources = append(results.Resources, resources...)
+		results.Descriptors = append(results.Descriptors, descriptors...)
 	}
 	return results, nil
 }
@@ -899,4 +869,12 @@ func (db *Database) pruneStagingRequests() {
 			delete(db.StagingRequests, uuid)
 		}
 	}
+}
+
+func mimetypeForFile(filename string) string {
+	mimetype := mime.TypeByExtension(filepath.Ext(filename))
+	if mimetype == "" {
+		mimetype = "application/octet-stream"
+	}
+	return mimetype
 }

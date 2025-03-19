@@ -24,10 +24,12 @@ package tasks
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/auth"
@@ -58,10 +60,10 @@ type transferTask struct {
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
-func payloadSize(resources []DataResource) float64 {
+func payloadSize(descriptors []map[string]interface{}) float64 {
 	var size uint64
-	for _, resource := range resources {
-		size += uint64(resource.Bytes)
+	for _, descriptor := range descriptors {
+		size += uint64(descriptor["bytes"].(int))
 	}
 	return float64(size) / float64(1024*1024*1024)
 }
@@ -74,7 +76,7 @@ func (task *transferTask) start() error {
 	}
 
 	// resolve resource data using file IDs
-	resources, err := source.Resources(task.User.Orcid, task.FileIds)
+	descriptors, err := source.Descriptors(task.User.Orcid, task.FileIds)
 	if err != nil {
 		return err
 	}
@@ -82,29 +84,31 @@ func (task *transferTask) start() error {
 	// if the database stores its files in more than one location, check that each
 	// resource is associated with a valid endpoint
 	if len(config.Databases[task.Source].Endpoints) > 1 {
-		for _, resource := range resources {
-			if resource.Endpoint == "" {
+		for _, descriptor := range descriptors {
+			id := descriptor["id"].(string)
+			endpoint := descriptor["endpoint"].(string)
+			if endpoint == "" {
 				return databases.ResourceEndpointNotFoundError{
 					Database:   task.Source,
-					ResourceId: resource.Id,
+					ResourceId: id,
 				}
 			}
-			if _, found := config.Endpoints[resource.Endpoint]; !found {
+			if _, found := config.Endpoints[endpoint]; !found {
 				return databases.InvalidResourceEndpointError{
 					Database:   task.Source,
-					ResourceId: resource.Id,
-					Endpoint:   resource.Endpoint,
+					ResourceId: id,
+					Endpoint:   endpoint,
 				}
 			}
 		}
 	} else { // otherwise, just assign the database's endpoint to the resources
-		for i := range resources {
-			resources[i].Endpoint = config.Databases[task.Source].Endpoint
+		for _, descriptor := range descriptors {
+			descriptor["endpoint"] = config.Databases[task.Source].Endpoint
 		}
 	}
 
 	// make sure the size of the payload doesn't exceed our specified limit
-	task.PayloadSize = payloadSize(resources) // (in GB)
+	task.PayloadSize = payloadSize(descriptors) // (in GB)
 	if task.PayloadSize > config.Service.MaxPayloadSize {
 		return &PayloadTooLargeError{Size: task.PayloadSize}
 	}
@@ -126,19 +130,21 @@ func (task *transferTask) start() error {
 
 	// assemble distinct endpoints and create a subtask for each
 	distinctEndpoints := make(map[string]interface{})
-	for _, resource := range resources {
-		if _, found := distinctEndpoints[resource.Endpoint]; !found {
-			distinctEndpoints[resource.Endpoint] = struct{}{}
+	for _, descriptor := range descriptors {
+		endpoint := descriptor["endpoint"].(string)
+		if _, found := distinctEndpoints[endpoint]; !found {
+			distinctEndpoints[endpoint] = struct{}{}
 		}
 	}
 	task.Subtasks = make([]transferSubtask, 0)
 	for sourceEndpoint := range distinctEndpoints {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
-		resourcesForEndpoint := make([]DataResource, 0)
-		for _, resource := range resources {
-			if resource.Endpoint == sourceEndpoint {
-				resourcesForEndpoint = append(resourcesForEndpoint, resource)
+		descriptorsForEndpoint := make([]interface{}, 0)
+		for _, descriptor := range descriptors {
+			endpoint := descriptor["endpoint"].(string)
+			if endpoint == sourceEndpoint {
+				descriptorsForEndpoint = append(descriptorsForEndpoint, descriptor)
 			}
 		}
 
@@ -147,7 +153,7 @@ func (task *transferTask) start() error {
 			Destination:         task.Destination,
 			DestinationEndpoint: destinationEndpoint,
 			DestinationFolder:   task.DestinationFolder,
-			Resources:           resourcesForEndpoint,
+			Descriptors:         descriptorsForEndpoint,
 			Source:              task.Source,
 			SourceEndpoint:      sourceEndpoint,
 			User:                task.User,
@@ -246,23 +252,10 @@ func (task *transferTask) Update() error {
 
 			// write the manifest to disk and begin transferring it to the
 			// destination endpoint
-			var manifestBytes []byte
-			manifestBytes, err = json.Marshal(manifest)
-			if err != nil {
-				return fmt.Errorf("marshalling manifest content: %s", err.Error())
-			}
 			task.ManifestFile = filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", task.Id.String()))
-			manifestFile, err := os.Create(task.ManifestFile)
+			err = manifest.SaveDescriptor(task.ManifestFile)
 			if err != nil {
 				return fmt.Errorf("creating manifest file: %s", err.Error())
-			}
-			_, err = manifestFile.Write(manifestBytes)
-			if err != nil {
-				return fmt.Errorf("writing manifest file content: %s", err.Error())
-			}
-			err = manifestFile.Close()
-			if err != nil {
-				return fmt.Errorf("closing manifest file: %s", err.Error())
 			}
 
 			// construct the source/destination file manifest paths
@@ -323,37 +316,40 @@ func (task transferTask) Completed() bool {
 }
 
 // creates a DataPackage that serves as the transfer manifest
-func (task *transferTask) createManifest() DataPackage {
-	numResources := 0
+func (task *transferTask) createManifest() *datapackage.Package {
+	descriptors := make([]interface{}, 0)
 	for _, subtask := range task.Subtasks {
-		numResources += len(subtask.Resources)
-	}
-	resources := make([]DataResource, numResources)
-	n := 0
-	for _, subtask := range task.Subtasks {
-		copy(resources[n:], subtask.Resources)
-		n += len(subtask.Resources)
+		descriptors = append(descriptors, subtask.Descriptors...)
 	}
 
-	manifest := DataPackage{
-		Name:      "manifest",
-		Resources: resources,
-		Created:   time.Now().Format(time.RFC3339),
-		Profile:   "data-package",
-		Keywords:  []string{"dts", "manifest"},
-		Contributors: []Contributor{
-			{
-				Title:        task.User.Name,
-				Email:        task.User.Email,
-				Role:         "author",
-				Organization: task.User.Organization,
-			},
-		},
-		Description:  task.Description,
-		Instructions: make(json.RawMessage, len(task.Instructions)),
+	taskUser := map[string]interface{}{
+		"title": task.User.Name,
+		"role":  "author",
 	}
-	copy(manifest.Resources, resources)
-	copy(manifest.Instructions, task.Instructions)
+	if task.User.Organization != "" {
+		taskUser["organization"] = task.User.Organization
+	}
+	if task.User.Email != "" {
+		taskUser["email"] = task.User.Email
+	}
+
+	descriptor := map[string]interface{}{
+		"name":      "manifest",
+		"resources": descriptors,
+		"created":   time.Now().Format(time.RFC3339),
+		"profile":   "data-package",
+		"keywords":  []interface{}{"dts", "manifest"},
+		"contributors": []interface{}{
+			taskUser,
+		},
+		"description":  task.Description,
+		"instructions": task.Instructions,
+	}
+
+	manifest, err := datapackage.New(descriptor, ".")
+	if err != nil {
+		slog.Error(err.Error())
+	}
 
 	return manifest
 }

@@ -44,14 +44,10 @@ import (
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/local"
-	"github.com/kbase/dts/frictionless"
 )
 
 // useful type aliases
-type Contributor = frictionless.Contributor
 type Database = databases.Database
-type DataPackage = frictionless.DataPackage
-type DataResource = frictionless.DataResource
 type Endpoint = endpoints.Endpoint
 type FileTransfer = endpoints.FileTransfer
 type TransferStatus = endpoints.TransferStatus

@@ -42,7 +42,7 @@ type transferSubtask struct {
 	Destination         string                  // name of destination database (in config)
 	DestinationEndpoint string                  // name of destination database (in config)
 	DestinationFolder   string                  // folder path to which files are transferred
-	Resources           []DataResource          // Frictionless DataResources for files
+	Descriptors         []interface{}           // Frictionless file descriptors
 	Source              string                  // name of source database (in config)
 	SourceEndpoint      string                  // name of source endpoint (in config)
 	Staging             uuid.NullUUID           // staging UUID (if any)
@@ -58,7 +58,7 @@ func (subtask *transferSubtask) start() error {
 	if err != nil {
 		return err
 	}
-	staged, err := sourceEndpoint.FilesStaged(subtask.Resources)
+	staged, err := sourceEndpoint.FilesStaged(subtask.Descriptors)
 	if err != nil {
 		return err
 	}
@@ -72,9 +72,10 @@ func (subtask *transferSubtask) start() error {
 		if err != nil {
 			return err
 		}
-		fileIds := make([]string, len(subtask.Resources))
-		for i, resource := range subtask.Resources {
-			fileIds[i] = resource.Id
+		fileIds := make([]string, len(subtask.Descriptors))
+		for i, d := range subtask.Descriptors {
+			descriptor := d.(map[string]interface{})
+			fileIds[i] = descriptor["id"].(string)
 		}
 		taskId, err := source.StageFiles(subtask.User.Orcid, fileIds)
 		if err != nil {
@@ -86,7 +87,7 @@ func (subtask *transferSubtask) start() error {
 		}
 		subtask.TransferStatus = TransferStatus{
 			Code:     TransferStatusStaging,
-			NumFiles: len(subtask.Resources),
+			NumFiles: len(subtask.Descriptors),
 		}
 	}
 	return err
@@ -123,7 +124,7 @@ func (subtask *transferSubtask) checkStaging() error {
 			if err != nil {
 				return err
 			}
-			staged, err := endpoint.FilesStaged(subtask.Resources)
+			staged, err := endpoint.FilesStaged(subtask.Descriptors)
 			if err != nil {
 				return err
 			}
@@ -192,15 +193,17 @@ func (subtask *transferSubtask) checkCancellation() error {
 // initiates a file transfer on a set of staged files
 func (subtask *transferSubtask) beginTransfer() error {
 	slog.Debug(fmt.Sprintf("Transferring %d file(s) from %s to %s",
-		len(subtask.Resources), subtask.SourceEndpoint, subtask.DestinationEndpoint))
+		len(subtask.Descriptors), subtask.SourceEndpoint, subtask.DestinationEndpoint))
 	// assemble a list of file transfers
-	fileXfers := make([]FileTransfer, len(subtask.Resources))
-	for i, resource := range subtask.Resources {
-		destinationPath := filepath.Join(subtask.DestinationFolder, resource.Path)
+	fileXfers := make([]FileTransfer, len(subtask.Descriptors))
+	for i, d := range subtask.Descriptors {
+		descriptor := d.(map[string]interface{})
+		path := descriptor["path"].(string)
+		destinationPath := filepath.Join(subtask.DestinationFolder, path)
 		fileXfers[i] = FileTransfer{
-			SourcePath:      resource.Path,
+			SourcePath:      path,
 			DestinationPath: destinationPath,
-			Hash:            resource.Hash,
+			Hash:            descriptor["hash"].(string),
 		}
 	}
 
@@ -223,7 +226,7 @@ func (subtask *transferSubtask) beginTransfer() error {
 	}
 	subtask.TransferStatus = TransferStatus{
 		Code:     TransferStatusActive,
-		NumFiles: len(subtask.Resources),
+		NumFiles: len(subtask.Descriptors),
 	}
 	subtask.Staging = uuid.NullUUID{}
 	return nil

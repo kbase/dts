@@ -123,7 +123,21 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		}
 	}
 
-	return db.filesFromSearch(p)
+	// extract any requested "extra" metadata fields (and scrub them from params)
+	var extraFields []string
+	if p.Has("extra") {
+		extraFields = strings.Split(p.Get("extra"), ",")
+		p.Del("extra")
+	}
+
+	body, err := db.get("search", p)
+	if err != nil {
+		return databases.SearchResults{}, err
+	}
+	descriptors, err := descriptorsFromResponseBody(body, extraFields)
+	return databases.SearchResults{
+		Descriptors: descriptors,
+	}, err
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
@@ -143,115 +157,32 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]in
 	}
 	data, err := json.Marshal(MetadataRequest{
 		Ids:                strippedFileIds,
-		Aggregations:       false,
+		Aggregations:       true,
 		IncludePrivateData: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
-	defer resp.Body.Close()
-	var body []byte
-	body, err = io.ReadAll(resp.Body)
+	body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 
-	type MetadataResponse struct {
-		Hits struct {
-			Hits []struct {
-				Type   string `json:"_type"`
-				Id     string `json:"_id"`
-				Source struct {
-					Date         string   `json:"file_date"`
-					AddedDate    string   `json:"added_date"`
-					ModifiedDate string   `json:"modified_date"`
-					FilePath     string   `json:"file_path"`
-					FileName     string   `json:"file_name"`
-					FileSize     int      `json:"file_size"`
-					MD5Sum       string   `json:"md5sum"`
-					Metadata     Metadata `json:"metadata"`
-				} `json:"_source"`
-			} `json:"hits"`
-		} `json:"hits"`
-	}
-	var jdpResp MetadataResponse
-	err = json.Unmarshal(body, &jdpResp)
+	descriptors, err := descriptorsFromResponseBody(body, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// translate the response
-	descriptors := make([]map[string]interface{}, len(strippedFileIds))
-	for i, md := range jdpResp.Hits.Hits {
-		if md.Id == "" { // permissions problem
-			return nil, &PermissionDeniedError{fileIds[i]}
-		}
-		index, found := indexForId[md.Id]
-		if !found {
-			return nil, &FileIdNotFoundError{fileIds[i]}
-		}
-		id := "JDP:" + md.Id
-		filePath := filepath.Join(strings.TrimPrefix(md.Source.FilePath, filePathPrefix), md.Source.FileName)
-		format := formatFromFileName(filePath)
-		piName := strings.TrimSpace(md.Source.Metadata.PmoProject.PiName)
-		sources := sourcesFromMetadata(md.Source.Metadata)
-		descriptor := map[string]interface{}{
-			"id":        id,
-			"name":      dataResourceName(md.Source.FileName),
-			"path":      filePath,
-			"format":    format,
-			"mediatype": mimetypeForFile(md.Source.FileName),
-			"bytes":     md.Source.FileSize,
-			"hash":      md.Source.MD5Sum,
-			"credit": credit.CreditMetadata{
-				Identifier:   id,
-				ResourceType: "dataset",
-				Titles: []credit.Title{
-					{
-						Title: md.Source.Metadata.FinalDeliveryProject.Name,
-					},
-				},
-				Dates: []credit.EventDate{
-					{
-						Date:  md.Source.Date,
-						Event: "Created",
-					},
-					{
-						Date:  md.Source.AddedDate,
-						Event: "Accepted",
-					},
-					{
-						Date:  md.Source.ModifiedDate,
-						Event: "Updated",
-					},
-				},
-				Publisher: credit.Organization{
-					OrganizationId:   "ROR:04xm1d337",
-					OrganizationName: "Joint Genome Institute",
-				},
-				Contributors: []credit.Contributor{
-					{
-						ContributorType: "Person",
-						// ContributorId: nothing yet
-						Name:             strings.TrimSpace(piName),
-						ContributorRoles: "PI",
-					},
-				},
-				Version: md.Source.ModifiedDate,
-			},
-		}
-		if len(sources) > 0 {
-			descriptor["sources"] = sources
-		}
-
-		if descriptor["path"] == "" || descriptor["path"] == "/" { // permissions problem
-			return nil, &PermissionDeniedError{fileIds[index]}
-		}
-		descriptors[index] = descriptor
+	// reorder the descriptors to match that of the requested file IDs
+	descriptorsByFileId := make(map[string]map[string]interface{})
+	for _, descriptor := range descriptors {
+		descriptorsByFileId[descriptor["id"].(string)] = descriptor
 	}
-	return descriptors, err
+	for i, fileId := range fileIds {
+		descriptors[i] = descriptorsByFileId[fileId]
+	}
+	return descriptors, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
@@ -285,57 +216,39 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 
 	// NOTE: The slash in the resource is all-important for POST requests to
 	// NOTE: the JDP!!
-	response, err := db.post("request_archived_files/", orcid, bytes.NewReader(data))
+	body, err := db.post("request_archived_files/", orcid, bytes.NewReader(data))
+	if err != nil {
+		switch e := err.(type) {
+		case *databases.ResourceNotFoundError:
+			e.ResourceId = strings.Join(fileIds, ",")
+		}
+		return xferId, err
+	}
+
+	type RestoreResponse struct {
+		RequestId int `json:"request_id"`
+	}
+
+	var jdpResp RestoreResponse
+	err = json.Unmarshal(body, &jdpResp)
 	if err != nil {
 		return xferId, err
 	}
-
-	switch response.StatusCode {
-	case 200, 201, 204:
-		defer response.Body.Close()
-		var body []byte
-		body, err = io.ReadAll(response.Body)
-		if err != nil {
-			return xferId, err
-		}
-		type RestoreResponse struct {
-			RequestId int `json:"request_id"`
-		}
-
-		var jdpResp RestoreResponse
-		err = json.Unmarshal(body, &jdpResp)
-		if err != nil {
-			return xferId, err
-		}
-		slog.Debug(fmt.Sprintf("Requested %d archived files from JDP (request ID: %d)",
-			len(fileIds), jdpResp.RequestId))
-		xferId = uuid.New()
-		db.StagingRequests[xferId] = StagingRequest{
-			Id:   jdpResp.RequestId,
-			Time: time.Now(),
-		}
-		return xferId, err
-	case 404:
-		return xferId, databases.ResourceNotFoundError{
-			Database:   "JDP",
-			ResourceId: strings.Join(fileIds, ","),
-		}
-	default:
-		return xferId, err
+	slog.Debug(fmt.Sprintf("Requested %d archived files from JDP (request ID: %d)",
+		len(fileIds), jdpResp.RequestId))
+	xferId = uuid.New()
+	db.StagingRequests[xferId] = StagingRequest{
+		Id:   jdpResp.RequestId,
+		Time: time.Now(),
 	}
+	return xferId, err
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
 	db.pruneStagingRequests()
 	if request, found := db.StagingRequests[id]; found {
 		resource := fmt.Sprintf("request_archived_files/requests/%d", request.Id)
-		resp, err := db.get(resource, url.Values{})
-		if err != nil {
-			return databases.StagingStatusUnknown, err
-		}
-		defer resp.Body.Close()
-		var body []byte
-		body, err = io.ReadAll(resp.Body)
+		body, err := db.get(resource, url.Values{})
 		if err != nil {
 			return databases.StagingStatusUnknown, err
 		}
@@ -634,8 +547,8 @@ func (db Database) addAuthHeader(orcid string, request *http.Request) {
 }
 
 // performs a GET request on the given resource, returning the resulting
-// response and error
-func (db *Database) get(resource string, values url.Values) (*http.Response, error) {
+// response body and/or error
+func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 	var u *url.URL
 	u, err := url.ParseRequestURI(jdpBaseURL)
 	if err != nil {
@@ -649,12 +562,27 @@ func (db *Database) get(resource string, values url.Values) (*http.Response, err
 	if err != nil {
 		return nil, err
 	}
-	return db.Client.Do(req)
+	resp, err := db.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	switch resp.StatusCode {
+	case 200:
+		defer resp.Body.Close()
+		return io.ReadAll(resp.Body)
+	case 503:
+		return nil, &databases.UnavailableError{
+			Database: "jdp",
+		}
+	default:
+		return nil, fmt.Errorf("An error occurred with the JDP database (%d)",
+			resp.StatusCode)
+	}
 }
 
 // performs a POST request on the given resource on behalf of the user with the
-// given ORCID, returning the resulting response and error
-func (db *Database) post(resource, orcid string, body io.Reader) (*http.Response, error) {
+// given ORCID, returning the body of the resulting response (or an error)
+func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error) {
 	u, err := url.ParseRequestURI(jdpBaseURL)
 	if err != nil {
 		return nil, err
@@ -668,43 +596,43 @@ func (db *Database) post(resource, orcid string, body io.Reader) (*http.Response
 	}
 	db.addAuthHeader(orcid, req)
 	req.Header.Set("Content-Type", "application/json")
-	return db.Client.Do(req)
+	resp, err := db.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	switch resp.StatusCode {
+	case 200, 201, 204:
+		defer resp.Body.Close()
+		return io.ReadAll(resp.Body)
+	case 404:
+		return nil, &databases.ResourceNotFoundError{
+			Database: "JDP",
+		}
+	case 503:
+		return nil, &databases.UnavailableError{
+			Database: "jdp",
+		}
+	default:
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("An error occurred: %s", string(data))
+	}
 }
 
 // this helper extracts files for the JDP /search GET query with given parameters
-func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults, error) {
-	var results databases.SearchResults
-
-	idEncountered := make(map[string]bool) // keep track of duplicates
-
-	// extract any requested "extra" metadata fields (and scrub them from params)
-	var extraFields []string
-	if params.Has("extra") {
-		extraFields = strings.Split(params.Get("extra"), ",")
-		params.Del("extra")
-	}
-
-	resp, err := db.get("search", params)
-	if err != nil {
-		return results, err
-	}
-	defer resp.Body.Close()
-	var body []byte
-	body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return results, err
-	}
+func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[string]interface{}, error) {
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
 	}
-	results.Descriptors = make([]map[string]interface{}, 0)
 	var jdpResults JDPResults
-	err = json.Unmarshal(body, &jdpResults)
+	err := json.Unmarshal(body, &jdpResults)
 	if err != nil {
-		return results, err
+		return nil, err
 	}
+
+	descriptors := make([]map[string]interface{}, 0)
+
 	for _, org := range jdpResults.Organisms {
-		descriptors := make([]map[string]interface{}, 0)
 		for _, file := range org.Files {
 			descriptor := descriptorFromOrganismAndFile(org, file)
 
@@ -722,7 +650,7 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 						var taxonOID int
 						err := json.Unmarshal(file.Metadata.IMG.TaxonOID, &taxonOID)
 						if err != nil {
-							return results, err
+							return nil, err
 						}
 						extras += fmt.Sprintf(`"img_taxon_oid": %d`, taxonOID)
 					}
@@ -731,16 +659,10 @@ func (db *Database) filesFromSearch(params url.Values) (databases.SearchResults,
 				descriptor["extra"] = json.RawMessage(extras)
 			}
 
-			// add the descriptors to our results if it's not there already
-			id := descriptor["id"].(string)
-			if _, encountered := idEncountered[id]; !encountered {
-				descriptors = append(descriptors, descriptor)
-				idEncountered[id] = true
-			}
+			descriptors = append(descriptors, descriptor)
 		}
-		results.Descriptors = append(results.Descriptors, descriptors...)
 	}
-	return results, nil
+	return descriptors, nil
 }
 
 // returns the page number and page size corresponding to the given Pagination

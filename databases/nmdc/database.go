@@ -434,8 +434,7 @@ func (db Database) post(resource string, body io.Reader) ([]byte, error) {
 	default:
 		defer resp.Body.Close()
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("An error occurred mapping NMDC data objects to studies: %s",
-			string(data))
+		return nil, fmt.Errorf("An error occurred: %s", string(data))
 	}
 }
 

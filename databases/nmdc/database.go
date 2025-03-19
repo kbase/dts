@@ -170,17 +170,31 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]int
 	// we use the /data_objects/{data_object_id} GET endpoint to retrieve metadata
 	// for individual files
 
-	// gather relevant study IDs and credit metadata
+	// gather relevant study IDs, biosample and credit metadata
 	studyIdForDataObjectId, err := db.studyIdsForDataObjectIds(fileIds)
 	if err != nil {
 		return nil, err
 	}
+	biosampleMdForStudyId := make(map[string]json.RawMessage)
 	creditForStudyId := make(map[string]credit.CreditMetadata)
 	for _, studyId := range studyIdForDataObjectId {
-		var credit credit.CreditMetadata
-		credit, err = db.creditMetadataForStudy(studyId)
-		if err != nil {
-			return nil, err
+		biosampleMd, found := biosampleMdForStudyId[studyId]
+		if !found {
+			biosampleMd, err = db.biosampleMetadataForStudy(studyId)
+			if err != nil {
+				return nil, err
+			}
+			print("Voo-ba!\n")
+			biosampleMdForStudyId[studyId] = biosampleMd
+		}
+
+		credit, found := creditForStudyId[studyId]
+		if !found {
+			credit, err = db.creditMetadataForStudy(studyId)
+			if err != nil {
+				return nil, err
+			}
+			creditForStudyId[studyId] = credit // cache for other data objects
 		}
 		creditForStudyId[studyId] = credit
 	}
@@ -210,12 +224,7 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]int
 	}
 
 	// include any relevant biosample metadata (inline data) descriptors
-	for _, studyId := range studyIdForDataObjectId {
-		var biosampleMd json.RawMessage
-		biosampleMd, err = db.biosampleMetadataForStudy(studyId)
-		if err != nil {
-			return nil, err
-		}
+	for studyId, biosampleMd := range biosampleMdForStudyId {
 		descriptor := map[string]interface{}{
 			"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
 			"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),

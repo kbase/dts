@@ -223,15 +223,15 @@ type Title struct {
  * Represents the credit metadata associated with an object.
 
 In the following documentation, 'Resource' is used to refer to the object
-that the CM pertains to, for example, a KBase Workspace object or a
-sample from the KBase Sample Service.
+that the CM pertains to, for example, a KBase Workspace object; a
+sample from NMDC or ESS-DIVE; sequence data from IMG.
 
 The 'resource_type' field should be filled using values from the DataCite
 resourceTypeGeneral field:
 
 https://support.datacite.org/docs/datacite-metadata-schema-v44-mandatory-properties#10a-resourcetypegeneral
 
-Currently KBase only supports credit metadata for objects of type
+Currently this schema only supports credit metadata for objects of type
 'dataset'; anything else will return an error.
 
 The license may be supplied either as an URL pointing to licensing information for
@@ -287,8 +287,6 @@ type CreditMetadata struct {
 	/*
 	 * Usage license for the resource. Use one of the SPDX license identifiers or provide a link to the license text if no SPDX ID is available.
 
-All data published at KBase is done so under a Creative Commons 0 or Creative Commons 4.0 license.
-
 	 */
 	License License `json:"license"`
 	/*
@@ -304,7 +302,7 @@ All data published at KBase is done so under a Creative Commons 0 or Creative Co
 	 */
 	RelatedIdentifiers []PermanentID `json:"related_identifiers"`
 	/*
-	 * The broad type of the source data for this object. 'dataset' is currently the only valid value for KBase DOIs.
+	 * The broad type of the source data for this object. 'dataset' is currently the only valid value supported by this schema.
 	 */
 	ResourceType string `json:"resource_type"`
 	/*

@@ -106,9 +106,9 @@ func TestDescriptors(t *testing.T) {
 	}
 	descriptors, err := db.Descriptors(orcid, fileIds[:10])
 	assert.Nil(err, "NMDC resource query encountered an error")
-	assert.Equal(10, len(descriptors),
-		"NMDC resource query didn't return requested number of results")
-	for i, desc := range descriptors {
+	assert.True(len(descriptors) >= 10, // can include biosample metadata!
+		"NMDC resource query didn't return all results")
+	for i, desc := range descriptors[:10] {
 		nmdcSearchResult := results.Descriptors[i]
 		assert.Equal(nmdcSearchResult["id"], desc["id"], "Resource ID mismatch")
 		assert.Equal(nmdcSearchResult["name"], desc["name"], "Resource name mismatch")

@@ -154,18 +154,18 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		p.Add("filter", params.Query)
 	}
 
-	var dataObjects []DataObject
+	var descriptors []map[string]interface{}
 	var err error
 	if p.Has("study_id") { // fetch data objects associated with this study
-		dataObjects, err = db.dataObjectsForStudy(p.Get("study_id"), p)
+		descriptors, err = db.createDataObjectDescriptorsForStudy(p.Get("study_id"))
 	} else {
-		dataObjects, err = db.dataObjects(p)
-	}
-	if err != nil {
-		return databases.SearchResults{}, err
-	}
+		dataObjects, err := db.dataObjects(p)
+		if err != nil {
+			return databases.SearchResults{}, err
+		}
 
-	descriptors, _, err := db.createDataObjectAndBiosampleDescriptors(dataObjects)
+		descriptors, _, err = db.createDataObjectAndBiosampleDescriptors(dataObjects)
+	}
 	return databases.SearchResults{
 		Descriptors: descriptors,
 	}, err
@@ -540,7 +540,49 @@ func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 	return dataObjectResults.Results, err
 }
 
+// returns descriptors for data objects for a given study
+func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]interface{}, error) {
+	// fetch the study and its metadata
+	resource := fmt.Sprintf("studies/%s", studyId)
+	body, err := db.get(resource, url.Values{})
+	if err != nil {
+		return nil, err
+	}
+	var study Study
+	err = json.Unmarshal(body, &study)
+	if err != nil {
+		return nil, err
+	}
+	relatedCredit := db.creditMetadataForStudy(study)
+
+	// fetch the data objects for the study
+	resource = fmt.Sprintf("data_objects/study/%s", studyId)
+	body, err = db.get(resource, url.Values{})
+	if err != nil {
+		return nil, err
+	}
+	type DataObjectsByStudyResults struct {
+		BiosampleId string       `json:"biosample_id"`
+		DataObjects []DataObject `json:"data_objects"`
+	}
+	var objectSets []DataObjectsByStudyResults
+	err = json.Unmarshal(body, &objectSets)
+	if err != nil {
+		return nil, err
+	}
+
+	// render descriptors from the data objects and credit metadata
+	descriptors := make([]map[string]interface{}, 0)
+	for _, objectSet := range objectSets {
+		for _, dataObject := range objectSet.DataObjects {
+			descriptors = append(descriptors, db.createDataObjectDescriptor(dataObject, relatedCredit))
+		}
+	}
+	return descriptors, nil
+}
+
 // returns descriptors for data objects and related biosample metadata
+// using workflow execution IDs (can be expensive)
 func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]interface{}, []map[string]interface{}, error) {
 	// create data object descriptors and fill in metadata
 	dataObjectDescriptors := make([]map[string]interface{}, len(dataObjects))
@@ -560,14 +602,31 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 
 	// create biosample descriptors
 	biosampleDescriptors := make([]map[string]interface{}, len(biosampleForWorkflow))
-	for _, biosample := range biosampleForWorkflow {
-		studyId := biosample.(map[string]interface{})["associated_studies"].(string)
-		descriptor := map[string]interface{}{
-			"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
-			"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
-			"data":  biosample,
+	for _, b := range biosampleForWorkflow {
+		biosample := b.(map[string]interface{})
+		var studyIds []string
+		switch s := biosample["associated_studies"].(type) {
+		case string:
+			studyIds = []string{s}
+		case []interface{}:
+			for _, si := range s {
+				studyId, ok := si.(string)
+				if ok {
+					studyIds = append(studyIds, studyId)
+				}
+			}
+		default: // nil, for example
 		}
-		biosampleDescriptors = append(biosampleDescriptors, descriptor)
+		for _, studyId := range studyIds {
+			if biosample["associated_studies"] != nil {
+				descriptor := map[string]interface{}{
+					"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
+					"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
+					"data":  biosample,
+				}
+				biosampleDescriptors = append(biosampleDescriptors, descriptor)
+			}
+		}
 	}
 
 	return dataObjectDescriptors, biosampleDescriptors, nil
@@ -643,6 +702,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		return relatedCredit, relatedBiosample, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
+		// FIXME: are we expecting to transfer raw data from NMDC? I don't think
+		// FIXME: they expect us to do this!
+		relatedCredit.ResourceType = "dataset"
 	}
 	return relatedCredit, relatedBiosample, nil
 }

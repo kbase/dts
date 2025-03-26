@@ -22,8 +22,8 @@
 package nmdc
 
 import (
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -154,12 +154,21 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		p.Add("filter", params.Query)
 	}
 
+	var dataObjects []DataObject
+	var err error
 	if p.Has("study_id") { // fetch data objects associated with this study
-		return db.dataObjectsForStudy(p.Get("study_id"), p)
+		dataObjects, err = db.dataObjectsForStudy(p.Get("study_id"), p)
+	} else {
+		dataObjects, err = db.dataObjects(p)
+	}
+	if err != nil {
+		return databases.SearchResults{}, err
 	}
 
-	// otherwise, simply call the data_objects/ endpoint (possibly with a filter applied)
-	return db.dataObjects(p)
+	descriptors, _, err := db.createDataObjectAndBiosampleDescriptors(dataObjects)
+	return databases.SearchResults{
+		Descriptors: descriptors,
+	}, err
 }
 
 func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
@@ -167,73 +176,26 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]int
 		return nil, err
 	}
 
-	// we use the /data_objects/{data_object_id} GET endpoint to retrieve metadata
-	// for individual files
-
-	// gather relevant study IDs, biosample and credit metadata
-	studyIdForDataObjectId, err := db.studyIdsForDataObjectIds(fileIds)
-	if err != nil {
-		return nil, err
-	}
-	biosampleMdForStudyId := make(map[string]json.RawMessage)
-	creditForStudyId := make(map[string]credit.CreditMetadata)
-	for _, studyId := range studyIdForDataObjectId {
-		biosampleMd, found := biosampleMdForStudyId[studyId]
-		if !found {
-			biosampleMd, err = db.biosampleMetadataForStudy(studyId)
-			if err != nil {
-				return nil, err
-			}
-			print("Voo-ba!\n")
-			biosampleMdForStudyId[studyId] = biosampleMd
-		}
-
-		credit, found := creditForStudyId[studyId]
-		if !found {
-			credit, err = db.creditMetadataForStudy(studyId)
-			if err != nil {
-				return nil, err
-			}
-			creditForStudyId[studyId] = credit // cache for other data objects
-		}
-		creditForStudyId[studyId] = credit
-	}
-
-	// construct data resources from the IDs
-	descriptors := make([]map[string]interface{}, len(fileIds))
+	// construct data resource descriptors from the IDs and make lists of
+	// workflow executions and data generations (for metadata)
+	dataObjects := make([]DataObject, len(fileIds))
 	for i, fileId := range fileIds {
 		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
 		if err != nil {
 			return nil, err
 		}
-		var dataObject DataObject
-		err = json.Unmarshal(body, &dataObject)
+		err = json.Unmarshal(body, &dataObjects[i])
 		if err != nil {
 			return nil, err
 		}
-		descriptor := db.descriptorFromDataObject(dataObject)
-
-		// add credit metadata
-		resourceId := descriptor["id"].(string)
-		studyId := studyIdForDataObjectId[resourceId]
-		credit := creditForStudyId[studyId]
-		credit.ResourceType = "dataset"
-		credit.Identifier = resourceId
-		descriptor["credit"] = credit
-		descriptors[i] = descriptor
 	}
 
-	// include any relevant biosample metadata (inline data) descriptors
-	for studyId, biosampleMd := range biosampleMdForStudyId {
-		descriptor := map[string]interface{}{
-			"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
-			"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
-			"data":  biosampleMd,
-		}
-		descriptors = append(descriptors, descriptor)
+	// fetch metadata for data objects and biosamples and turn them into descriptors
+	dataObjectDescriptors, biosampleDescriptors, err := db.createDataObjectAndBiosampleDescriptors(dataObjects)
+	if err != nil {
+		return nil, err
 	}
-
-	return descriptors, nil
+	return slices.Concat(dataObjectDescriptors, biosampleDescriptors), nil
 }
 
 func (db Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
@@ -271,9 +233,9 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 	return nil
 }
 
-//--------------------
+//====================
 // Internal machinery
-//--------------------
+//====================
 
 const (
 	// NOTE: for now, we use the dev environment (-dev), not prod (which has bugs!)
@@ -281,11 +243,13 @@ const (
 	// NOTE: which are synced daily-esque. They will sort this out in the coming year,
 	// NOTE: and it looks like PostGres is probably going to prevail.
 	// NOTE: (See https://github.com/microbiomedata/NMDC_documentation/blob/main/docs/howto_guides/portal_guide.md)
-	baseApiURL  = "https://api-dev.microbiomedata.org/"       // mongoDB
+	baseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
 	baseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
 )
 
-// Authorization / authentication
+//------------------------------
+// Access to NMDC API endpoints
+//------------------------------
 
 type authorization struct {
 	// API user credential
@@ -462,39 +426,168 @@ func (db Database) post(resource string, body io.Reader) ([]byte, error) {
 	}
 }
 
+//----------------
+// Metadata types
+//----------------
+
 // data object type for JSON marshalling
 // (see https://microbiomedata.github.io/nmdc-schema/DataObject/)
 type DataObject struct {
-	FileSizeBytes          int            `json:"file_size_bytes"`
-	MD5Checksum            string         `json:"md5_checksum"`
-	DataObjectType         string         `json:"data_object_type"`
-	CompressionType        string         `json:"compression_type"`
-	URL                    string         `json:"url"`
-	Type                   string         `json:"type"`
-	Id                     string         `json:"id"`
-	Name                   string         `json:"name"`
-	Description            string         `json:"description"`
-	WasGeneratedBy         DataGeneration `json:"was_informed_by"`
-	AlternativeIdentifiers []string       `json:"alternative_identifiers,omitempty"`
+	FileSizeBytes          int      `json:"file_size_bytes"`
+	MD5Checksum            string   `json:"md5_checksum"`
+	DataObjectType         string   `json:"data_object_type"`
+	CompressionType        string   `json:"compression_type"`
+	URL                    string   `json:"url"`
+	Type                   string   `json:"type"`
+	Id                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	WasGeneratedBy         string   `json:"was_generated_by"`
+	AlternativeIdentifiers []string `json:"alternative_identifiers,omitempty"`
 }
 
-type DataGeneration struct {
-	AssociatedStudies []string
+// https://microbiomedata.github.io/nmdc-schema/CreditAssociation/
+type CreditAssociation struct {
+	Roles  []string    `json:"applied_roles"`
+	Person PersonValue `json:"applies_to_person"`
+	Type   string      `json:"type,omitempty"`
 }
 
-func (db Database) descriptorFromDataObject(dataObject DataObject) map[string]interface{} {
+// https://microbiomedata.github.io/nmdc-schema/Doi/
+type Doi struct {
+	Value    string `json:"doi_value"`
+	Provider string `json:"doi_provider,omitempty"`
+	Category string `json:"doi_category"`
+}
+
+// https://microbiomedata.github.io/nmdc-schema/PersonValue/
+type PersonValue struct {
+	Email    string   `json:"email,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Orcid    string   `json:"orcid,omitempty"`
+	Websites []string `json:"websites,omitempty"`
+	RawValue string   `json:"has_raw_value,omitempty"` // name in 'FIRST LAST' format (if present)
+}
+
+// https://microbiomedata.github.io/nmdc-schema/Study/
+type Study struct { // partial representation, includes only relevant fields
+	Id                 string              `json:"id"`
+	AlternativeNames   []string            `json:"alternative_names,omitempty"`
+	AlternativeTitles  []string            `json:"alternative_titles,omitempty"`
+	AssociatedDois     []Doi               `json:"associated_dois,omitempty"`
+	Description        string              `json:"description,omitempty"`
+	FundingSources     []string            `json:"funding_sources,omitempty"`
+	CreditAssociations []CreditAssociation `json:"has_credit_associations,omitempty"`
+	Name               string              `json:"name,omitempty"`
+	RelatedIdentifiers string              `json:"related_identifiers,omitempty"`
+	Title              string              `json:"title,omitempty"`
+}
+
+// https://microbiomedata.github.io/nmdc-schema/WorkflowExecution/
+type WorkflowExecution struct {
+	Id         string        `json:"id"`
+	Name       string        `json:"name"`
+	Studies    []Study       `json:"studies"`
+	Biosamples []interface{} `json:"biosamples"`
+}
+
+// fetches file metadata for data objects associated with the given study
+func (db Database) dataObjectsForStudy(studyId string, params url.Values) ([]DataObject, error) {
+	body, err := db.get(fmt.Sprintf("data_objects/study/%s", studyId), params)
+	if err != nil {
+		return nil, err
+	}
+
+	type DataObjectsByStudyResults struct {
+		BiosampleId string       `json:"biosample_id"`
+		DataObjects []DataObject `json:"data_objects"`
+	}
+	var objectSets []DataObjectsByStudyResults
+	err = json.Unmarshal(body, &objectSets)
+	if err != nil {
+		return nil, err
+	}
+
+	dataObjects := make([]DataObject, 0)
+	for _, objectSet := range objectSets {
+		for _, dataObject := range objectSet.DataObjects {
+			dataObjects = append(dataObjects, dataObject)
+		}
+	}
+	return dataObjects, nil
+}
+
+// fetches metadata for data objects based on the given URL search parameters
+func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
+	// extract any requested "extra" metadata fields (and scrub them from params)
+	// FIXME: no extra fields yet, so we simply remove this parameter
+	//var extraFields []string
+	if params.Has("extra") {
+		//extraFields = strings.Split(params.Get("extra"), ",")
+		params.Del("extra")
+	}
+
+	body, err := db.get("data_objects/", params)
+	type DataObjectResults struct {
+		// NOTE: we only extract the results field for now
+		Results []DataObject `json:"results"`
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dataObjectResults DataObjectResults
+	err = json.Unmarshal(body, &dataObjectResults)
+	return dataObjectResults.Results, err
+}
+
+// returns descriptors for data objects and related biosample metadata
+func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]interface{}, []map[string]interface{}, error) {
+	// create data object descriptors and fill in metadata
+	dataObjectDescriptors := make([]map[string]interface{}, len(dataObjects))
+	creditForWorkflow := make(map[string]credit.CreditMetadata)
+	biosampleForWorkflow := make(map[string]interface{})
+	for i, dataObject := range dataObjects {
+		workflowId := dataObject.WasGeneratedBy
+		if _, found := creditForWorkflow[workflowId]; !found {
+			var err error
+			creditForWorkflow[workflowId], biosampleForWorkflow[workflowId], err = db.creditAndBiosampleForWorkflow(workflowId)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		dataObjectDescriptors[i] = db.createDataObjectDescriptor(dataObject, creditForWorkflow[workflowId])
+	}
+
+	// create biosample descriptors
+	biosampleDescriptors := make([]map[string]interface{}, len(biosampleForWorkflow))
+	for _, biosample := range biosampleForWorkflow {
+		studyId := biosample.(map[string]interface{})["associated_studies"].(string)
+		descriptor := map[string]interface{}{
+			"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
+			"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
+			"data":  biosample,
+		}
+		biosampleDescriptors = append(biosampleDescriptors, descriptor)
+	}
+
+	return dataObjectDescriptors, biosampleDescriptors, nil
+}
+
+// returns a descriptor for the given data object, including the given credit
+// metadata (mined from the study to which the data object belongs)
+func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]interface{} {
+	// fill in some particulars
+	objectCredit := studyCredit
+	objectCredit.Descriptions = append(objectCredit.Descriptions,
+		credit.Description{
+			DescriptionText: dataObject.Description,
+			Language:        "en",
+		})
+	objectCredit.Identifier = dataObject.Id
+	objectCredit.Url = dataObject.URL
 	descriptor := map[string]interface{}{
-		"bytes": dataObject.FileSizeBytes,
-		"credit": credit.CreditMetadata{
-			Descriptions: []credit.Description{
-				{
-					DescriptionText: dataObject.Description,
-					Language:        "en",
-				},
-			},
-			Identifier: dataObject.Id,
-			Url:        dataObject.URL,
-		},
+		"bytes":       dataObject.FileSizeBytes,
+		"credit":      objectCredit,
 		"description": dataObject.Description,
 		"format":      formatFromType(dataObject.Type),
 		"hash":        dataObject.MD5Checksum,
@@ -517,240 +610,45 @@ func (db Database) descriptorFromDataObject(dataObject DataObject) map[string]in
 	return descriptor
 }
 
-func (db Database) studyIdsForDataObjectIds(dataObjectIds []string) (map[string]string, error) {
-	// We create an aggregation query on the data_generation_set collection.
-	// The data_generation_set collection associates studies with data objects:
-	// * the associated_studies field points to a study_set collection
-	// * the was_informed_by field points to a workflow_execution_set collection,
-	//   whose has_output field points to a data_object_set collection
-	//
-	// NOTE: The API documentation for find/aggregate queries
-	// NOTE: (https://api.microbiomedata.org/docs#/queries/run_query_queries_run_post)
-	// NOTE: includes words of caution:
-	// NOTE:
-	// NOTE: > For `find` and `aggregate`, note that cursor batching/pagination does
-	// NOTE: > not work via this API, so ensure that you construct a command that
-	// NOTE: > will return what you need in the "first batch". Also, the maximum
-	// NOTE: > size of the returned payload is 16MB.
-	// NOTE:
-	// NOTE: If we need to, we can break up our aggregate queries into smaller
-	// NOTE: chunks, since these queries are independent.
-	type MatchIdInSlice struct {
-		In []string `json:"$in,omitempty"`
-	}
-	type MatchOperation struct {
-		// matches an ID with one of those in the given list
-		Id MatchIdInSlice `json:"id"`
-	}
-	type LookupOperation struct {
-		From         string `json:"from"`
-		LocalField   string `json:"localField"`
-		ForeignField string `json:"foreignField"`
-		As           string `json:"as"`
-	}
-	type PipelineOperation struct {
-		// this is a bit cheesy but is simple and works
-		// we use struct pointers here so omitempty works properly
-		Match  *MatchOperation  `json:"$match,omitempty"`
-		Lookup *LookupOperation `json:"$lookup,omitempty"`
-	}
-	type CursorProperty struct {
-		BatchSize int `json:"batchsize,omitempty"`
-	}
-	type AggregateRequest struct {
-		Aggregate string              `json:"aggregate"`
-		Pipeline  []PipelineOperation `json:"pipeline"`
-		Cursor    CursorProperty      `json:"cursor,omitempty"`
-	}
-	data, err := json.Marshal(AggregateRequest{
-		Aggregate: "data_object_set",
-		Pipeline: []PipelineOperation{
-			// match against our set of data object IDs
-			{
-				Match: &MatchOperation{
-					Id: MatchIdInSlice{
-						In: dataObjectIds,
-					},
-				},
-			},
-			// look up the data object's workflow execution set
-			// (the study IDs for the data generation set are in
-			//  the associated_studies field)
-			{
-				Lookup: &LookupOperation{
-					From:         "data_generation_set",
-					LocalField:   "was_generated_by",
-					ForeignField: "id",
-					As:           "data_generation_sets",
-				},
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
+// fetch credit and biosample metadata related to the given workflow execution ID
+func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]interface{}, error) {
+	var relatedCredit credit.CreditMetadata
+	var relatedBiosample map[string]interface{} // pure-JSON representation
+
+	if workflowExecId == "" {
+		return relatedCredit, relatedBiosample, errors.New("No workflow execution ID provided!")
 	}
 
-	// run the query and extract the results
-	// NOTE: recall that trailing slashes in POSTs currently cause chaos!
-	body, err := db.post("queries:run", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	type DataGenerationSet struct {
-		Id                string   `json:"id"`
-		AssociatedStudies []string `json:"associated_studies"`
-	}
-	type DataObjectAndDataGenerationSet struct {
-		DataObjectId       string              `json:"id"`
-		DataGenerationSets []DataGenerationSet `json:"data_generation_sets"`
-	}
-	type QueryResults struct {
-		Ok     int `json:"ok"`
-		Cursor struct {
-			FirstBatch []DataObjectAndDataGenerationSet `json:"firstBatch"`
-			Id         int                              `json:"id"`
-			NS         string                           `json:"ns"`
-		}
-	}
-	var results QueryResults
-	err = json.Unmarshal(body, &results)
-	if err != nil {
-		return nil, err
-	}
+	if strings.Contains(workflowExecId, "nmdc:wf") {
+		// data object is an analysis product; workflow execution has metadata
 
-	// map each data object ID to the corresponding study ID
-	studyIdForDataObjectId := make(map[string]string)
-	for _, record := range results.Cursor.FirstBatch {
-		// FIXME: for now, take the first study in the first data generation set
-		if len(record.DataGenerationSets) > 0 {
-			if len(record.DataGenerationSets[0].AssociatedStudies) > 0 {
-				studyIdForDataObjectId[record.DataObjectId] = record.DataGenerationSets[0].AssociatedStudies[0]
-			} else {
-				slog.Debug(fmt.Sprintf("No study is associated with the data object %s", record.DataObjectId))
-			}
-		} else {
-			slog.Debug(fmt.Sprintf("No data generation info was found for the data object %s", record.DataObjectId))
+		resource := fmt.Sprintf("workflow_executions/%s/related_resources", workflowExecId)
+		body, err := db.get(resource, url.Values{})
+		if err != nil {
+			return credit.CreditMetadata{}, nil, err
 		}
+		var workflowExec WorkflowExecution
+		err = json.Unmarshal(body, &workflowExec)
+
+		// credit metadata
+		if len(workflowExec.Studies) > 0 {
+			relatedCredit = db.creditMetadataForStudy(workflowExec.Studies[0])
+		}
+
+		// biosample metadata
+		if len(workflowExec.Biosamples) > 0 { // FIXME: can be > 1??
+			relatedBiosample = workflowExec.Biosamples[0].(map[string]interface{})
+		}
+
+		return relatedCredit, relatedBiosample, nil
+	} else if strings.Contains(workflowExecId, "nmdc:om") {
+		// data object is raw data; we don't fetch such metadata
 	}
-	return studyIdForDataObjectId, err
+	return relatedCredit, relatedBiosample, nil
 }
 
-// fetches metadata for data objects (no credit metadata, alas) based on the
-// given URL search parameters
-func (db Database) dataObjects(params url.Values) (databases.SearchResults, error) {
-	var results databases.SearchResults
-
-	// extract any requested "extra" metadata fields (and scrub them from params)
-	// FIXME: no extra fields yet, so we simply remove this parameter
-	//var extraFields []string
-	if params.Has("extra") {
-		//extraFields = strings.Split(params.Get("extra"), ",")
-		params.Del("extra")
-	}
-
-	body, err := db.get("data_objects/", params)
-	type DataObjectResults struct {
-		// NOTE: we only extract the results field for now
-		Results []DataObject `json:"results"`
-	}
-	if err != nil {
-		return results, err
-	}
-	var dataObjectResults DataObjectResults
-	err = json.Unmarshal(body, &dataObjectResults)
-	if err != nil {
-		return results, err
-	}
-
-	// map data object IDs to study IDs so we can retrieve credit info
-
-	// assemble all data object identifiers and map them to study IDs
-	dataObjectIds := make([]string, len(dataObjectResults.Results))
-	for i, dataObject := range dataObjectResults.Results {
-		dataObjectIds[i] = dataObject.Id
-	}
-	studyIdForDataObjectId, err := db.studyIdsForDataObjectIds(dataObjectIds)
-	if err != nil {
-		return results, err
-	}
-
-	// create data resources from data objects, fetch study metadata, and fill in
-	// data resource credit information
-	results.Descriptors = make([]map[string]interface{}, len(dataObjectResults.Results))
-	creditForStudyId := make(map[string]credit.CreditMetadata)
-	for i, dataObject := range dataObjectResults.Results {
-		studyId := studyIdForDataObjectId[dataObject.Id]
-		credit, foundStudyCredit := creditForStudyId[studyId]
-		if !foundStudyCredit {
-			credit, err = db.creditMetadataForStudy(studyId)
-			if err != nil {
-				return results, err
-			}
-			creditForStudyId[studyId] = credit // cache for other data objects
-		}
-		descriptor := db.descriptorFromDataObject(dataObject)
-		descriptor["credit"] = credit
-		results.Descriptors[i] = descriptor
-	}
-
-	return results, nil
-}
-
-// fetches credit metadata for the study with the given ID
-func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata, error) {
-	// vvv credit-related NMDC schema types vvv
-
-	// https://microbiomedata.github.io/nmdc-schema/PersonValue/
-	type PersonValue struct {
-		Email    string   `json:"email,omitempty"`
-		Name     string   `json:"name,omitempty"`
-		Orcid    string   `json:"orcid,omitempty"`
-		Websites []string `json:"websites,omitempty"`
-		RawValue string   `json:"has_raw_value,omitempty"` // name in 'FIRST LAST' format (if present)
-	}
-
-	// https://microbiomedata.github.io/nmdc-schema/CreditAssociation/
-	type CreditAssociation struct {
-		Roles  []string    `json:"applied_roles"`
-		Person PersonValue `json:"applies_to_person"`
-		Type   string      `json:"type,omitempty"`
-	}
-
-	// https://microbiomedata.github.io/nmdc-schema/Doi/
-	type Doi struct {
-		Value    string `json:"doi_value"`
-		Provider string `json:"doi_provider,omitempty"`
-		Category string `json:"doi_category"`
-	}
-
-	// https://microbiomedata.github.io/nmdc-schema/Study/
-	type Study struct { // partial representation, includes only relevant fields
-		Id                 string              `json:"id"`
-		AlternativeNames   []string            `json:"alternative_names,omitempty"`
-		AlternativeTitles  []string            `json:"alternative_titles,omitempty"`
-		AssociatedDois     []Doi               `json:"associated_dois,omitempty"`
-		Description        string              `json:"description,omitempty"`
-		FundingSources     []string            `json:"funding_sources,omitempty"`
-		CreditAssociations []CreditAssociation `json:"has_credit_associations,omitempty"`
-		Name               string              `json:"name,omitempty"`
-		RelatedIdentifiers string              `json:"related_identifiers,omitempty"`
-		Title              string              `json:"title,omitempty"`
-	}
-
-	// fetch the study with the given ID
-	var creditMetadata credit.CreditMetadata
-	body, err := db.get(fmt.Sprintf("studies/%s", studyId), url.Values{})
-	if err != nil {
-		return creditMetadata, err
-	}
-	var study Study
-	err = json.Unmarshal(body, &study)
-	if err != nil {
-		return creditMetadata, err
-	}
-
-	// fish metadata out of the study
-
+// extracts credit metadata from the given study
+func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 	// NOTE: principal investigator role is included with credit associations
 	contributors := make([]credit.Contributor, len(study.CreditAssociations))
 	for i, association := range study.CreditAssociations {
@@ -811,8 +709,7 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 		}
 	}
 
-	creditMetadata = credit.CreditMetadata{
-		// Identifier, Dates, and Version fields are specific to DataResources, omitted here
+	return credit.CreditMetadata{
 		Contributors: contributors,
 		Funding:      fundingSources,
 		Publisher: credit.Organization{
@@ -823,88 +720,6 @@ func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata
 		ResourceType:       "dataset",
 		Titles:             titles,
 	}
-	// FIXME: we can probably chase down credit metadata dates using the
-	// FIXME: generated_by (Activity) field, instantiated as one of the
-	// FIXME: concrete types listed here: https://microbiomedata.github.io/nmdc-schema/WorkflowExecutionActivity/
-
-	return creditMetadata, err
-}
-
-// fetches biosample (JSON) metadata for the given study
-func (db *Database) biosampleMetadataForStudy(studyId string) (json.RawMessage, error) {
-	var results json.RawMessage
-	var p url.Values
-	p.Add("associated_studies", studyId)
-	body, err := db.get("biosamples", p)
-	if err != nil {
-		return results, err
-	}
-	err = json.Unmarshal(body, &results)
-	return results, err
-}
-
-// fetches file metadata for data objects associated with the given study
-func (db Database) dataObjectsForStudy(studyId string, params url.Values) (databases.SearchResults, error) {
-	var results databases.SearchResults
-
-	body, err := db.get(fmt.Sprintf("data_objects/study/%s", studyId), params)
-	if err != nil {
-		return results, err
-	}
-
-	type DataObjectsByStudyResults struct {
-		BiosampleId string       `json:"biosample_id"`
-		DataObjects []DataObject `json:"data_objects"`
-	}
-	var objectSets []DataObjectsByStudyResults
-	err = json.Unmarshal(body, &objectSets)
-	if err != nil {
-		return results, err
-	}
-
-	// FIXME: I'm not able to get filters to work as (seems to be) intended, so
-	// FIXME: this is a short-term hack.
-	var dataObjectType string
-	if params.Has("filter") {
-		filter := params.Get("filter")
-		colon := strings.Index(filter, ":")
-		if strings.Contains(filter, "data_object_type:") {
-			dataObjectType = filter[colon+1:]
-		}
-	}
-
-	// create Frictionless descriptors for the data objects
-	results.Descriptors = make([]map[string]interface{}, 0)
-	for _, objectSet := range objectSets {
-		for _, dataObject := range objectSet.DataObjects {
-			// FIXME: apply hack!
-			if dataObjectType != "" && dataObject.DataObjectType != dataObjectType {
-				slog.Debug(fmt.Sprintf("Data object type mismatch (want %s, got %s)", dataObjectType, dataObject.DataObjectType))
-				continue
-			}
-			descriptor := db.descriptorFromDataObject(dataObject)
-			results.Descriptors = append(results.Descriptors, descriptor)
-		}
-	}
-
-	// fill in study-level credit metadata for each resource
-	studyCreditMetadata, err := db.creditMetadataForStudy(studyId)
-	if err != nil {
-		return results, err
-	}
-	for i, descriptor := range results.Descriptors {
-		credit := descriptor["credit"].(credit.CreditMetadata)
-		credit.Contributors = studyCreditMetadata.Contributors
-		credit.Funding = studyCreditMetadata.Funding
-		credit.Publisher = studyCreditMetadata.Publisher
-		credit.RelatedIdentifiers = studyCreditMetadata.RelatedIdentifiers
-		credit.ResourceType = studyCreditMetadata.ResourceType
-		credit.Titles = studyCreditMetadata.Titles
-		descriptor["credit"] = credit
-		results.Descriptors[i] = descriptor
-	}
-
-	return results, nil
 }
 
 // returns the page number and page size corresponding to the given Pagination

@@ -73,13 +73,16 @@ func Start() error {
 	// if this is the first call to Start(), register our built-in endpoint
 	// and database providers
 	if firstCall {
+		// NOTE: it's okay if these endpoint providers have already been registered,
+		// NOTE: as they can be used in testing
 		err := endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
-		if err != nil {
-			return err
+		if err == nil {
+			err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
 		}
-		err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
 		if err != nil {
-			return err
+			if _, matches := err.(*endpoints.AlreadyRegisteredError); !matches {
+				return err
+			}
 		}
 		if _, found := config.Databases["jdp"]; found {
 			err = databases.RegisterDatabase("jdp", jdp.NewDatabase)

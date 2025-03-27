@@ -24,6 +24,8 @@ import (
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
+	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/endpoints/local"
 )
 
 // working directory from which the tests were invoked
@@ -166,9 +168,22 @@ func setup() {
 	}
 
 	// register test databases referred to in config file
-	dtstest.RegisterDatabase("source", testDescriptors)
-	dtstest.RegisterDatabase("destination1", nil)
-	dtstest.RegisterDatabase("destination2", nil)
+	err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+	if err != nil {
+		log.Panicf("Couldn't initialize configuration: %s", err)
+	}
+	err = dtstest.RegisterDatabase("source", testDescriptors)
+	if err != nil {
+		log.Panicf("Couldn't initialize configuration: %s", err)
+	}
+	err = dtstest.RegisterDatabase("destination1", nil)
+	if err != nil {
+		log.Panicf("Couldn't initialize configuration: %s", err)
+	}
+	err = dtstest.RegisterDatabase("destination2", nil)
+	if err != nil {
+		log.Panicf("Couldn't initialize configuration: %s", err)
+	}
 
 	// create the DTS data and manifest directories
 	os.Mkdir(config.Service.DataDirectory, 0755)

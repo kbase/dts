@@ -43,3 +43,13 @@ func (e InvalidProviderError) Error() string {
 	return fmt.Sprintf("The endpoint '%s' has an invalid provider: '%s'.",
 		e.Name, e.Provider)
 }
+
+// indicates that an endpoint provider is already registered and an attempt has
+// been made to register it again
+type AlreadyRegisteredError struct {
+	Provider string
+}
+
+func (e AlreadyRegisteredError) Error() string {
+	return fmt.Sprintf("Cannot register endpoint provider '%s': already registered", e.Provider)
+}

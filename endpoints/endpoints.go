@@ -22,8 +22,6 @@
 package endpoints
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -94,7 +92,7 @@ var createEndpointFuncs = make(map[string]func(name string) (Endpoint, error))
 // to allow for e.g. test database implementations
 func RegisterEndpointProvider(provider string, createEp func(name string) (Endpoint, error)) error {
 	if _, found := createEndpointFuncs[provider]; found {
-		return fmt.Errorf("Cannot register endpoint provider %s (already registered)", provider)
+		return &AlreadyRegisteredError{Provider: provider}
 	} else {
 		createEndpointFuncs[provider] = createEp
 		return nil

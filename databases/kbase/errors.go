@@ -26,10 +26,10 @@ import (
 )
 
 // This error type is returned when a KBase user/ORCID spreadsheet file is invalid.
-type InvalidKBaseUserSpreadsheet struct {
+type InvalidKBaseUserSpreadsheetError struct {
 	File, Message string
 }
 
-func (e InvalidKBaseUserSpreadsheet) Error() string {
+func (e InvalidKBaseUserSpreadsheetError) Error() string {
 	return fmt.Sprintf("KBase user spreadsheet file %s is invalid: %s", e.File, e.Message)
 }

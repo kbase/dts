@@ -168,7 +168,7 @@ func readUserTable() (map[string]string, error) {
 	slog.Info(fmt.Sprintf("Reading KBase user table from %s", filename))
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, InvalidKBaseUserSpreadsheet{
+		return nil, &InvalidKBaseUserSpreadsheetError{
 			File:    kbaseUserTableFile,
 			Message: "nonexistent file",
 		}
@@ -194,14 +194,14 @@ func readUserTable() (map[string]string, error) {
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, InvalidKBaseUserSpreadsheet{
+		return nil, &InvalidKBaseUserSpreadsheetError{
 			File:    kbaseUserTableFile,
 			Message: "Couldn't parse CVS file",
 		}
 	}
 	for _, record := range records {
 		if len(record) != 2 {
-			return nil, InvalidKBaseUserSpreadsheet{
+			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
 				Message: fmt.Sprintf("%d comma-separated columns found (2 expected)", len(record)),
 			}
@@ -217,7 +217,7 @@ func readUserTable() (map[string]string, error) {
 		} else if !isOrcid(record[orcidColumn]) {
 			// we've already established the ORCID column, but this line disagrees,
 			// so the whole file is suspect
-			return nil, InvalidKBaseUserSpreadsheet{
+			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
 				Message: "Different lines list username, ORCID data in different columns",
 			}
@@ -235,7 +235,7 @@ func readUserTable() (map[string]string, error) {
 			// is consistent
 			if existingUser, found := usersForOrcids[orcid]; found {
 				if existingUser != orcid {
-					return nil, InvalidKBaseUserSpreadsheet{
+					return nil, &InvalidKBaseUserSpreadsheetError{
 						File:    kbaseUserTableFile,
 						Message: fmt.Sprintf("ORCID %s is associated with multiple users", orcid),
 					}
@@ -245,7 +245,7 @@ func readUserTable() (map[string]string, error) {
 			}
 			if existingOrcid, found := orcidsForUsers[username]; found {
 				if existingOrcid != orcid {
-					return nil, InvalidKBaseUserSpreadsheet{
+					return nil, &InvalidKBaseUserSpreadsheetError{
 						File:    kbaseUserTableFile,
 						Message: fmt.Sprintf("User %s has multiple ORCIDs", username),
 					}
@@ -257,7 +257,7 @@ func readUserTable() (map[string]string, error) {
 	}
 
 	if len(usersForOrcids) == 0 {
-		return nil, InvalidKBaseUserSpreadsheet{
+		return nil, &InvalidKBaseUserSpreadsheetError{
 			File:    kbaseUserTableFile,
 			Message: "No valid username/ORCID pairs found",
 		}

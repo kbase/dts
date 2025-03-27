@@ -73,16 +73,31 @@ func Start() error {
 	// if this is the first call to Start(), register our built-in endpoint
 	// and database providers
 	if firstCall {
-		endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
-		endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+		err := endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
+		if err != nil {
+			return err
+		}
+		err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+		if err != nil {
+			return err
+		}
 		if _, found := config.Databases["jdp"]; found {
-			databases.RegisterDatabase("jdp", jdp.NewDatabase)
+			err = databases.RegisterDatabase("jdp", jdp.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		if _, found := config.Databases["kbase"]; found {
-			databases.RegisterDatabase("kbase", kbase.NewDatabase)
+			err = databases.RegisterDatabase("kbase", kbase.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		if _, found := config.Databases["nmdc"]; found {
-			databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
+			err = databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		firstCall = false
 	}

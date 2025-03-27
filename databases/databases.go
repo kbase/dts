@@ -141,6 +141,12 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 		firstTime = false
 	}
 
+	// make one to check the configuration
+	_, err := createDb()
+	if err != nil {
+		return err
+	}
+
 	if _, found := createDatabaseFuncs_[dbName]; found {
 		return &AlreadyRegisteredError{
 			Database: dbName,

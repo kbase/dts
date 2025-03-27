@@ -67,7 +67,7 @@ const (
 // informative error if anything prevents this
 func Start() error {
 	if running {
-		return AlreadyRunningError{}
+		return &AlreadyRunningError{}
 	}
 
 	// if this is the first call to Start(), register our built-in endpoint
@@ -139,7 +139,7 @@ func Stop() error {
 		err = <-taskChannels.Error
 		running = false
 	} else {
-		err = NotRunningError{}
+		err = &NotRunningError{}
 	}
 	return err
 }
@@ -177,7 +177,7 @@ func Create(spec Specification) (uuid.UUID, error) {
 
 	// have we requested files to be transferred?
 	if len(spec.FileIds) == 0 {
-		return taskId, NoFilesRequestedError{}
+		return taskId, &NoFilesRequestedError{}
 	}
 
 	// verify that we can fetch the task's source and destination databases
@@ -364,14 +364,14 @@ func processTasks() {
 					tasks[task.Id] = task
 				}
 			} else {
-				err := NotFoundError{Id: taskId}
+				err := &NotFoundError{Id: taskId}
 				errorChan <- err
 			}
 		case taskId := <-getTaskStatusChan: // Status() called
 			if task, found := tasks[taskId]; found {
 				returnTaskStatusChan <- task.Status
 			} else {
-				err := NotFoundError{Id: taskId}
+				err := &NotFoundError{Id: taskId}
 				errorChan <- err
 			}
 		case <-pollChan: // time to move things along

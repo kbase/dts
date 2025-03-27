@@ -118,31 +118,31 @@ func readConfig(bytes []byte) error {
 
 func validateServiceParameters(params serviceConfig) error {
 	if params.Port < 0 || params.Port > 65535 {
-		return InvalidServiceConfigError{
+		return &InvalidServiceConfigError{
 			Message: fmt.Sprintf("Invalid port: %d (must be 0-65535)", params.Port),
 		}
 	}
 	if params.MaxConnections <= 0 {
-		return InvalidServiceConfigError{
+		return &InvalidServiceConfigError{
 			Message: fmt.Sprintf("Invalid max_connections: %d (must be positive)",
 				params.MaxConnections),
 		}
 	}
 	if params.Endpoint != "" {
 		if _, found := Endpoints[params.Endpoint]; !found {
-			return InvalidServiceConfigError{
+			return &InvalidServiceConfigError{
 				Message: fmt.Sprintf("Invalid endpoint: %s", params.Endpoint),
 			}
 		}
 	}
 	if params.PollInterval <= 0 {
-		return InvalidServiceConfigError{
+		return &InvalidServiceConfigError{
 			Message: fmt.Sprintf("Non-positive poll interval specified: (%d s)",
 				params.PollInterval),
 		}
 	}
 	if params.DeleteAfter <= 0 {
-		return InvalidServiceConfigError{
+		return &InvalidServiceConfigError{
 			Message: fmt.Sprintf("Non-positive task deletion period specified: (%d h)",
 				params.DeleteAfter),
 		}
@@ -153,13 +153,13 @@ func validateServiceParameters(params serviceConfig) error {
 func validateEndpoints(endpoints map[string]endpointConfig) error {
 	for name, endpoint := range endpoints {
 		if endpoint.Id.String() == "" { // invalid endpoint UUID
-			return InvalidEndpointConfigError{
+			return &InvalidEndpointConfigError{
 				Endpoint: name,
 				Message:  "Invalid UUID",
 			}
 		}
 		if endpoint.Provider == "" { // no provider given
-			return InvalidEndpointConfigError{
+			return &InvalidEndpointConfigError{
 				Endpoint: name,
 				Message:  "No provider specified",
 			}
@@ -171,19 +171,19 @@ func validateEndpoints(endpoints map[string]endpointConfig) error {
 func validateDatabases(databases map[string]databaseConfig) error {
 	for name, db := range databases {
 		if db.Endpoint == "" && len(db.Endpoints) == 0 {
-			return InvalidDatabaseConfigError{
+			return &InvalidDatabaseConfigError{
 				Database: name,
 				Message:  "No endpoints specified",
 			}
 		} else if db.Endpoint != "" && len(db.Endpoints) > 0 {
-			return InvalidDatabaseConfigError{
+			return &InvalidDatabaseConfigError{
 				Database: name,
 				Message:  "EITHER endpoint OR endpoints may be specified, but not both",
 			}
 		} else if db.Endpoint != "" {
 			// does the endpoint exist in our configuration?
 			if _, found := Endpoints[db.Endpoint]; !found {
-				return InvalidDatabaseConfigError{
+				return &InvalidDatabaseConfigError{
 					Database: name,
 					Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", name, db.Endpoint),
 				}
@@ -192,7 +192,7 @@ func validateDatabases(databases map[string]databaseConfig) error {
 			// do all functional endpoints exist in our configuration?
 			for functionalName, endpointName := range db.Endpoints {
 				if _, found := Endpoints[endpointName]; !found {
-					return InvalidDatabaseConfigError{
+					return &InvalidDatabaseConfigError{
 						Database: name,
 						Message:  fmt.Sprintf("Invalid %s endpoint for database %s: %s", functionalName, name, endpointName),
 					}

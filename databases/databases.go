@@ -142,7 +142,7 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 	}
 
 	if _, found := createDatabaseFuncs_[dbName]; found {
-		return AlreadyRegisteredError{
+		return &AlreadyRegisteredError{
 			Database: dbName,
 		}
 	} else {
@@ -163,7 +163,7 @@ func NewDatabase(dbName string) (Database, error) {
 		if createDb, valid := createDatabaseFuncs_[dbName]; valid {
 			db, err = createDb()
 		} else {
-			err = NotFoundError{dbName}
+			err = &NotFoundError{dbName}
 		}
 		if err == nil {
 			allDatabases_[dbName] = db // stash it

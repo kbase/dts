@@ -59,21 +59,21 @@ type Database struct {
 func NewDatabase() (databases.Database, error) {
 	nmdcUser, haveNmdcUser := os.LookupEnv("DTS_NMDC_USER")
 	if !haveNmdcUser {
-		return nil, databases.UnauthorizedError{
+		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC user (DTS_NMDC_USER) was provided for authentication",
 		}
 	}
 	nmdcPassword, haveNmdcPassword := os.LookupEnv("DTS_NMDC_PASSWORD")
 	if !haveNmdcPassword {
-		return nil, databases.UnauthorizedError{
+		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC password (DTS_NMDC_PASSWORD) was provided for authentication",
 		}
 	}
 
 	if config.Databases["nmdc"].Endpoint != "" {
-		return nil, databases.InvalidEndpointsError{
+		return nil, &databases.InvalidEndpointsError{
 			Database: "nmdc",
 			Message:  "NMDC requires 'nersc' and 'emsl' endpoints to be specified",
 		}
@@ -82,7 +82,7 @@ func NewDatabase() (databases.Database, error) {
 	for _, functionalName := range []string{"nersc", "emsl"} {
 		// was this functional name assigned to an endpoint?
 		if _, found := config.Databases["nmdc"].Endpoints[functionalName]; !found {
-			return nil, databases.InvalidEndpointsError{
+			return nil, &databases.InvalidEndpointsError{
 				Database: "nmdc",
 				Message:  fmt.Sprintf("Could not find '%s' endpoint for NMDC database", functionalName),
 			}

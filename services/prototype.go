@@ -442,7 +442,7 @@ func searchDatabase(_ context.Context,
 	// is the database valid?
 	_, ok := config.Databases[input.Database]
 	if !ok {
-		return nil, databaseError(databases.NotFoundError{Database: input.Database})
+		return nil, databaseError(&databases.NotFoundError{Database: input.Database})
 	}
 
 	// check the requested file status

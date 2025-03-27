@@ -44,8 +44,15 @@ type Database interface {
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
 	Search(orcid string, params SearchParameters) (SearchResults, error)
-	// returns a slice of Frictionless descriptors for the resources visible to
-	// the user with the given ORCID that match the given IDs
+	// Returns a slice of Frictionless descriptors associated with files with the
+	// given IDs that are visible to the user with the given ORCID. A descriptor can
+	// refer to a file or inline data, depending respectively on the presence of
+	// a `path` or `data` field. Data descriptors (descriptors with inline data)
+	// do not have corresponding file IDs and usually hold metadata related to one
+	// or more of the requested files--they are not involved in file transfers and
+	// appear only in a transfer manifest. If any data descriptors are returned
+	// by this call, the number of descriptors returned will exceed the number of
+	// requested file IDs by the number of data descriptors.
 	Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
@@ -134,8 +141,14 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 		firstTime = false
 	}
 
+	// make one to check the configuration
+	_, err := createDb()
+	if err != nil {
+		return err
+	}
+
 	if _, found := createDatabaseFuncs_[dbName]; found {
-		return AlreadyRegisteredError{
+		return &AlreadyRegisteredError{
 			Database: dbName,
 		}
 	} else {
@@ -156,7 +169,7 @@ func NewDatabase(dbName string) (Database, error) {
 		if createDb, valid := createDatabaseFuncs_[dbName]; valid {
 			db, err = createDb()
 		} else {
-			err = NotFoundError{dbName}
+			err = &NotFoundError{dbName}
 		}
 		if err == nil {
 			allDatabases_[dbName] = db // stash it

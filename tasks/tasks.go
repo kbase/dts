@@ -67,22 +67,40 @@ const (
 // informative error if anything prevents this
 func Start() error {
 	if running {
-		return AlreadyRunningError{}
+		return &AlreadyRunningError{}
 	}
 
 	// if this is the first call to Start(), register our built-in endpoint
 	// and database providers
 	if firstCall {
-		endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
-		endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+		// NOTE: it's okay if these endpoint providers have already been registered,
+		// NOTE: as they can be used in testing
+		err := endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
+		if err == nil {
+			err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+		}
+		if err != nil {
+			if _, matches := err.(*endpoints.AlreadyRegisteredError); !matches {
+				return err
+			}
+		}
 		if _, found := config.Databases["jdp"]; found {
-			databases.RegisterDatabase("jdp", jdp.NewDatabase)
+			err = databases.RegisterDatabase("jdp", jdp.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		if _, found := config.Databases["kbase"]; found {
-			databases.RegisterDatabase("kbase", kbase.NewDatabase)
+			err = databases.RegisterDatabase("kbase", kbase.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		if _, found := config.Databases["nmdc"]; found {
-			databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
+			err = databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
+			if err != nil {
+				return err
+			}
 		}
 		firstCall = false
 	}
@@ -139,7 +157,7 @@ func Stop() error {
 		err = <-taskChannels.Error
 		running = false
 	} else {
-		err = NotRunningError{}
+		err = &NotRunningError{}
 	}
 	return err
 }
@@ -177,7 +195,7 @@ func Create(spec Specification) (uuid.UUID, error) {
 
 	// have we requested files to be transferred?
 	if len(spec.FileIds) == 0 {
-		return taskId, NoFilesRequestedError{}
+		return taskId, &NoFilesRequestedError{}
 	}
 
 	// verify that we can fetch the task's source and destination databases
@@ -364,14 +382,14 @@ func processTasks() {
 					tasks[task.Id] = task
 				}
 			} else {
-				err := NotFoundError{Id: taskId}
+				err := &NotFoundError{Id: taskId}
 				errorChan <- err
 			}
 		case taskId := <-getTaskStatusChan: // Status() called
 			if task, found := tasks[taskId]; found {
 				returnTaskStatusChan <- task.Status
 			} else {
-				err := NotFoundError{Id: taskId}
+				err := &NotFoundError{Id: taskId}
 				errorChan <- err
 			}
 		case <-pollChan: // time to move things along

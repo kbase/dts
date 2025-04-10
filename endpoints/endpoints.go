@@ -69,7 +69,7 @@ type Endpoint interface {
 	Root() string
 	// returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise
-	FilesStaged(files []interface{}) (bool, error)
+	FilesStaged(files []any) (bool, error)
 	// returns a list of UUIDs for all transfers associated with this endpoint
 	Transfers() ([]uuid.UUID, error)
 	// begins a transfer task that moves the files identified by the FileTransfer

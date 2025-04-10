@@ -103,7 +103,7 @@ func setup() {
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_ROOT", destinationRoot)
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_CANCEL", destinationRootCancel)
 	fmt.Printf(myConfig)
-	err = config.Init([]byte(myConfig))
+	err = config.InitSelected([]byte(myConfig), false, false, true)
 	if err != nil {
 		panic(err)
 	}
@@ -144,15 +144,15 @@ func TestGlobusFilesStaged(t *testing.T) {
 	endpoint, _ := NewEndpoint("source")
 
 	// provide an empty slice of filenames, which should return true
-	staged, err := endpoint.FilesStaged([]interface{}{})
+	staged, err := endpoint.FilesStaged([]any{})
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide files that are known to be on the source endpoint
-	descriptors := make([]interface{}, 0)
+	descriptors := make([]any, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
-		d := map[string]interface{}{
+		d := map[string]any{
 			"id":   id,
 			"path": sourceFilesById[id],
 		}
@@ -163,11 +163,11 @@ func TestGlobusFilesStaged(t *testing.T) {
 	assert.Nil(err)
 
 	// provide a nonexistent file, which should return false
-	nonexistent := map[string]interface{}{ // descriptor
+	nonexistent := map[string]any{ // descriptor
 		"id":   "yadda",
 		"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
 	}
-	descriptors = []interface{}{nonexistent}
+	descriptors = []any{nonexistent}
 	staged, err = endpoint.FilesStaged(descriptors)
 	assert.False(staged)
 	assert.Nil(err)

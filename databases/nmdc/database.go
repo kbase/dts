@@ -113,10 +113,10 @@ func NewDatabase() (databases.Database, error) {
 	return db, nil
 }
 
-func (db Database) SpecificSearchParameters() map[string]interface{} {
+func (db Database) SpecificSearchParameters() map[string]any {
 	// for details about NMDC-specific search parameters, see
 	// https://api.microbiomedata.org/docs#/find:~:text=Find%20NMDC-,metadata,-entities.
-	return map[string]interface{}{
+	return map[string]any{
 		"activity_id":    "",
 		"data_object_id": "",
 		"fields":         "",
@@ -154,7 +154,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		p.Add("filter", params.Query)
 	}
 
-	var descriptors []map[string]interface{}
+	var descriptors []map[string]any
 	var err error
 	if p.Has("study_id") { // fetch data objects associated with this study
 		descriptors, err = db.createDataObjectDescriptorsForStudy(p.Get("study_id"))
@@ -171,7 +171,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	}, err
 }
 
-func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
+func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
 	if err := db.renewAccessTokenIfExpired(); err != nil {
 		return nil, err
 	}
@@ -484,10 +484,10 @@ type Study struct { // partial representation, includes only relevant fields
 
 // https://microbiomedata.github.io/nmdc-schema/WorkflowExecution/
 type WorkflowExecution struct {
-	Id         string        `json:"id"`
-	Name       string        `json:"name"`
-	Studies    []Study       `json:"studies"`
-	Biosamples []interface{} `json:"biosamples"`
+	Id         string  `json:"id"`
+	Name       string  `json:"name"`
+	Studies    []Study `json:"studies"`
+	Biosamples []any   `json:"biosamples"`
 }
 
 // fetches file metadata for data objects associated with the given study
@@ -540,7 +540,7 @@ func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 }
 
 // returns descriptors for data objects for a given study
-func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]interface{}, error) {
+func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]any, error) {
 	// fetch the study and its metadata
 	resource := fmt.Sprintf("studies/%s", studyId)
 	body, err := db.get(resource, url.Values{})
@@ -571,7 +571,7 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 	}
 
 	// render descriptors from the data objects and credit metadata
-	descriptors := make([]map[string]interface{}, 0)
+	descriptors := make([]map[string]any, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
 			descriptors = append(descriptors, db.createDataObjectDescriptor(dataObject, relatedCredit))
@@ -582,11 +582,11 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 
 // returns descriptors for data objects and related biosample metadata
 // using workflow execution IDs (can be expensive)
-func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]interface{}, []map[string]interface{}, error) {
+func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]any, []map[string]any, error) {
 	// create data object descriptors and fill in metadata
-	dataObjectDescriptors := make([]map[string]interface{}, len(dataObjects))
+	dataObjectDescriptors := make([]map[string]any, len(dataObjects))
 	creditForWorkflow := make(map[string]credit.CreditMetadata)
-	biosampleForWorkflow := make(map[string]interface{})
+	biosampleForWorkflow := make(map[string]any)
 	for i, dataObject := range dataObjects {
 		workflowId := dataObject.WasGeneratedBy
 		if _, found := creditForWorkflow[workflowId]; !found {
@@ -600,14 +600,14 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 	}
 
 	// create biosample descriptors
-	biosampleDescriptors := make([]map[string]interface{}, len(biosampleForWorkflow))
+	biosampleDescriptors := make([]map[string]any, len(biosampleForWorkflow))
 	for _, b := range biosampleForWorkflow {
-		biosample := b.(map[string]interface{})
+		biosample := b.(map[string]any)
 		var studyIds []string
 		switch s := biosample["associated_studies"].(type) {
 		case string:
 			studyIds = []string{s}
-		case []interface{}:
+		case []any:
 			for _, si := range s {
 				studyId, ok := si.(string)
 				if ok {
@@ -618,7 +618,7 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 		}
 		for _, studyId := range studyIds {
 			if biosample["associated_studies"] != nil {
-				descriptor := map[string]interface{}{
+				descriptor := map[string]any{
 					"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
 					"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
 					"data":  biosample,
@@ -633,7 +633,7 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 
 // returns a descriptor for the given data object, including the given credit
 // metadata (mined from the study to which the data object belongs)
-func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]interface{} {
+func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]any {
 	// fill in some particulars
 	objectCredit := studyCredit
 	objectCredit.Descriptions = append(objectCredit.Descriptions,
@@ -643,7 +643,7 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 		})
 	objectCredit.Identifier = dataObject.Id
 	objectCredit.Url = dataObject.URL
-	descriptor := map[string]interface{}{
+	descriptor := map[string]any{
 		"bytes":       dataObject.FileSizeBytes,
 		"credit":      objectCredit,
 		"description": dataObject.Description,
@@ -669,9 +669,9 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 }
 
 // fetch credit and biosample metadata related to the given workflow execution ID
-func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]interface{}, error) {
+func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]any, error) {
 	var relatedCredit credit.CreditMetadata
-	var relatedBiosample map[string]interface{} // pure-JSON representation
+	var relatedBiosample map[string]any // pure-JSON representation
 
 	if workflowExecId == "" {
 		return relatedCredit, relatedBiosample, errors.New("No workflow execution ID provided!")
@@ -695,7 +695,7 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 
 		// biosample metadata
 		if len(workflowExec.Biosamples) > 0 { // FIXME: can be > 1??
-			relatedBiosample = workflowExec.Biosamples[0].(map[string]interface{})
+			relatedBiosample = workflowExec.Biosamples[0].(map[string]any)
 		}
 
 		return relatedCredit, relatedBiosample, nil
@@ -907,15 +907,15 @@ func dataResourceName(filename string) string {
 }
 
 // checks NMDC-specific search parameters
-func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage, p *url.Values) error {
+func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Values) error {
 	paramSpec := db.SpecificSearchParameters()
 	for name, jsonValue := range params {
+		var ok bool
 		switch name {
 		case "activity_id", "data_object_id", "filter", "sort", "sample_id",
 			"study_id":
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "nmdc",
 					Message:  fmt.Sprintf("Invalid value for parameter %s (must be string)", name),
@@ -924,8 +924,7 @@ func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage
 			p.Add(name, value)
 		case "fields": // accepts comma-delimited strings
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "nmdc",
 					Message:  "Invalid NMDC requested extra field given (must be comma-delimited string)",

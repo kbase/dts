@@ -52,7 +52,7 @@ func EnableDebugLogging() {
 // Each endpoint test fixture is created with the given set of options and
 // descriptorß.
 func RegisterTestFixturesFromConfig(endpointOptions EndpointOptions,
-	descriptors map[string]map[string]interface{}) error {
+	descriptors map[string]map[string]any) error {
 	// has config.Init() been called?
 	if len(config.Endpoints) == 0 && len(config.Databases) == 0 {
 		return fmt.Errorf(`No endpoints or databases were found in the configuration.
@@ -125,11 +125,11 @@ func (ep *Endpoint) Root() string {
 	return ep.RootPath
 }
 
-func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []any) (bool, error) {
 	if ep.Database != nil {
 		// are there any unrecognized files?
 		for _, file := range files {
-			descriptor := file.(map[string]interface{})
+			descriptor := file.(map[string]any)
 			fileId := descriptor["id"].(string)
 			if _, found := ep.Database.descriptors[fileId]; !found {
 				return false, fmt.Errorf("Unrecognized file: %s\n", fileId)
@@ -195,12 +195,12 @@ type stagingRequest struct {
 // This type implements a databases.Database test fixture
 type Database struct {
 	Endpt       endpoints.Endpoint
-	descriptors map[string]map[string]interface{}
+	descriptors map[string]map[string]any
 	Staging     map[uuid.UUID]stagingRequest
 }
 
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, descriptors map[string]map[string]interface{}) error {
+func RegisterDatabase(databaseName string, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
 	newDatabaseFunc := func() (databases.Database, error) {
 		endpoint, err := endpoints.NewEndpoint(config.Databases[databaseName].Endpoint)
@@ -220,8 +220,8 @@ func RegisterDatabase(databaseName string, descriptors map[string]map[string]int
 	return databases.RegisterDatabase(databaseName, newDatabaseFunc)
 }
 
-func (db Database) SpecificSearchParameters() map[string]interface{} {
-	return map[string]interface{}{
+func (db Database) SpecificSearchParameters() map[string]any {
+	return map[string]any{
 		"happy": false, // can also be true--single value indicates all values valid
 		"day":   []string{"sunday", "monday"},
 	}
@@ -230,7 +230,7 @@ func (db Database) SpecificSearchParameters() map[string]interface{} {
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
 	// look for file IDs in the search query
 	results := databases.SearchResults{
-		Descriptors: make([]map[string]interface{}, 0),
+		Descriptors: make([]map[string]any, 0),
 	}
 	for fileId, descriptors := range db.descriptors {
 		if strings.Contains(params.Query, fileId) {
@@ -240,8 +240,8 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	return results, nil
 }
 
-func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
-	descriptors := make([]map[string]interface{}, 0)
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
+	descriptors := make([]map[string]any, 0)
 	for _, fileId := range fileIds {
 		if descriptor, found := db.descriptors[fileId]; found {
 			descriptors = append(descriptors, descriptor)

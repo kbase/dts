@@ -24,7 +24,6 @@ package tasks
 import (
 	"bytes"
 	"encoding/gob"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -175,7 +174,7 @@ type Specification struct {
 	// specified in the DTS config file)
 	Destination string
 	// machine-readable instructions for processing the payload at its destination
-	Instructions json.RawMessage
+	Instructions map[string]any
 	// an array of identifiers for files to be transferred from Source to
 	// Destination
 	FileIds []string

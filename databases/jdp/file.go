@@ -21,10 +21,6 @@
 
 package jdp
 
-import (
-	"encoding/json"
-)
-
 // This type represents metadata about an organism associated with one or
 // more files.
 type Organism struct {
@@ -59,7 +55,7 @@ type File struct {
 	// string describing the status of the file
 	Status string `json:"file_status"`
 	// type (or list of types) corresponding to this file
-	Type json.RawMessage `json:"file_type"`
+	Type any `json:"file_type"`
 	// MD5 checksum
 	MD5Sum string `json:"md5sum"`
 	// user with access to the file
@@ -78,9 +74,9 @@ type Metadata struct {
 		Status string `json:"status"`
 	} `json:"analysis_project"`
 	// analysis project ID, sometimes used as ITS project ID. This type can be a
-	// list or a number, so we have to unmarshal it into a RawMessage
-	AnalysisProjectId    json.RawMessage `json:"analysis_project_id"`
-	ContentType          string          `json:"content_type"`
+	// list or a number
+	AnalysisProjectId    any    `json:"analysis_project_id"`
+	ContentType          string `json:"content_type"`
 	FinalDeliveryProject struct {
 		Name                  string `json:"final_deliv_product_name"`
 		ProductSearchCategory string `json:"product_search_category"`
@@ -95,18 +91,18 @@ type Metadata struct {
 	} `json:"gold_data"`
 	IMG struct {
 		// TaxonOID can be either a number or a string, because who cares, apparently
-		TaxonOID          json.RawMessage `json:"taxon_oid"`
-		Database          string          `json:"database"`
-		AddDate           string          `json:"add_date"`
-		FileType          string          `json:"file_type"`
-		Domain            string          `json:"domain"`
-		TaxonDisplayName  string          `json:"taxon_display_name"`
-		NScaffolds        int             `json:"n_scaffolds"`
-		JgiProjectId      int             `json:"jgi_project_id"`
-		GcPercent         float64         `json:"gc_percent"`
-		TotalBases        int             `json:"total_bases"`
-		Assembled         string          `json:"assembled"`
-		AnalysisProjectId string          `json:"analysis_project_id"`
+		TaxonOID          any     `json:"taxon_oid"`
+		Database          string  `json:"database"`
+		AddDate           string  `json:"add_date"`
+		FileType          string  `json:"file_type"`
+		Domain            string  `json:"domain"`
+		TaxonDisplayName  string  `json:"taxon_display_name"`
+		NScaffolds        int     `json:"n_scaffolds"`
+		JgiProjectId      int     `json:"jgi_project_id"`
+		GcPercent         float64 `json:"gc_percent"`
+		TotalBases        int     `json:"total_bases"`
+		Assembled         string  `json:"assembled"`
+		AnalysisProjectId string  `json:"analysis_project_id"`
 	} `json:"img,omitempty"`
 	NCBITaxon struct {
 		Order   string `json:"ncbi_taxon_order"`
@@ -153,7 +149,6 @@ type Metadata struct {
 		// name of scientific program to which project belongs
 		ScientificProgramName string `json:"scientific_program_name"`
 	} `json:"sequencing_project"`
-	// sequencing project ID, sometimes used as ITS project ID. This type can be a
-	// list or a number, so we have to unmarshal it into a RawMessage
-	SequencingProjectId json.RawMessage `json:"sequencing_project_id"`
+	// sequencing project ID, sometimes used as ITS project ID
+	SequencingProjectId any `json:"sequencing_project_id"`
 }

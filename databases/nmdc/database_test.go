@@ -1,7 +1,6 @@
 package nmdc
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 
@@ -51,7 +50,7 @@ endpoints:
 
 // since NMDC doesn't support search queries at this time, we search for
 // data objects related to a study
-var nmdcSearchParams map[string]json.RawMessage
+var nmdcSearchParams map[string]any
 
 // this function gets called at the begіnning of a test session
 func setup() {
@@ -61,9 +60,8 @@ func setup() {
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpoint)
 
 	// construct NMDC-specific search parameters for a study
-	nmdcSearchParams = make(map[string]json.RawMessage)
-	studyId, _ := json.Marshal("nmdc:sty-11-5tgfr349")
-	nmdcSearchParams["study_id"] = studyId
+	nmdcSearchParams = make(map[string]any)
+	nmdcSearchParams["study_id"] = "nmdc:sty-11-5tgfr349"
 }
 
 // this function gets called after all tests have been run

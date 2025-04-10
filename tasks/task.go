@@ -22,7 +22,6 @@
 package tasks
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -44,13 +43,13 @@ import (
 type transferTask struct {
 	Canceled          bool              // set if a cancellation request has been made
 	CompletionTime    time.Time         // time at which the transfer completed
-	DataDescriptors   []interface{}     // in-line data descriptors
+	DataDescriptors   []any             // in-line data descriptors
 	Description       string            // Markdown description of the task
 	Destination       string            // name of destination database (in config)
 	DestinationFolder string            // folder path to which files are transferred
 	FileIds           []string          // IDs of all files being transferred
 	Id                uuid.UUID         // task identifier
-	Instructions      json.RawMessage   // machine-readable task processing instructions
+	Instructions      map[string]any    // machine-readable task processing instructions
 	Manifest          uuid.NullUUID     // manifest generation UUID (if any)
 	ManifestFile      string            // name of locally-created manifest file
 	PayloadSize       float64           // Size of payload (gigabytes)
@@ -61,7 +60,7 @@ type transferTask struct {
 }
 
 // computes the size of a payload for a transfer task (in Gigabytes)
-func payloadSize(descriptors []map[string]interface{}) float64 {
+func payloadSize(descriptors []map[string]any) float64 {
 	var size uint64
 	for _, descriptor := range descriptors {
 		size += uint64(descriptor["bytes"].(int))
@@ -77,7 +76,7 @@ func (task *transferTask) start() error {
 	}
 
 	// resolve resource data using file IDs
-	fileDescriptors := make([]map[string]interface{}, 0)
+	fileDescriptors := make([]map[string]any, 0)
 	{
 		descriptors, err := source.Descriptors(task.User.Orcid, task.FileIds)
 		if err != nil {
@@ -145,7 +144,7 @@ func (task *transferTask) start() error {
 	task.DestinationFolder = filepath.Join(username, "dts-"+task.Id.String())
 
 	// assemble distinct endpoints and create a subtask for each
-	distinctEndpoints := make(map[string]interface{})
+	distinctEndpoints := make(map[string]any)
 	for _, descriptor := range fileDescriptors {
 		endpoint := descriptor["endpoint"].(string)
 		if _, found := distinctEndpoints[endpoint]; !found {
@@ -156,7 +155,7 @@ func (task *transferTask) start() error {
 	for sourceEndpoint := range distinctEndpoints {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
-		descriptorsForEndpoint := make([]interface{}, 0)
+		descriptorsForEndpoint := make([]any, 0)
 		for _, descriptor := range fileDescriptors {
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == sourceEndpoint {
@@ -334,7 +333,7 @@ func (task transferTask) Completed() bool {
 // creates a DataPackage that serves as the transfer manifest
 func (task *transferTask) createManifest() *datapackage.Package {
 	// gather all file and data descriptors
-	descriptors := make([]interface{}, 0)
+	descriptors := make([]any, 0)
 	for _, subtask := range task.Subtasks {
 		descriptors = append(descriptors, subtask.Descriptors...)
 	}
@@ -342,7 +341,7 @@ func (task *transferTask) createManifest() *datapackage.Package {
 		descriptors = append(descriptors, dataDescriptor)
 	}
 
-	taskUser := map[string]interface{}{
+	taskUser := map[string]any{
 		"title": task.User.Name,
 		"role":  "author",
 	}
@@ -353,13 +352,13 @@ func (task *transferTask) createManifest() *datapackage.Package {
 		taskUser["email"] = task.User.Email
 	}
 
-	descriptor := map[string]interface{}{
+	descriptor := map[string]any{
 		"name":      "manifest",
 		"resources": descriptors,
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
-		"keywords":  []interface{}{"dts", "manifest"},
-		"contributors": []interface{}{
+		"keywords":  []any{"dts", "manifest"},
+		"contributors": []any{
 			taskUser,
 		},
 		"description":  task.Description,

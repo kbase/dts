@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -30,7 +29,7 @@ type SearchResultsResponse struct {
 	// ElasticSearch query string
 	Query string `json:"query" example:"prochlorococcus" doc:"the given query string"`
 	// resources matching the query
-	Descriptors []map[string]interface{} `json:"resources" doc:"an array of validated Frictionless descriptors"`
+	Descriptors []map[string]any `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 
 // a response for a file metadata query (GET)
@@ -38,7 +37,7 @@ type FileMetadataResponse struct {
 	// name of organization database
 	Database string `json:"database" example:"jdp" doc:"the database searched"`
 	// resources corresponding to given file IDs
-	Descriptors []map[string]interface{} `json:"resources" doc:"an array of validated Frictionless descriptors"`
+	Descriptors []map[string]any `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 
 // a request for a file transfer (POST)
@@ -54,7 +53,7 @@ type TransferRequest struct {
 	// a Markdown description of the transfer request
 	Description string `json:"description,omitempty" example:"# title\n* type: assembly\n" doc:"Markdown task description"`
 	// machine-readable instructions for processing a payload at the destination site
-	Instructions json.RawMessage `json:"instructions,omitempty" doc:"JSON object containing machine-readable instructions for processing payload at destination"`
+	Instructions map[string]any `json:"instructions,omitempty" doc:"JSON object containing machine-readable instructions for processing payload at destination"`
 }
 
 // a response for a file transfer request (POST)

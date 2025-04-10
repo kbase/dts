@@ -125,11 +125,11 @@ func (ep *Endpoint) Root() string {
 	return ep.RootDir
 }
 
-func (ep *Endpoint) FilesStaged(files []interface{}) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []any) (bool, error) {
 	// find all the directories in which these files reside
 	filesInDir := make(map[string][]string)
 	for _, resource := range files {
-		descriptor := resource.(map[string]interface{})
+		descriptor := resource.(map[string]any)
 		dir, file := filepath.Split(descriptor["path"].(string))
 		dir = filepath.Join(ep.RootDir, dir)
 		if _, found := filesInDir[dir]; !found {

@@ -42,7 +42,7 @@ type transferSubtask struct {
 	Destination         string                  // name of destination database (in config)
 	DestinationEndpoint string                  // name of destination database (in config)
 	DestinationFolder   string                  // folder path to which files are transferred
-	Descriptors         []interface{}           // Frictionless file descriptors
+	Descriptors         []any                   // Frictionless file descriptors
 	Source              string                  // name of source database (in config)
 	SourceEndpoint      string                  // name of source endpoint (in config)
 	Staging             uuid.NullUUID           // staging UUID (if any)
@@ -74,7 +74,7 @@ func (subtask *transferSubtask) start() error {
 		}
 		fileIds := make([]string, len(subtask.Descriptors))
 		for i, d := range subtask.Descriptors {
-			descriptor := d.(map[string]interface{})
+			descriptor := d.(map[string]any)
 			fileIds[i] = descriptor["id"].(string)
 		}
 		taskId, err := source.StageFiles(subtask.User.Orcid, fileIds)
@@ -197,7 +197,7 @@ func (subtask *transferSubtask) beginTransfer() error {
 	// assemble a list of file transfers
 	fileXfers := make([]FileTransfer, len(subtask.Descriptors))
 	for i, d := range subtask.Descriptors {
-		descriptor := d.(map[string]interface{})
+		descriptor := d.(map[string]any)
 		path := descriptor["path"].(string)
 		destinationPath := filepath.Join(subtask.DestinationFolder, path)
 		fileXfers[i] = FileTransfer{

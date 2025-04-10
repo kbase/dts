@@ -99,7 +99,7 @@ endpoints:
 `
 
 // file test metadata
-var testDescriptors map[string]map[string]interface{}
+var testDescriptors map[string]map[string]any
 
 // performs testing setup
 func setup() {
@@ -134,7 +134,7 @@ func setup() {
 	}
 
 	// create source files and corresponding data resources
-	testDescriptors = make(map[string]map[string]interface{})
+	testDescriptors = make(map[string]map[string]any)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
 		name := fmt.Sprintf("file%d", i)
@@ -146,7 +146,7 @@ func setup() {
 			log.Panicf("Couldn't create source file: %s", err)
 			break
 		}
-		testDescriptors[id] = map[string]interface{}{
+		testDescriptors[id] = map[string]any{
 			"id":        id,
 			"name":      name,
 			"path":      path,
@@ -365,14 +365,14 @@ func TestQueryJDPDatabaseSearchParameters(t *testing.T) {
 
 	// all JDP-specific search parameters are selectable string values
 	type ArraySearchParam struct {
-		Type  string      `json:"type"`
-		Value interface{} `json:"value"`
+		Type  string `json:"type"`
+		Value any    `json:"value"`
 	}
 	var searchParams map[string]ArraySearchParam
 	err = json.Unmarshal(respBody, &searchParams)
 	assert.Nil(err)
 
-	AssertSearchParamsEqual := func(param ArraySearchParam, acceptableValues interface{}) {
+	AssertSearchParamsEqual := func(param ArraySearchParam, acceptableValues any) {
 		availableValues := param.Value
 		switch availValues := availableValues.(type) {
 		case []string:

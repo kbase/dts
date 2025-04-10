@@ -23,7 +23,6 @@ package databases
 
 import (
 	"encoding/gob"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -40,7 +39,7 @@ type Database interface {
 	// * slices represent sets of accepted values of their respective types
 	//   (useful for pulldown menus)
 	// * databases with no specific search parameters should return nil
-	SpecificSearchParameters() map[string]interface{}
+	SpecificSearchParameters() map[string]any
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
 	Search(orcid string, params SearchParameters) (SearchResults, error)
@@ -53,7 +52,7 @@ type Database interface {
 	// appear only in a transfer manifest. If any data descriptors are returned
 	// by this call, the number of descriptors returned will exceed the number of
 	// requested file IDs by the number of data descriptors.
-	Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error)
+	Descriptors(orcid string, fileIds []string) ([]map[string]any, error)
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
@@ -94,13 +93,13 @@ type SearchParameters struct {
 	Pagination SearchPaginationParameters
 	// database-specific search parameters with names matched to provided values
 	// (validated by database)
-	Specific map[string]json.RawMessage
+	Specific map[string]any
 }
 
 // results from a file search
 type SearchResults struct {
 	// Frictionless data descriptors
-	Descriptors []map[string]interface{} `json:"resources"`
+	Descriptors []map[string]any `json:"resources"`
 }
 
 type SearchPaginationParameters struct {
@@ -136,7 +135,6 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 	if firstTime {
 		// register types that appear in Frictionless Descriptors (for manifests)
 		gob.Register(credit.CreditMetadata{})
-		gob.Register(json.RawMessage{})
 
 		firstTime = false
 	}

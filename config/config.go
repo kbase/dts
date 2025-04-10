@@ -69,21 +69,19 @@ type serviceConfig struct {
 var Service serviceConfig
 var Endpoints map[string]endpointConfig
 var Databases map[string]databaseConfig
-var MessageQueues map[string]messageQueueConfig
 
 // This struct performs the unmarshalling from the YAML config file and then
 // copies its fields to the globals above.
 type configFile struct {
-	Service       serviceConfig                 `yaml:"service"`
-	Databases     map[string]databaseConfig     `yaml:"databases"`
-	Endpoints     map[string]endpointConfig     `yaml:"endpoints"`
-	MessageQueues map[string]messageQueueConfig `yaml:"message_queues"`
+	Service   serviceConfig             `yaml:"service"`
+	Databases map[string]databaseConfig `yaml:"databases"`
+	Endpoints map[string]endpointConfig `yaml:"endpoints"`
 }
 
-// This helper locates and reads a configuration file, returning an error
-// indicating success or failure. All environment variables of the form
-// ${ENV_VAR} are expanded.
-func readConfig(bytes []byte) error {
+// This helper locates and reads the selected sections in a configuration file,
+// returning an error indicating success or failure. All environment variables
+// of the form ${ENV_VAR} are expanded.
+func readConfig(bytes []byte, service, databases, endpoints bool) error {
 	// before we do anything else, expand any provided environment variables
 	bytes = []byte(os.ExpandEnv(string(bytes)))
 
@@ -93,25 +91,31 @@ func readConfig(bytes []byte) error {
 	conf.Service.MaxPayloadSize = 100.0 // gigabytes
 	conf.Service.PollInterval = int(time.Minute / time.Millisecond)
 	conf.Service.DeleteAfter = 7 * 24 * 3600
+
 	err := yaml.Unmarshal(bytes, &conf)
 	if err != nil {
 		log.Printf("Couldn't parse configuration data: %s\n", err)
 		return err
 	}
 
-	// copy the config data into place, performing any needed conversions
-	Service = conf.Service
+	if service {
+		// copy the config data into place, performing any needed conversions
+		Service = conf.Service
+	}
 
-	Endpoints = conf.Endpoints
-	for name, endpoint := range Endpoints {
-		if endpoint.Root == "" {
-			endpoint.Root = "/"
-			Endpoints[name] = endpoint
+	if endpoints {
+		Endpoints = conf.Endpoints
+		for name, endpoint := range Endpoints {
+			if endpoint.Root == "" {
+				endpoint.Root = "/"
+				Endpoints[name] = endpoint
+			}
 		}
 	}
 
-	Databases = conf.Databases
-	MessageQueues = conf.MessageQueues
+	if databases {
+		Databases = conf.Databases
+	}
 
 	return err
 }
@@ -134,6 +138,10 @@ func validateServiceParameters(params serviceConfig) error {
 				Message: fmt.Sprintf("Invalid endpoint: %s", params.Endpoint),
 			}
 		}
+	} else if len(Endpoints) > 0 {
+		return &InvalidServiceConfigError{
+			Message: "No service endpoint specified",
+		}
 	}
 	if params.PollInterval <= 0 {
 		return &InvalidServiceConfigError{
@@ -151,6 +159,11 @@ func validateServiceParameters(params serviceConfig) error {
 }
 
 func validateEndpoints(endpoints map[string]endpointConfig) error {
+	if len(endpoints) == 0 {
+		return &InvalidServiceConfigError{
+			Message: "No endpoints configured",
+		}
+	}
 	for name, endpoint := range endpoints {
 		if endpoint.Id.String() == "" { // invalid endpoint UUID
 			return &InvalidEndpointConfigError{
@@ -169,6 +182,11 @@ func validateEndpoints(endpoints map[string]endpointConfig) error {
 }
 
 func validateDatabases(databases map[string]databaseConfig) error {
+	if len(databases) == 0 {
+		return &InvalidServiceConfigError{
+			Message: "No databases configured",
+		}
+	}
 	for name, db := range databases {
 		if db.Endpoint == "" && len(db.Endpoints) == 0 {
 			return &InvalidDatabaseConfigError{
@@ -203,28 +221,42 @@ func validateDatabases(databases map[string]databaseConfig) error {
 	return nil
 }
 
-// This helper validates the given configfile, returning an error that indicates
-// success or failure.
-func validateConfig() error {
-	err := validateServiceParameters(Service)
-	if err != nil {
-		return err
+// This helper validates the given sections in the configuration, returning an
+// error that indicates success or failure.
+func validateConfig(service, databases, endpoints bool) error {
+	var err error
+	if service {
+		err = validateServiceParameters(Service)
+		if err != nil {
+			return err
+		}
 	}
-	err = validateEndpoints(Endpoints)
-	if err != nil {
-		return err
+
+	if endpoints {
+		err = validateEndpoints(Endpoints)
+		if err != nil {
+			return err
+		}
 	}
-	err = validateDatabases(Databases)
+
+	if databases {
+		err = validateDatabases(Databases)
+	}
 	return err
 }
 
-// Initializes the ID mapping service configuration using the given YAML byte
-// data.
+// Initializes the entire service configuration using the given YAML byte data.
 func Init(yamlData []byte) error {
-	err := readConfig(yamlData)
+	return InitSelected(yamlData, true, true, true)
+}
+
+// Initializes the selected sections in the service configuration using the
+// given YAML byte data.
+func InitSelected(yamlData []byte, service, databases, endpoints bool) error {
+	err := readConfig(yamlData, service, databases, endpoints)
 	if err != nil {
 		return err
 	}
-	err = validateConfig()
+	err = validateConfig(service, databases, endpoints)
 	return err
 }

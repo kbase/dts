@@ -77,6 +77,28 @@ func TestSearch(t *testing.T) {
 	assert.Nil(err, "JDP search query encountered an error")
 }
 
+func TestSearchByIMGTaxonOID(t *testing.T) {
+	assert := assert.New(t)
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	db, _ := NewDatabase()
+	params := databases.SearchParameters{
+		Query: "2582580701",
+		Pagination: struct {
+			Offset, MaxNum int
+		}{
+			Offset: 1,
+			MaxNum: 50,
+		},
+		Specific: map[string]any{
+			"f":     "img_taxon_oid",
+			"extra": "img_taxon_oid",
+		},
+	}
+	results, err := db.Search(orcid, params)
+	assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
+	assert.Nil(err, "JDP search query encountered an error")
+}
+
 func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")

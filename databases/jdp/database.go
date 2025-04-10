@@ -89,8 +89,8 @@ func NewDatabase() (databases.Database, error) {
 	}, nil
 }
 
-func (db Database) SpecificSearchParameters() map[string]interface{} {
-	return map[string]interface{}{
+func (db Database) SpecificSearchParameters() map[string]any {
+	return map[string]any{
 		// see https://files.jgi.doe.gov/apidoc/#/GET/search_list
 		"d": []string{"asc", "desc"}, // sort direction (ascending/descending)
 		"f": []string{"ssr", "biosample", "project_id", "library", // search specific field
@@ -140,7 +140,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	}, err
 }
 
-func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]interface{}, error) {
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
 	// strip the "JDP:" prefix from our files and create a mapping from IDs to
 	// their original order so we can hand back metadata accordingly
 	strippedFileIds := make([]string, len(fileIds))
@@ -175,7 +175,7 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]in
 	}
 
 	// reorder the descriptors to match that of the requested file IDs
-	descriptorsByFileId := make(map[string]map[string]interface{})
+	descriptorsByFileId := make(map[string]map[string]any)
 	for _, descriptor := range descriptors {
 		descriptorsByFileId[descriptor["id"].(string)] = descriptor
 	}
@@ -380,16 +380,9 @@ func formatFromFileName(fileName string) string {
 	return format
 }
 
-// extracts file type information from the given File
-func fileTypesFromFile(_ File) []string {
-	// TODO: See https://pkg.go.dev/encoding/json?utm_source=godoc#example-RawMessage-Unmarshal
-	// TODO: for an example of how to unmarshal a variant type.
-	return []string{}
-}
-
 // extracts source information from the given metadata
-func sourcesFromMetadata(md Metadata) []interface{} {
-	sources := make([]interface{}, 0)
+func sourcesFromMetadata(md Metadata) []any {
+	sources := make([]any, 0)
 	piInfo := md.Proposal.PI
 	if len(piInfo.LastName) > 0 {
 		var title string
@@ -412,7 +405,7 @@ func sourcesFromMetadata(md Metadata) []interface{} {
 		if len(md.Proposal.AwardDOI) > 0 {
 			doiURL = fmt.Sprintf("https://doi.org/%s", md.Proposal.AwardDOI)
 		}
-		source := map[string]interface{}{
+		source := map[string]any{
 			"title": title,
 			"path":  doiURL,
 			"email": piInfo.EmailAddress,
@@ -461,7 +454,7 @@ func dataResourceName(filename string) string {
 }
 
 // creates a Frictionless descriptor from a File
-func descriptorFromOrganismAndFile(organism Organism, file File) map[string]interface{} {
+func descriptorFromOrganismAndFile(organism Organism, file File) map[string]any {
 	id := "JDP:" + file.Id
 	format := formatFromFileName(file.Name)
 	sources := sourcesFromMetadata(file.Metadata)
@@ -471,7 +464,7 @@ func descriptorFromOrganismAndFile(organism Organism, file File) map[string]inte
 	filePath := filepath.Join(strings.TrimPrefix(file.Path, filePathPrefix), file.Name)
 
 	pi := file.Metadata.Proposal.PI
-	descriptor := map[string]interface{}{
+	descriptor := map[string]any{
 		"id":        id,
 		"name":      dataResourceName(file.Name),
 		"path":      filePath,
@@ -620,7 +613,7 @@ func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error)
 }
 
 // this helper extracts files for the JDP /search GET query with given parameters
-func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[string]interface{}, error) {
+func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[string]any, error) {
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
 	}
@@ -630,7 +623,7 @@ func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[strin
 		return nil, err
 	}
 
-	descriptors := make([]map[string]interface{}, 0)
+	descriptors := make([]map[string]any, 0)
 
 	for _, org := range jdpResults.Organisms {
 		for _, file := range org.Files {
@@ -638,25 +631,16 @@ func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[strin
 
 			// add any requested additional metadata
 			if extraFields != nil {
-				extras := "{"
-				for i, field := range extraFields {
-					if i > 0 {
-						extras += ", "
-					}
+				extras := make(map[string]any)
+				for _, field := range extraFields {
 					switch field {
 					case "project_id":
-						extras += fmt.Sprintf(`"project_id": "%s"`, org.Id)
+						extras["project_id"] = org.Id
 					case "img_taxon_oid":
-						var taxonOID int
-						err := json.Unmarshal(file.Metadata.IMG.TaxonOID, &taxonOID)
-						if err != nil {
-							return nil, err
-						}
-						extras += fmt.Sprintf(`"img_taxon_oid": %d`, taxonOID)
+						extras["img_taxon_oid"] = file.Metadata.IMG.TaxonOID
 					}
 				}
-				extras += "}"
-				descriptor["extra"] = json.RawMessage(extras)
+				descriptor["extra"] = extras
 			}
 
 			descriptors = append(descriptors, descriptor)
@@ -687,14 +671,14 @@ func pageNumberAndSize(offset, maxNum int) (int, int) {
 }
 
 // checks JDP-specific search parameters and adds them to the given URL values
-func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage, p *url.Values) error {
+func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Values) error {
 	paramSpec := db.SpecificSearchParameters()
 	for name, jsonValue := range params {
+		var ok bool
 		switch name {
 		case "f": // field-specific search
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "JDP",
 					Message:  "Invalid search field given (must be string)",
@@ -711,8 +695,7 @@ func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage
 			}
 		case "s": // sort order
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "JDP",
 					Message:  "Invalid JDP sort order given (must be string)",
@@ -729,8 +712,7 @@ func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage
 			}
 		case "d": // sort direction
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "JDP",
 					Message:  "Invalid JDP sort direction given (must be string)",
@@ -747,8 +729,7 @@ func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage
 			}
 		case "include_private_data": // search for private data
 			var value int
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil || (value != 0 && value != 1) {
+			if value, ok = jsonValue.(int); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "JDP",
 					Message:  "Invalid flag given for include_private_data (must be 0 or 1)",
@@ -757,8 +738,7 @@ func (db Database) addSpecificSearchParameters(params map[string]json.RawMessage
 			p.Add(name, fmt.Sprintf("%d", value))
 		case "extra": // comma-separated additional fields requested
 			var value string
-			err := json.Unmarshal(jsonValue, &value)
-			if err != nil {
+			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "JDP",
 					Message:  "Invalid JDP requested extra field given (must be comma-delimited string)",

@@ -77,7 +77,7 @@ func setup() {
 	}
 
 	// create test resources
-	testDescriptors := map[string]map[string]interface{}{
+	testDescriptors := map[string]map[string]any{
 		"file1": {
 			"id":       "file1",
 			"name":     "file1.dat",

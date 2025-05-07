@@ -130,7 +130,8 @@ const (
 )
 
 // registers a database creation function under the given database name
-// to allow for e.g. test database implementations
+// to allow for e.g. test database implementations; harmless if called more than
+// once on a given database
 func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 	if firstTime {
 		// register types that appear in Frictionless Descriptors (for manifests)
@@ -145,14 +146,10 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 		return err
 	}
 
-	if _, found := createDatabaseFuncs_[dbName]; found {
-		return &AlreadyRegisteredError{
-			Database: dbName,
-		}
-	} else {
+	if _, found := createDatabaseFuncs_[dbName]; !found {
 		createDatabaseFuncs_[dbName] = createDb
-		return nil
 	}
+	return nil
 }
 
 // creates a database proxy associated with the given ORCID, based on the

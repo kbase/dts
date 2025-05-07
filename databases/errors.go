@@ -34,16 +34,6 @@ func (e NotFoundError) Error() string {
 	return fmt.Sprintf("The database '%s' was not found", e.Database)
 }
 
-// indicates that a database is already registered and an attempt has been made
-// to register it again
-type AlreadyRegisteredError struct {
-	Database string
-}
-
-func (e AlreadyRegisteredError) Error() string {
-	return fmt.Sprintf("Cannot register database '%s': already registered", e.Database)
-}
-
 // indicates that a user could not be authorized to access a database with their ORCID
 type UnauthorizedError struct {
 	Database, Message, User string

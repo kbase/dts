@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package pipeline
+package pipelines
 
 import (
 	"fmt"
@@ -29,20 +29,29 @@ import (
 	"github.com/kbase/dts/config"
 )
 
-// indicates that a transfer is sought but not found
-type NotFoundError struct {
-	Id uuid.UUID
-}
-
-func (t NotFoundError) Error() string {
-	return fmt.Sprintf("The task %s was not found.", t.Id.String())
-}
-
 // indicates that Start() has been called when tasks are being processed
 type AlreadyRunningError struct{}
 
 func (t AlreadyRunningError) Error() string {
 	return fmt.Sprintf("Pipelines are already running and cannot be started again.")
+}
+
+// indicates that a transfer specification has an invalid source
+type InvalidSourceError struct {
+	Source string
+}
+
+func (t InvalidSourceError) Error() string {
+	return fmt.Sprintf("Invalid source for requested transfer: %s", t.Source)
+}
+
+// indicates that a transfer specification has an invalid destination
+type InvalidDestinationError struct {
+	Destination string
+}
+
+func (t InvalidDestinationError) Error() string {
+	return fmt.Sprintf("Invalid destination for requested transfer: %s", t.Destination)
 }
 
 // indicates that Stop() has been called when tasks are not being processed
@@ -57,6 +66,15 @@ type NoFilesRequestedError struct{}
 
 func (t NoFilesRequestedError) Error() string {
 	return fmt.Sprintf("Requested transfer includes no file IDs!")
+}
+
+// indicates that a transfer is sought but not found
+type NotFoundError struct {
+	Id uuid.UUID
+}
+
+func (t NotFoundError) Error() string {
+	return fmt.Sprintf("The transfer %s was not found.", t.Id.String())
 }
 
 // indicates that a transfer payload has been requested that is too large

@@ -22,11 +22,21 @@
 package pipelines
 
 func JdpToKBase(statusUpdateChan chan<- TransferStatusUpdate) (*Pipeline, error) {
-	pipeline := CreatePipeline("jdp", "kbase", statusUpdateChan)
+	p := NewPipeline("jdp", "kbase", statusUpdateChan)
 
 	// start the main goroutine
 	go func() {
+		// build the pipeline
+		created := p.AddCreateStage()
+		scattered := p.AddScatterStage(created)
+		prepared := p.AddPrepareStage(scattered)
+		transferred := p.AddGlobusTransferStage(prepared)
+		gathered := p.AddGatherStage(transferred)
+		completed := p.AddManifestStage(gathered)
+		p.AddFinalStage(completed)
+
+		p.Start()
 	}()
 
-	return pipeline, nil
+	return p, nil
 }

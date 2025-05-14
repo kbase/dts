@@ -23,13 +23,18 @@ package pipelines
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"sync"
+	"time"
 
+	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 //----------
@@ -51,26 +56,38 @@ type Pipeline struct {
 	load          chan []byte
 	save          chan struct{}
 	savedState    chan []byte
+	sink          <-chan Transfer
 	error         chan error
 	statusUpdates chan<- TransferStatusUpdate // conveys transfer status updates to a client
+
+	// goroutine syncronization
+	waitGroup sync.WaitGroup
+	running   bool
 }
 
-func CreatePipeline(source, destination string, statusUpdateChan chan<- TransferStatusUpdate) *Pipeline {
+// creates a new pipeline with the given parameters
+func NewPipeline(source, destination string, statusUpdateChan chan<- TransferStatusUpdate) *Pipeline {
 	chanBufferSize := 32
 	return &Pipeline{
-		source:        source,
-		destination:   destination,
-		create:        make(chan Specification, chanBufferSize),
-		cancel:        make(chan uuid.UUID, chanBufferSize),
-		error:         make(chan error, chanBufferSize),
-		halt:          make(chan struct{}),
-		load:          make(chan []byte),
-		newTransfer:   make(chan uuid.UUID, chanBufferSize),
-		save:          make(chan struct{}),
-		savedState:    make(chan []byte),
+		source:      source,
+		destination: destination,
+		create:      make(chan Specification, chanBufferSize),
+		cancel:      make(chan uuid.UUID, chanBufferSize),
+		error:       make(chan error, chanBufferSize),
+		halt:        make(chan struct{}),
+		load:        make(chan []byte),
+		newTransfer: make(chan uuid.UUID, chanBufferSize),
+		save:        make(chan struct{}),
+		savedState:  make(chan []byte),
+		// NOTE: sink channel not set--must be set using p.AddFinalStage()
 		statusUpdates: statusUpdateChan,
+		running:       true,
 	}
 }
+
+//--------------
+// Pipeline API
+//--------------
 
 // creates a new Transfer for the pipeline from the given Specification, returning its UUID or a
 // non-nil error
@@ -145,25 +162,11 @@ type Transfer struct {
 	User              auth.User      // info about user requesting transfer
 }
 
-// use this in your pipeline's main goroutine to create a new Transfer from a specification
-func CreateTransfer(spec Specification) Transfer {
-	return Transfer{
-		Id:           uuid.New(),
-		User:         spec.User,
-		Source:       spec.Source,
-		Destination:  spec.Destination,
-		FileIds:      spec.FileIds,
-		Description:  spec.Description,
-		Instructions: spec.Instructions,
-	}
-}
-
 //------
 // Task
 //------
 
-// A Task is an indivisible unit of work that is executed by stages in a
-// pipeline.
+// A Task is an indivisible unit of work that is executed by stages in a pipeline.
 type Task struct {
 	Destination         string                  // name of destination database (in config)
 	DestinationEndpoint string                  // name of destination database (in config)
@@ -187,10 +190,14 @@ type Task struct {
 // goroutines that asynchronously process work, chained together in sequence by their input/output
 // channels.
 
-func (p *Pipeline) addCreateStage(in <-chan Specification) <-chan Transfer {
+// this should always be the first stage in your pipeline
+func (p *Pipeline) AddCreateStage() <-chan Transfer {
 	out := make(chan Transfer)
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		var in <-chan Specification = p.create
+		for p.running {
 			spec := <-in
 
 			transfer := Transfer{
@@ -294,7 +301,7 @@ func (p *Pipeline) addCreateStage(in <-chan Specification) <-chan Transfer {
 			}
 			transfer.DestinationFolder = filepath.Join(username, "dts-"+transfer.Id.String())
 
-			// assemble distinct endpoints and create a subtask for each
+			// assemble distinct endpoints and create a task for each
 			distinctEndpoints := make(map[string]any)
 			for _, d := range transfer.DataDescriptors {
 				descriptor := d.(map[string]any)
@@ -339,10 +346,12 @@ func (p *Pipeline) addCreateStage(in <-chan Specification) <-chan Transfer {
 }
 
 // the Scatter stage divides a transfer up into a set of tasks
-func (p *Pipeline) addScatterStage(in <-chan Transfer) <-chan Task {
+func (p *Pipeline) AddScatterStage(in <-chan Transfer) <-chan Task {
 	out := make(chan Task)
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		for p.running {
 			transfer := <-in
 			for _, task := range transfer.Tasks {
 				out <- task
@@ -353,28 +362,107 @@ func (p *Pipeline) addScatterStage(in <-chan Transfer) <-chan Task {
 }
 
 // the Prepare stage moves files in a task to a location from which they can be transferred
-func (p *Pipeline) addPrepareStage(in <-chan Task) <-chan Task {
+func (p *Pipeline) AddPrepareStage(in <-chan Task) <-chan Task {
 	out := make(chan Task)
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		for p.running {
 			task := <-in
 			// check whether files are in place
+			sourceEndpoint, err := endpoints.NewEndpoint(task.SourceEndpoint)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+			staged, err := sourceEndpoint.FilesStaged(task.Descriptors)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+
+			if !staged {
+				// tell the source DB to stage the files, stash the task, and return
+				// its new ID
+				source, err := databases.NewDatabase(task.Source)
+				if err != nil {
+					p.error <- err
+					continue
+				}
+				fileIds := make([]string, len(task.Descriptors))
+				for i, d := range task.Descriptors {
+					descriptor := d.(map[string]any)
+					fileIds[i] = descriptor["id"].(string)
+				}
+				taskId, err := source.StageFiles(task.User.Orcid, fileIds)
+				if err != nil {
+					p.error <- err
+					continue
+				}
+				task.Staging = uuid.NullUUID{
+					UUID:  taskId,
+					Valid: true,
+				}
+				task.TransferStatus = TransferStatus{
+					Code:     TransferStatusStaging,
+					NumFiles: len(task.Descriptors),
+				}
+			}
 			out <- task
 		}
 	}()
 	return out
 }
 
-// the Transfer stage moves files from one place to another
-func (p *Pipeline) addTransferStage(in <-chan Task) <-chan Task {
+func (p *Pipeline) AddGlobusTransferStage(in <-chan Task) <-chan Task {
 	out := make(chan Task)
 
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		for p.running {
 			task := <-in
-			// determine whether this is a Globus or http transfer
-			// if Globus, start the transfer going there
-			// else if http, dispatch to http transfer pool
+			slog.Debug(fmt.Sprintf("Transferring %d file(s) from %s to %s",
+				len(task.Descriptors), task.SourceEndpoint, task.DestinationEndpoint))
+
+			// assemble a list of file transfers
+			fileXfers := make([]FileTransfer, len(task.Descriptors))
+			for i, d := range task.Descriptors {
+				descriptor := d.(map[string]any)
+				path := descriptor["path"].(string)
+				destinationPath := filepath.Join(task.DestinationFolder, path)
+				fileXfers[i] = FileTransfer{
+					SourcePath:      path,
+					DestinationPath: destinationPath,
+					Hash:            descriptor["hash"].(string),
+				}
+			}
+
+			// initiate the transfer
+			sourceEndpoint, err := endpoints.NewEndpoint(task.SourceEndpoint)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+			destinationEndpoint, err := endpoints.NewEndpoint(task.DestinationEndpoint)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+			transferId, err := sourceEndpoint.Transfer(destinationEndpoint, fileXfers)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+			task.Transfer = uuid.NullUUID{
+				UUID:  transferId,
+				Valid: true,
+			}
+			task.TransferStatus = TransferStatus{
+				Code:     TransferStatusActive,
+				NumFiles: len(task.Descriptors),
+			}
+			task.Staging = uuid.NullUUID{}
 			out <- task
 		}
 	}()
@@ -382,25 +470,131 @@ func (p *Pipeline) addTransferStage(in <-chan Task) <-chan Task {
 }
 
 // gather: collects tasks into their constituent transfers
-func (p *Pipeline) gather(in <-chan Task) <-chan Transfer {
+func (p *Pipeline) AddGatherStage(in <-chan Task) <-chan Transfer {
 	out := make(chan Transfer)
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		for p.running {
 		}
 	}()
 	return out
 }
 
-// manifest generation stage (final)
-func generateManifest(in <-chan Transfer) <-chan Transfer {
+// manifest generation stage
+func (p *Pipeline) AddManifestStage(in <-chan Transfer) <-chan Transfer {
 	out := make(chan Transfer)
+	p.waitGroup.Add(1)
 	go func() {
-		for {
+		defer p.waitGroup.Done()
+		for p.running {
 			transfer := <-in
+
+			localEndpoint, err := endpoints.NewEndpoint(config.Service.Endpoint)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+
+			// generate a manifest for the transfer
+			descriptors := make([]any, 0)
+			for _, task := range transfer.Tasks {
+				descriptors = append(descriptors, task.Descriptors...)
+			}
+			for _, dataDescriptor := range transfer.DataDescriptors {
+				descriptors = append(descriptors, dataDescriptor)
+			}
+
+			transferUser := map[string]any{
+				"title": transfer.User.Name,
+				"role":  "author",
+			}
+			if transfer.User.Organization != "" {
+				transferUser["organization"] = transfer.User.Organization
+			}
+			if transfer.User.Email != "" {
+				transferUser["email"] = transfer.User.Email
+			}
+
+			descriptor := map[string]any{
+				"name":      "manifest",
+				"resources": descriptors,
+				"created":   time.Now().Format(time.RFC3339),
+				"profile":   "data-package",
+				"keywords":  []any{"dts", "manifest"},
+				"contributors": []any{
+					transferUser,
+				},
+				"description":  transfer.Description,
+				"instructions": transfer.Instructions,
+			}
+
+			manifest, err := datapackage.New(descriptor, ".")
+			if err != nil {
+				slog.Error(err.Error())
+			}
+
+			// write the manifest to disk and begin transferring it to the
+			// destination endpoint
+			transfer.ManifestFile = filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transfer.Id.String()))
+			err = manifest.SaveDescriptor(transfer.ManifestFile)
+			if err != nil {
+				p.error <- fmt.Errorf("creating manifest file: %s", err.Error())
+				continue
+			}
+
+			// construct the source/destination file manifest paths
+			fileXfers := []FileTransfer{
+				{
+					SourcePath:      transfer.ManifestFile,
+					DestinationPath: filepath.Join(transfer.DestinationFolder, "manifest.json"),
+				},
+			}
+
+			// begin transferring the manifest
+			// FIXME: how do we determine the database's destination endpoint?
+			destinationEndpointName := config.Databases[transfer.Destination].Endpoint
+			destinationEndpoint, err := endpoints.NewEndpoint(destinationEndpointName)
+			if err != nil {
+				p.error <- err
+				continue
+			}
+			transfer.Manifest.UUID, err = localEndpoint.Transfer(destinationEndpoint, fileXfers)
+			if err != nil {
+				p.error <- fmt.Errorf("transferring manifest file: %s", err.Error())
+				continue
+			}
+
+			transfer.Status.Code = TransferStatusFinalizing
+			transfer.Manifest.Valid = true
+			p.UpdateStatus(transfer.Id, transfer.Status)
 			out <- transfer
 		}
 	}()
 	return out
+}
+
+// call this to add the final stage (sink) to a pipeline
+func (p *Pipeline) AddFinalStage(in <-chan Transfer) {
+	p.sink = in
+}
+
+// call this at the end of your pipeline's main goroutine to handle channel traffic from the host
+func (p *Pipeline) Start() {
+	p.running = true
+	for p.running {
+		select {
+		case <-p.cancel:
+			// FIXME:
+		case <-p.halt:
+			p.running = false
+			p.waitGroup.Wait()
+		case data := <-p.load:
+			// FIXME:
+		case <-p.save:
+			// FIXME:
+		}
+	}
 }
 
 // computes the size of a payload for a transfer (in Gigabytes)

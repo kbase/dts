@@ -1,7 +1,7 @@
 package credit
 
 /*
-  - Represents a contributor to the resource.
+ * Represents a contributor to the resource.
 
 Contributors must have a 'contributor_type', either 'Person' or 'Organization', and
 one of the 'name' fields: either 'given_name' and 'family_name' (for a person), or 'name' (for an organization or a person).
@@ -10,10 +10,11 @@ The 'contributor_role' field takes values from the DataCite and CRediT contribut
 roles vocabularies. For more information on these resources and choosing
 appropriate roles, please see the following links:
 
-DataCite contributor roles: https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#7a-contributortype
+DataCite contributor roles: [https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#7a-contributortype](https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#7a-contributortype)
 
-CRediT contributor role taxonomy: https://credit.niso.org.
-*/
+CRediT contributor role taxonomy: [https://credit.niso.org](https://credit.niso.org).
+
+ */
 type Contributor struct {
 	/*
 	 * Must be either 'Person' or 'Organization'.
@@ -86,10 +87,11 @@ type Description struct {
 }
 
 /*
-  - Represents an event in the lifecycle of a resource and the date it occurred on.
+ * Represents an event in the lifecycle of a resource and the date it occurred on.
 
-See https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#8-date for more information on the events.
-*/
+See [DataCite documentation on date events](https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#8-date) for more information on the events.
+
+ */
 type EventDate struct {
 	/*
 	 * The date associated with the event. The date may be in the format YYYY, YYYY-MM, or YYYY-MM-DD.
@@ -102,17 +104,18 @@ type EventDate struct {
 }
 
 /*
-  - Represents a funding source for a resource, including the funding body and the grant awarded.
+ * Represents a funding source for a resource, including the funding body and the grant awarded.
 
 One (or more) of the fields 'grant_id', 'grant_url', or 'funder.organization_name' is required; others are optional.
 
 Recommended resources for organization identifiers include:
-  - Research Organization Registry, http://ror.org
-  - International Standard Name Identifier, https://isni.org
-  - Crossref Funder Registry, https://www.crossref.org/services/funder-registry/ (to be subsumed into ROR)
+  - [Research Organization Registry](http://ror.org)
+  - [International Standard Name Identifier](https://isni.org)
+  - [Crossref Funder Registry](https://www.crossref.org/services/funder-registry/) (to be subsumed into ROR)
 
 Some organizations may have a digital object identifier (DOI).
-*/
+
+ */
 type FundingReference struct {
 	/*
 	 * The funder for the grant or award.
@@ -137,7 +140,7 @@ type FundingReference struct {
  */
 type License struct {
 	/*
-	 * String representing the license, from the SPDX license identifiers at https://spdx.org/licenses/.
+	 * String representing the license, from the [SPDX license identifiers](https://spdx.org/licenses/).
 	 */
 	Id string `json:"id"`
 	/*
@@ -169,18 +172,18 @@ type Metadata struct {
 }
 
 /*
-  - Represents an organization.
+ * Represents an organization.
 
-Recommended resources for organization identifiers and canonical organization names include:
-  - Research Organization Registry, http://ror.org
-  - International Standard Name Identifier, https://isni.org
-  - Crossref Funder Registry, https://www.crossref.org/services/funder-registry/
+Recommended resources for organization identifiers include:
+  - [Research Organization Registry](http://ror.org)
+  - [International Standard Name Identifier](https://isni.org)
+  - [Crossref Funder Registry](https://www.crossref.org/services/funder-registry/) (to be subsumed into ROR)
 
 For example, the US DOE would be entered as:
+  organization_name: United States Department of Energy
+  organization_id:   ROR:01bj3aw27
 
-	organization_name: United States Department of Energy
-	organization_id:   ROR:01bj3aw27
-*/
+ */
 type Organization struct {
 	/*
 	 * Persistent unique identifier for the organization in the format <database name>:<identifier within database>.
@@ -193,16 +196,17 @@ type Organization struct {
 }
 
 /*
-  - Represents a persistent unique identifier for an entity and its relationship to some other entity.
+ * Represents a persistent unique identifier for an entity and its relationship to some other entity.
 
 The 'id' field and 'relationship_type' fields are required.
 
 The values in the 'relationship_type' field come from controlled vocabularies maintained by DataCite and Crossref. See the documentation links below for more details.
 
-DataCite relation types: https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#12b-relationtype
+[DataCite relation types](https://support.datacite.org/docs/datacite-metadata-schema-v44-recommended-and-optional-properties#12b-relationtype)
 
-Crossref relation types: https://www.crossref.org/documentation/schema-library/markup-guide-metadata-segments/relationships/
-*/
+[Crossref relation types](https://www.crossref.org/documentation/schema-library/markup-guide-metadata-segments/relationships/)
+
+ */
 type PermanentID struct {
 	/*
 	 * Persistent unique ID for an entity. Should be in the format <database name>:<identifier within database>.
@@ -219,10 +223,11 @@ type PermanentID struct {
 }
 
 /*
-  - Represents the title or name of a resource, the type of that title, and the language used (if appropriate).
+ * Represents the title or name of a resource, the type of that title, and the language used (if appropriate).
 
 The 'title' field is required; 'title_type' is only necessary if the text is not the primary title.
-*/
+
+ */
 type Title struct {
 	/*
 	 * The language in which the title is written, using the appropriate IETF BCP-47 notation.
@@ -239,7 +244,7 @@ type Title struct {
 }
 
 /*
-  - Represents the credit metadata associated with an object.
+ * Represents the credit metadata associated with an object.
 
 In the following documentation, 'resource' is used to refer to the object
 that the CM pertains to, for example, a KBase Workspace object; a
@@ -252,7 +257,7 @@ Currently this schema only supports credit metadata for objects of type
 'dataset'; anything else will return an error.
 
 The license may be supplied either as an URL pointing to licensing information for
-the resource, or using an SPDX license identifier from the list maintained at https://spdx.org/licenses/.
+the resource, or using an SPDX license identifier from the list maintained at [https://spdx.org/licenses](https://spdx.org/licenses).
 
 Required fields are:
 - identifier
@@ -266,7 +271,8 @@ the last update (if applicable).
 
 The resource_type field is required, but as there is currently only a single valid
 value, 'dataset', it is automatically populated if no value is supplied.
-*/
+
+ */
 type CreditMetadata struct {
 	/*
 	 * List of strings of freeform text providing extra information about this credit metadata.
@@ -330,3 +336,5 @@ type CreditMetadata struct {
 	 */
 	Version string `json:"version"`
 }
+
+

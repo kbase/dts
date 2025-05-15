@@ -581,7 +581,6 @@ func (p *Pipeline) AddFinalStage(in <-chan Transfer) {
 
 // call this at the end of your pipeline's main goroutine to handle channel traffic from the host
 func (p *Pipeline) Start() {
-	p.running = true
 	for p.running {
 		select {
 		case <-p.cancel:

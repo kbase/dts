@@ -53,9 +53,6 @@ type Pipeline struct {
 	newTransfer   chan uuid.UUID
 	cancel        chan uuid.UUID
 	halt          chan struct{}
-	load          chan []byte
-	save          chan struct{}
-	savedState    chan []byte
 	sink          <-chan Transfer
 	error         chan error
 	statusUpdates chan<- TransferStatusUpdate // conveys transfer status updates to a client
@@ -75,10 +72,7 @@ func NewPipeline(source, destination string, statusUpdateChan chan<- TransferSta
 		cancel:      make(chan uuid.UUID, chanBufferSize),
 		error:       make(chan error, chanBufferSize),
 		halt:        make(chan struct{}),
-		load:        make(chan []byte),
 		newTransfer: make(chan uuid.UUID, chanBufferSize),
-		save:        make(chan struct{}),
-		savedState:  make(chan []byte),
 		// NOTE: sink channel not set--must be set using p.AddFinalStage()
 		statusUpdates: statusUpdateChan,
 		running:       true,
@@ -111,23 +105,6 @@ func (p *Pipeline) Cancel(transferId uuid.UUID) error {
 func (p *Pipeline) Halt() error {
 	p.halt <- struct{}{}
 	return <-p.error
-}
-
-// loads a pipeline from the given buffer synchronously, returning any error that occurs
-func (p *Pipeline) Load(data []byte) error {
-	p.load <- data
-	return <-p.error
-}
-
-// saves the pipeline synchronously, returning a buffer and any error that occurs
-func (p *Pipeline) Save() ([]byte, error) {
-	p.save <- struct{}{}
-	select {
-	case data := <-p.savedState:
-		return data, nil
-	case err := <-p.error:
-		return nil, err
-	}
 }
 
 // call this to update the status of a transfer
@@ -577,23 +554,6 @@ func (p *Pipeline) AddManifestStage(in <-chan Transfer) <-chan Transfer {
 // call this to add the final stage (sink) to a pipeline
 func (p *Pipeline) AddFinalStage(in <-chan Transfer) {
 	p.sink = in
-}
-
-// call this at the end of your pipeline's main goroutine to handle channel traffic from the host
-func (p *Pipeline) Start() {
-	for p.running {
-		select {
-		case <-p.cancel:
-			// FIXME:
-		case <-p.halt:
-			p.running = false
-			p.waitGroup.Wait()
-		case data := <-p.load:
-			// FIXME:
-		case <-p.save:
-			// FIXME:
-		}
-	}
 }
 
 // computes the size of a payload for a transfer (in Gigabytes)

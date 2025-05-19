@@ -21,10 +21,15 @@
 
 package pipelines
 
+import (
+	"fmt"
+	"log/slog"
+)
+
 func JdpToKBase(statusUpdateChan chan<- TransferStatusUpdate) (*Pipeline, error) {
 	p := NewPipeline("jdp", "kbase", statusUpdateChan)
 
-	// start the main goroutine
+	// start the pipeline's main goroutine
 	go func() {
 		// build the pipeline
 		created := p.AddCreateStage()
@@ -35,7 +40,17 @@ func JdpToKBase(statusUpdateChan chan<- TransferStatusUpdate) (*Pipeline, error)
 		completed := p.AddManifestStage(gathered)
 		p.AddFinalStage(completed)
 
-		p.Start()
+		// handle requests via channels
+		for p.running {
+			select {
+			case transferId := <-p.cancel:
+				// FIXME: cancellation logic goes here
+				slog.Info(fmt.Sprintf("Cancelling transfer %s", transferId.String()))
+			case <-p.halt:
+				p.running = false
+				p.waitGroup.Wait()
+			}
+		}
 	}()
 
 	return p, nil

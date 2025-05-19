@@ -86,7 +86,7 @@ type TransferRecord struct {
 	Cancelled      bool
 	CompletionTime time.Time
 	Id             uuid.UUID
-	Pipeline       *Pipeline
+	Stage          int // index of pipeline stage
 	Specification  Specification
 	Status         TransferStatus
 }
@@ -274,23 +274,17 @@ func listen() error {
 	}
 
 	// create pipeline goroutines
-	availablePipelines := []func(chan<- uuid.UUID, chan<- TransferStatusUpdate) (*Pipeline, error){
+	availablePipelines := []func(chan<- TransferStatusUpdate) (*Pipeline, error){
 		JdpToKBase,
 	}
 	pipelines := make([]*Pipeline, 0)
 	for _, createPipeline := range availablePipelines {
-		pipeline, err := createPipeline(channels_.NewTransfers, channels_.StatusUpdates)
+		pipeline, err := createPipeline(channels_.StatusUpdates)
 		if err != nil {
 			return err
 		} else {
 			pipelines = append(pipelines, pipeline)
 		}
-	}
-
-	// load any pre-existing pipeline states
-	err := loadPipelines(saveFile, pipelines)
-	if err != nil {
-		return err
 	}
 
 	// map transfer sources and destinations to pipelines
@@ -304,8 +298,27 @@ func listen() error {
 		pipelineByDestination[pipeline.destination] = pipeline
 	}
 
-	// create some transfer records (indexed by UUID)
-	transfers := make(map[uuid.UUID]TransferRecord)
+	// load any transfers in progress and feed them to the pipelines
+	transfers, err := loadTransfers(saveFile)
+	if err != nil {
+		return err
+	}
+	for _, transfer := range transfers {
+		if !transfer.Cancelled && transfer.Status.Code != TransferStatusFailed && transfer.Status.Code != TransferStatusSucceeded {
+			pipelineByDestination, found := pipelineBySourceAndDestination[transfer.Specification.Source]
+			if !found {
+				slog.Error(fmt.Sprintf("Could not load transfer %s (invalid source '%s')", transfer.Id.String(),
+					transfer.Specification.Source))
+			}
+			pipeline, found := pipelineByDestination[transfer.Specification.Destination]
+			if !found {
+				slog.Error(fmt.Sprintf("Could not load transfer %s (invalid destination '%s')", transfer.Id.String(),
+					transfer.Specification.Destination))
+			}
+			// NOTE: for now, we don't attempt to restore detailed transfer states--we only requeue them
+			pipeline.create <- transfer.Specification
+		}
+	}
 
 	// parse the task channels into directional types as needed
 	var createChan <-chan Specification = channels_.Create
@@ -350,7 +363,8 @@ func listen() error {
 		case transferId := <-cancelChan: // Cancel() called
 			if record, found := transfers[transferId]; found {
 				slog.Info(fmt.Sprintf("Transfer %s: received cancellation request", transferId.String()))
-				err := record.Pipeline.Cancel(transferId)
+				pipeline := pipelineBySourceAndDestination[record.Specification.Source][record.Specification.Destination]
+				err := pipeline.Cancel(transferId)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Transfer %s: %s", transferId.String(), err.Error()))
 				} else {
@@ -389,7 +403,7 @@ func listen() error {
 				slog.Error(fmt.Sprintf("Status update received for invalid transfer ID %s", statusUpdate.Id.String()))
 			}
 		case <-haltChan: // Halt() called
-			err := savePipelines(saveFile, pipelines)
+			err := saveTransfers(transfers, saveFile)
 			if err != nil {
 				errorChan <- err
 			}
@@ -411,28 +425,28 @@ func listen() error {
 // this struct defines a layout for saving a GOB-encoded state
 type SavedState struct {
 	Databases databases.DatabaseSaveStates
-	Pipelines map[string][]byte
+	Transfers map[uuid.UUID]TransferRecord
 }
 
 // loads a map of task IDs to tasks from a previously saved file if available,
 // or creates an empty map if no such file is available or valid
-func loadPipelines(saveFile string, pipelines []*Pipeline) error {
+func loadTransfers(saveFile string) (map[uuid.UUID]TransferRecord, error) {
 	_, err := os.Stat(saveFile)
 	if err != nil {
 		var pathErr *fs.PathError
 		if errors.As(err, &pathErr) {
-			return nil // no data store, no big deal
+			return make(map[uuid.UUID]TransferRecord), nil // no data store, no big deal
 		} else {
-			return err
+			return nil, err
 		}
 	}
 
 	// load stuff
 	file, err := os.Open(saveFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	slog.Debug(fmt.Sprintf("Found persistent pipelines in %s.", saveFile))
+	slog.Debug(fmt.Sprintf("Found persistent transfer records in %s.", saveFile))
 	defer file.Close()
 
 	// read the saved state into memory
@@ -440,71 +454,48 @@ func loadPipelines(saveFile string, pipelines []*Pipeline) error {
 	enc := gob.NewDecoder(file)
 	if err = enc.Decode(&savedState); err != nil {
 		slog.Error(fmt.Sprintf("Reading save file %s: %s", saveFile, err.Error()))
-		return err
-	}
-
-	// load available pipelines
-	for _, pipeline := range pipelines {
-		name := fmt.Sprintf("%s -> %s", pipeline.source, pipeline.destination)
-		if err := pipeline.Load(savedState.Pipelines[name]); err != nil {
-			slog.Error(fmt.Sprintf("Restoring state for pipeline %s: %s", name, err.Error()))
-		}
+		return nil, err
 	}
 
 	// load databases (those that have state info, anyway)
 	if err = databases.Load(savedState.Databases); err != nil {
 		slog.Error(fmt.Sprintf("Restoring database states: %s", err.Error()))
 	}
-	slog.Debug(fmt.Sprintf("Restored %d pipelines from %s", len(pipelines), saveFile))
-	return nil
+	slog.Debug(fmt.Sprintf("Restored %d transfers from %s", len(savedState.Transfers), saveFile))
+	return savedState.Transfers, nil
 }
 
 // saves a map of task IDs to tasks to the given file
-func savePipelines(saveFile string, pipelines []*Pipeline) error {
-	if len(pipelines) > 0 {
-		slog.Debug(fmt.Sprintf("Saving %d pipelines to %s", len(pipelines), saveFile))
+func saveTransfers(transfers map[uuid.UUID]TransferRecord, saveFile string) error {
+	slog.Debug(fmt.Sprintf("Saving transfers to %s", saveFile))
 
-		file, err := os.OpenFile(saveFile, os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			return fmt.Errorf("Opening file %s: %s", saveFile, err.Error())
-		}
-		defer file.Close()
-
-		enc := gob.NewEncoder(file)
-
-		// save pipelines
-		savedState := SavedState{
-			Pipelines: make(map[string][]byte),
-		}
-		for _, pipeline := range pipelines {
-			name := fmt.Sprintf("%s -> %s", pipeline.source, pipeline.destination)
-			savedState.Pipelines[name], err = pipeline.Save()
-			if err != nil {
-				os.Remove(saveFile)
-				return fmt.Errorf("Saving pipeline %s: %s", name, err.Error())
-			}
-		}
-		if savedState.Databases, err = databases.Save(); err != nil {
-			os.Remove(saveFile)
-			return fmt.Errorf("Saving state for databases: %s", err.Error())
-		}
-		err = enc.Encode(savedState)
-		if err != nil {
-			os.Remove(saveFile)
-			return fmt.Errorf("Saving pipeline states: %s", err.Error())
-		}
-		err = file.Close()
-		if err != nil {
-			os.Remove(saveFile)
-			return fmt.Errorf("Writing save file %s: %s", saveFile, err.Error())
-		}
-		slog.Debug(fmt.Sprintf("Saved %d pipelines to %s", len(pipelines), saveFile))
-	} else {
-		_, err := os.Stat(saveFile)
-		if !errors.Is(err, fs.ErrNotExist) { // file exists
-			os.Remove(saveFile)
-		}
+	file, err := os.OpenFile(saveFile, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("Opening file %s: %s", saveFile, err.Error())
 	}
+	defer file.Close()
+
+	enc := gob.NewEncoder(file)
+
+	// save transfer records
+	savedState := SavedState{
+		Transfers: transfers,
+	}
+	if savedState.Databases, err = databases.Save(); err != nil {
+		os.Remove(saveFile)
+		return fmt.Errorf("Saving state for databases: %s", err.Error())
+	}
+	err = enc.Encode(savedState)
+	if err != nil {
+		os.Remove(saveFile)
+		return fmt.Errorf("Saving pipeline states: %s", err.Error())
+	}
+	err = file.Close()
+	if err != nil {
+		os.Remove(saveFile)
+		return fmt.Errorf("Writing save file %s: %s", saveFile, err.Error())
+	}
+	slog.Debug(fmt.Sprintf("Saved transfers to %s", saveFile))
 	return nil
 }
 

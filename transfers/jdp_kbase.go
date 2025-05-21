@@ -19,39 +19,39 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package pipelines
+package transfers
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/deliveryhero/pipeline/v2" 
 )
 
-func JdpToKBase(statusUpdateChan chan<- TransferStatusUpdate) (*Pipeline, error) {
-	p := NewPipeline("jdp", "kbase", statusUpdateChan)
+func cancelCause(cause error) {
+}
 
-	// start the pipeline's main goroutine
-	go func() {
-		// build the pipeline
-		created := p.AddCreateStage()
-		scattered := p.AddScatterStage(created)
-		prepared := p.AddPrepareStage(scattered)
-		transferred := p.AddGlobusTransferStage(prepared)
-		gathered := p.AddGatherStage(transferred)
-		completed := p.AddManifestStage(gathered)
-		p.AddFinalStage(completed)
+func JdpToKBase(in <-chan Specification, statusUpdateChan chan<- TransferStatusUpdate) {
+	// create the various pipeline stages
+	first := FirstStage()
+	scatter := ScatterStage()
+	prepare := PrepareStage()
+	transfer := GlobusTransferStage()
+	gather := GatherStage()
+	manifest := ManifestStage()
 
-		// handle requests via channels
-		for p.running {
-			select {
-			case transferId := <-p.cancel:
-				// FIXME: cancellation logic goes here
-				slog.Info(fmt.Sprintf("Cancelling transfer %s", transferId.String()))
-			case <-p.halt:
-				p.running = false
-				p.waitGroup.Wait()
-			}
-		}
-	}()
+	// assemble and run the pipeline
+	p1 := pipeline.Join(first, scatter)
+	p2 := pipeline.Sequence(prepare, transfer)
+	p3 := pipeline.Join(gather, manifest)
 
-	return p, nil
+	ctx := context.TODO() // FIXME: 
+	newTransfer := pipeline.Process(ctx, p1, in)
+	scatteredTasks := pipeline.Split(newTransfer)
+	processedTasks := pipeline.Process(ctx, p2, scatteredTasks)
+	gatheredTasks := pipeline.Merge(processedTasks)
+	completed := pipeline.Process(ctx, p3, gatheredTasks)
+
+	// FIXME: ^^^ almost there! Just need to wire up the channels properly.
 }

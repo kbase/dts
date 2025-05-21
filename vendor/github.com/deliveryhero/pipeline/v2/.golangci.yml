@@ -1,0 +1,12 @@
+linters:
+  disable-all: true
+  enable:
+    - gofmt
+    - revive
+    - govet
+    - misspell
+    - deadcode
+    - gosec
+linters-settings:
+  misspell:
+    locale: US

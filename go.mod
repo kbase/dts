@@ -7,6 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/StalkR/hsts v1.0.3
 	github.com/danielgtaylor/huma/v2 v2.27.0
+	github.com/deliveryhero/pipeline/v2 v2.2.0
 	github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
 	github.com/frictionlessdata/datapackage-go v1.0.4
 	github.com/google/uuid v1.6.0

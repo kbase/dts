@@ -5,6 +5,8 @@ github.com/danielgtaylor/huma/v2 v2.27.0 h1:yxgJ8GqYqKeXw/EnQ4ZNc2NBpmn49AlhxL2+
 github.com/danielgtaylor/huma/v2 v2.27.0/go.mod h1:NbSFXRoOMh3BVmiLJQ9EbUpnPas7D9BeOxF/pZBAGa0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/deliveryhero/pipeline/v2 v2.2.0 h1:l9F+e4Q3qMu0zw7fi0JVg2FilgnGyohnwJ5d1oBqoYs=
+github.com/deliveryhero/pipeline/v2 v2.2.0/go.mod h1:GghgCAlOoG8IdwybJpe2E3LBTuR+o5wgTdm0kPv3GPU=
 github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611 h1:JwYtKJ/DVEoIA5dH45OEU7uoryZY/gjd/BQiwwAOImM=
 github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611/go.mod h1:zHMNeYgqrTpKyjawjitDg0Osd1P/FmeA0SZLYK3RfLQ=
 github.com/frictionlessdata/datapackage-go v1.0.4 h1:B2td8AuRBezuxCtbHStFL9+QoudJ4TC7Ycf4ooPyF8g=

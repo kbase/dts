@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package pipelines
+package transfers
 
 import (
 	"bytes"
@@ -79,6 +79,50 @@ type Specification struct {
 	Source string
 	// information about the user requesting the task
 	User auth.User
+}
+
+//----------
+// Transfer
+//----------
+
+// This type tracks the lifecycle of a file transfer: the copying of files from
+// a source database to a destination database. A transfer comprises one or
+// more Tasks, depending on how many transfer endpoints are involved.
+type Transfer struct {
+	DataDescriptors   []any          // in-line data descriptors
+	Description       string         // Markdown description of the task
+	Destination       string         // name of destination database (in config)
+	DestinationFolder string         // folder path to which files are transferred
+	FileIds           []string       // IDs of all files being transferred
+	Id                uuid.UUID      // task identifier
+	Instructions      map[string]any // machine-readable task processing instructions
+	Manifest          uuid.NullUUID  // manifest generation UUID (if any)
+	ManifestFile      string         // name of locally-created manifest file
+	PayloadSize       float64        // Size of payload (gigabytes)
+	Source            string         // name of source database (in config)
+	Status            TransferStatus // status of file transfer operation
+	Tasks             []Task         // list of constituent tasks
+	User              auth.User      // info about user requesting transfer
+}
+
+//------
+// Task
+//------
+
+// A Task is an indivisible unit of work that is executed by stages in a pipeline.
+type Task struct {
+	Destination         string                  // name of destination database (in config)
+	DestinationEndpoint string                  // name of destination database (in config)
+	DestinationFolder   string                  // folder path to which files are transferred
+	Descriptors         []any                   // Frictionless file descriptors
+	Error               error                   // indicates an error occurred
+	Source              string                  // name of source database (in config)
+	SourceEndpoint      string                  // name of source endpoint (in config)
+	Staging             uuid.NullUUID           // staging UUID (if any)
+	StagingStatus       databases.StagingStatus // staging status
+	Transfer            uuid.NullUUID           // file transfer UUID (if any)
+	TransferStatus      TransferStatus          // status of file transfer operation
+	User                auth.User               // info about user requesting transfer
 }
 
 // basic status information regarding a transfer
@@ -157,7 +201,6 @@ func Start() error {
 		return err
 	}
 
-	// allocate dispatch channels
 	channels_ = DispatchChannels{
 		Create:    make(chan Specification, 32),
 		Cancel:    make(chan uuid.UUID, 32),

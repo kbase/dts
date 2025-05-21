@@ -1,0 +1,36 @@
+package pipeline
+
+import "sync"
+
+// Merge fans multiple channels in to a single channel
+func Merge[Item any](ins ...<-chan Item) <-chan Item {
+	// Don't merge anything if we don't have to
+	if l := len(ins); l == 0 {
+		out := make(chan Item)
+		close(out)
+		return out
+	} else if l == 1 {
+		return ins[0]
+	}
+	out := make(chan Item)
+	// Create a WaitGroup that waits for all of the ins to close
+	var wg sync.WaitGroup
+	wg.Add(len(ins))
+	go func() {
+		// When all of the ins are closed, close the out
+		wg.Wait()
+		close(out)
+	}()
+	for i := range ins {
+		go func(in <-chan Item) {
+			// Wait for each in to close
+			for i := range in {
+				// Fan the contents of each in into the out
+				out <- i
+			}
+			// Tell the WaitGroup that one of the channels is closed
+			wg.Done()
+		}(ins[i])
+	}
+	return out
+}

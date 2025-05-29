@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/deliveryhero/pipeline/v2" 
+	"github.com/deliveryhero/pipeline/v2"
 	"github.com/frictionlessdata/datapackage-go/datapackage"
 	"github.com/google/uuid"
 
@@ -45,9 +45,8 @@ import (
 // goroutines that asynchronously process work, chained together in sequence by their input/output
 // channels.
 
-// this stage creates a Transfer from a Specification and should always be the first stage in your
-// pipeline
-func FirstStage() pipeline.Processor[Specification, Transfer] {
+// this stage creates a Transfer from a Specification
+func InitialStage() pipeline.Processor[Specification, Transfer] {
 	process := func(ctx context.Context, spec Specification) (Transfer, error) {
 		// access the source database, resolving resource descriptors
 		source, err := databases.NewDatabase(spec.Source)
@@ -56,18 +55,13 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 		}
 
 		transfer := Transfer{
-			Id:           uuid.New(),
-			User:         spec.User,
-			Source:       spec.Source,
-			Destination:  spec.Destination,
-			FileIds:      spec.FileIds,
-			Description:  spec.Description,
-			Instructions: spec.Instructions,
+			Id:            uuid.New(),
+			Specification: spec,
 		}
 
 		transfer.DataDescriptors = make([]any, 0)
 		{
-			descriptors, err := source.Descriptors(transfer.User.Orcid, transfer.FileIds)
+			descriptors, err := source.Descriptors(transfer.Specification.User.Orcid, transfer.Specification.FileIds)
 			if err != nil {
 				return Transfer{}, err
 			}
@@ -80,7 +74,7 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 					transfer.DataDescriptors = append(transfer.DataDescriptors, descriptor)
 				} else { // neither!
 					err = fmt.Errorf("Descriptor '%s' (ID: %s) has no 'path' or 'data' field!",
-					descriptor["name"], descriptor["id"])
+						descriptor["name"], descriptor["id"])
 					break
 				}
 			}
@@ -91,20 +85,20 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 
 		// if the database stores its files in more than one location, check that each
 		// resource is associated with a valid endpoint
-		if len(config.Databases[transfer.Source].Endpoints) > 1 {
+		if len(config.Databases[transfer.Specification.Source].Endpoints) > 1 {
 			for _, d := range transfer.DataDescriptors {
 				descriptor := d.(map[string]any)
 				id := descriptor["id"].(string)
 				endpoint := descriptor["endpoint"].(string)
 				if endpoint == "" {
 					return Transfer{}, &databases.ResourceEndpointNotFoundError{
-						Database:   transfer.Source,
+						Database:   transfer.Specification.Source,
 						ResourceId: id,
 					}
 				}
 				if _, found := config.Endpoints[endpoint]; !found {
 					return Transfer{}, &databases.InvalidResourceEndpointError{
-						Database:   transfer.Source,
+						Database:   transfer.Specification.Source,
 						ResourceId: id,
 						Endpoint:   endpoint,
 					}
@@ -113,7 +107,7 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 		} else { // otherwise, just assign the database's endpoint to the resources
 			for _, d := range transfer.DataDescriptors {
 				descriptor := d.(map[string]any)
-				descriptor["endpoint"] = config.Databases[transfer.Source].Endpoint
+				descriptor["endpoint"] = config.Databases[transfer.Specification.Source].Endpoint
 			}
 		}
 
@@ -125,15 +119,15 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 
 		// determine the destination endpoint
 		// FIXME: this conflicts with our redesign!!
-		destinationEndpoint := config.Databases[transfer.Destination].Endpoint
+		destinationEndpoint := config.Databases[transfer.Specification.Destination].Endpoint
 
 		// construct a destination folder name
-		destination, err := databases.NewDatabase(transfer.Destination)
+		destination, err := databases.NewDatabase(transfer.Specification.Destination)
 		if err != nil {
 			return Transfer{}, err
 		}
 
-		username, err := destination.LocalUser(transfer.User.Orcid)
+		username, err := destination.LocalUser(transfer.Specification.User.Orcid)
 		if err != nil {
 			return Transfer{}, err
 		}
@@ -163,13 +157,14 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 
 			// set up a task for the endpoint
 			transfer.Tasks = append(transfer.Tasks, Task{
-				Destination:         transfer.Destination,
+				TransferId:          transfer.Id,
+				Destination:         transfer.Specification.Destination,
 				DestinationEndpoint: destinationEndpoint,
 				DestinationFolder:   transfer.DestinationFolder,
 				Descriptors:         descriptorsForEndpoint,
-				Source:              transfer.Source,
+				Source:              transfer.Specification.Source,
 				SourceEndpoint:      sourceEndpoint,
-				User:                transfer.User,
+				User:                transfer.Specification.User,
 			})
 		}
 
@@ -183,18 +178,8 @@ func FirstStage() pipeline.Processor[Specification, Transfer] {
 	return pipeline.NewProcessor(process, cancel)
 }
 
-// the Scatter stage divides a transfer up into a set of tasks
-func ScatterStage() pipeline.Processor[Transfer, []Task] {
-	process := func(ctx context.Context, transfer Transfer) ([]Task, error) {
-		return transfer.Tasks, nil
-	}
-	cancel := func(transfer Transfer, err error) {
-	}
-	return pipeline.NewProcessor(process, cancel)
-}
-
 // the Prepare stage moves files in a task to a location from which they can be transferred
-func PrepareStage() pipeline.Processor[Task, Task] {
+func PrepareStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
 	process := func(ctx context.Context, task Task) (Task, error) {
 		// check whether files are in place
 		sourceEndpoint, err := endpoints.NewEndpoint(task.SourceEndpoint)
@@ -238,7 +223,7 @@ func PrepareStage() pipeline.Processor[Task, Task] {
 	return pipeline.NewProcessor(process, cancel)
 }
 
-func GlobusTransferStage() pipeline.Processor[Task, Task] {
+func GlobusTransferStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
 	process := func(ctx context.Context, task Task) (Task, error) {
 		slog.Debug(fmt.Sprintf("Transferring %d file(s) from %s to %s",
 			len(task.Descriptors), task.SourceEndpoint, task.DestinationEndpoint))
@@ -285,18 +270,8 @@ func GlobusTransferStage() pipeline.Processor[Task, Task] {
 	return pipeline.NewProcessor(process, cancel)
 }
 
-// gather: collects tasks into their constituent transfers
-func GatherStage() pipeline.Processor[Task, Transfer] {
-	process := func(ctx context.Context, tasks []Task) (Transfer, error) {
-		return Transfer{}, nil
-	}
-	cancel := func(tasks []Task, err error) {
-	}
-	return pipeline.NewProcessor(process, cancel)
-}
-
 // manifest generation stage
-func ManifestStage() pipeline.Processor[Transfer, Transfer] {
+func FinalStage() pipeline.Processor[Transfer, Transfer] {
 	process := func(ctx context.Context, transfer Transfer) (Transfer, error) {
 		localEndpoint, err := endpoints.NewEndpoint(config.Service.Endpoint)
 		if err != nil {
@@ -313,14 +288,14 @@ func ManifestStage() pipeline.Processor[Transfer, Transfer] {
 		}
 
 		transferUser := map[string]any{
-			"title": transfer.User.Name,
+			"title": transfer.Specification.User.Name,
 			"role":  "author",
 		}
-		if transfer.User.Organization != "" {
-			transferUser["organization"] = transfer.User.Organization
+		if transfer.Specification.User.Organization != "" {
+			transferUser["organization"] = transfer.Specification.User.Organization
 		}
-		if transfer.User.Email != "" {
-			transferUser["email"] = transfer.User.Email
+		if transfer.Specification.User.Email != "" {
+			transferUser["email"] = transfer.Specification.User.Email
 		}
 
 		descriptor := map[string]any{
@@ -332,8 +307,8 @@ func ManifestStage() pipeline.Processor[Transfer, Transfer] {
 			"contributors": []any{
 				transferUser,
 			},
-			"description":  transfer.Description,
-			"instructions": transfer.Instructions,
+			"description":  transfer.Specification.Description,
+			"instructions": transfer.Specification.Instructions,
 		}
 
 		manifest, err := datapackage.New(descriptor, ".")
@@ -359,7 +334,7 @@ func ManifestStage() pipeline.Processor[Transfer, Transfer] {
 
 		// begin transferring the manifest
 		// FIXME: how do we determine the database's destination endpoint?
-		destinationEndpointName := config.Databases[transfer.Destination].Endpoint
+		destinationEndpointName := config.Databases[transfer.Specification.Destination].Endpoint
 		destinationEndpoint, err := endpoints.NewEndpoint(destinationEndpointName)
 		if err != nil {
 			return Transfer{}, err

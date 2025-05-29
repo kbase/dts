@@ -45,18 +45,29 @@ import (
 // goroutines that asynchronously process work, chained together in sequence by their input/output
 // channels.
 
-// this stage creates a Transfer from a Specification
-func InitialStage() pipeline.Processor[Specification, Transfer] {
-	process := func(ctx context.Context, spec Specification) (Transfer, error) {
+type IdAndSpecification struct {
+	Id            uuid.UUID
+	Specification Specification
+}
+
+// this stage creates a Transfer from an ID and Specification
+func CreateTransfer() pipeline.Processor[IdAndSpecification, Transfer] {
+	process := func(ctx context.Context, IdAndSpec IdAndSpecification) (Transfer, error) {
+
 		// access the source database, resolving resource descriptors
-		source, err := databases.NewDatabase(spec.Source)
+		source, err := databases.NewDatabase(IdAndSpec.Specification.Source)
 		if err != nil {
 			return Transfer{}, err
 		}
 
 		transfer := Transfer{
-			Id:            uuid.New(),
-			Specification: spec,
+			Id:            IdAndSpec.Id,
+			Specification: IdAndSpec.Specification,
+			Status: TransferStatus{
+				Code:     TransferStatusNew,
+				NumFiles: len(IdAndSpec.Specification.FileIds),
+			},
+			Tasks: make([]Task, 0),
 		}
 
 		transfer.DataDescriptors = make([]any, 0)
@@ -142,7 +153,6 @@ func InitialStage() pipeline.Processor[Specification, Transfer] {
 				distinctEndpoints[endpoint] = struct{}{}
 			}
 		}
-		transfer.Tasks = make([]Task, 0)
 		for sourceEndpoint := range distinctEndpoints {
 			// pick out the files corresponding to the source endpoint
 			// NOTE: this is slow, but preserves file ID ordering
@@ -164,12 +174,12 @@ func InitialStage() pipeline.Processor[Specification, Transfer] {
 				Descriptors:         descriptorsForEndpoint,
 				Source:              transfer.Specification.Source,
 				SourceEndpoint:      sourceEndpoint,
-				User:                transfer.Specification.User,
+				Status: TaskStatus{
+					Code: TaskStatusNew,
+				},
+				User: transfer.Specification.User,
 			})
 		}
-
-		// set a provisional status
-		transfer.Status.Code = TransferStatusStaging
 
 		return transfer, nil
 	}
@@ -178,8 +188,8 @@ func InitialStage() pipeline.Processor[Specification, Transfer] {
 	return pipeline.NewProcessor(process, cancel)
 }
 
-// the Prepare stage moves files in a task to a location from which they can be transferred
-func PrepareStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
+// moves files into place at the source, for transfer elsewhere
+func StageFilesAtSource(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
 	process := func(ctx context.Context, task Task) (Task, error) {
 		// check whether files are in place
 		sourceEndpoint, err := endpoints.NewEndpoint(task.SourceEndpoint)
@@ -207,12 +217,12 @@ func PrepareStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[T
 			if err != nil {
 				return Task{}, err
 			}
-			task.Staging = uuid.NullUUID{
+			task.Status.StagingId = uuid.NullUUID{
 				UUID:  taskId,
 				Valid: true,
 			}
-			task.TransferStatus = TransferStatus{
-				Code:     TransferStatusStaging,
+			task.Status.TransferStatus = endpoints.TransferStatus{
+				Code:     endpoints.TransferStatusStaging,
 				NumFiles: len(task.Descriptors),
 			}
 		}
@@ -223,7 +233,7 @@ func PrepareStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[T
 	return pipeline.NewProcessor(process, cancel)
 }
 
-func GlobusTransferStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
+func TransferToDestination(statusUpdate chan<- TransferStatusUpdate) pipeline.Processor[Task, Task] {
 	process := func(ctx context.Context, task Task) (Task, error) {
 		slog.Debug(fmt.Sprintf("Transferring %d file(s) from %s to %s",
 			len(task.Descriptors), task.SourceEndpoint, task.DestinationEndpoint))
@@ -254,15 +264,15 @@ func GlobusTransferStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Proc
 		if err != nil {
 			return Task{}, err
 		}
-		task.Transfer = uuid.NullUUID{
+		task.Status.TransferId = uuid.NullUUID{
 			UUID:  transferId,
 			Valid: true,
 		}
-		task.TransferStatus = TransferStatus{
-			Code:     TransferStatusActive,
+		task.Status.TransferStatus = endpoints.TransferStatus{
+			Code:     endpoints.TransferStatusActive,
 			NumFiles: len(task.Descriptors),
 		}
-		task.Staging = uuid.NullUUID{}
+		task.Status.StagingId = uuid.NullUUID{}
 		return task, nil
 	}
 	cancel := func(task Task, err error) {
@@ -271,7 +281,7 @@ func GlobusTransferStage(statusUpdate chan<- TransferStatusUpdate) pipeline.Proc
 }
 
 // manifest generation stage
-func FinalStage() pipeline.Processor[Transfer, Transfer] {
+func GenerateManifest() pipeline.Processor[Transfer, Transfer] {
 	process := func(ctx context.Context, transfer Transfer) (Transfer, error) {
 		localEndpoint, err := endpoints.NewEndpoint(config.Service.Endpoint)
 		if err != nil {
@@ -339,13 +349,13 @@ func FinalStage() pipeline.Processor[Transfer, Transfer] {
 		if err != nil {
 			return Transfer{}, err
 		}
-		transfer.Manifest.UUID, err = localEndpoint.Transfer(destinationEndpoint, fileXfers)
+		transfer.Status.ManifestId.UUID, err = localEndpoint.Transfer(destinationEndpoint, fileXfers)
 		if err != nil {
 			return Transfer{}, fmt.Errorf("transferring manifest file: %s", err.Error())
 		}
 
 		transfer.Status.Code = TransferStatusFinalizing
-		transfer.Manifest.Valid = true
+		transfer.Status.ManifestId.Valid = true
 		return transfer, nil
 	}
 	cancel := func(transfer Transfer, err error) {

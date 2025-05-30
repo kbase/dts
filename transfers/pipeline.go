@@ -49,8 +49,6 @@ type Pipeline struct {
 	pipeline PipelineChannels
 	// provider sequences (strings of stages) and associated their dispatch and return channels
 	providers map[string]ProviderSequence
-	// final stage for every transfer: generates manifest and marks transfer as completed
-	generateManifest pipeline.Processor[Transfer, Transfer]
 	// true iff the pipelines are running
 	running bool
 }
@@ -73,14 +71,14 @@ type ClientChannels struct {
 
 // communication between dispatch process and pipeline
 type PipelineChannels struct {
-	ReceivesTransferRequest chan IdAndSpecification // sends new task UUID to initial pipeline stage
-	CreatesTransfer         chan Transfer           // accepts newly created transfers (dispatch <- pipeline)
-	ReceivesCancellation    chan uuid.UUID
-	ReceivesDispatch        chan Task                 // dispatches tasks to providers (dispatch -> pipeline)
-	UpdatesStatus           chan TransferStatusUpdate // accepts transfer status updates (dispatch <- pipeline)
-	ReceivesCompletedTask   chan Task                 // (pipeline <- provider)
-	ReceivesStop            chan struct{}             // dispatches tasks to providers (dispatch -> pipeline)
-	ReportsError            chan error                // reports pipeline errors (dispatch <- pipeline)
+	ReceivesTransferRequest   chan IdAndSpecification // sends new task UUID to initial pipeline stage
+	CreatesTransfer           <-chan Transfer         // accepts newly created transfers (dispatch <- pipeline)
+	ReceivesCancellation      chan uuid.UUID
+	ReceivesDispatch          chan Task                 // dispatches tasks to providers (dispatch -> pipeline)
+	UpdatesStatus             chan TransferStatusUpdate // accepts transfer status updates (dispatch <- pipeline)
+	ReceivesCompletedTransfer <-chan Transfer           // (pipeline <- provider)
+	ReceivesStop              chan struct{}             // dispatches tasks to providers (dispatch -> pipeline)
+	ReportsError              chan error                // reports pipeline errors (dispatch <- pipeline)
 }
 
 // sequence of provider-specific stages
@@ -92,7 +90,7 @@ type ProviderSequence struct {
 // channels used to dispatch tasks to provider sequences and return them completed
 type ProviderSequenceChannels struct {
 	Dispatch chan Task
-	Complete chan<- Task
+	Complete chan Task
 }
 
 // information about a specific transfer status update (dispatch <- pipeline)
@@ -103,8 +101,8 @@ type TransferStatusUpdate struct {
 
 func CreatePipeline() (*Pipeline, error) {
 	taskComplete := make(chan Task, 32)
-	var taskCompleteIn chan<- Task = taskComplete        // for providers
-	statusUpdates := make(chan TransferStatusUpdate, 32) // channel for updating task statuses
+	var taskCompleteIn chan<- Task = taskComplete       // for providers
+	statusUpdate := make(chan TransferStatusUpdate, 32) // channel for updating task statuses
 	p := Pipeline{
 		context: context.TODO(),
 		client: ClientChannels{
@@ -118,20 +116,18 @@ func CreatePipeline() (*Pipeline, error) {
 		},
 		pipeline: PipelineChannels{
 			ReceivesTransferRequest: make(chan IdAndSpecification, 32),
-			CreatesTransfer:         make(chan Transfer, 32),
 			ReceivesCancellation:    make(chan uuid.UUID, 32),
-			ReceivesDispatch:        make(chan Task, 32),
-			UpdatesStatus:           make(chan TransferStatusUpdate, 32),
-			ReceivesCompletedTask:   taskComplete,
+			UpdatesStatus:           statusUpdate,
 			ReceivesStop:            make(chan struct{}),
 			ReportsError:            make(chan error, 32),
 		},
 		providers: map[string]ProviderSequence{
-			"jdp->kbase":  JdpToKBase(statusUpdates, taskCompleteIn),
-			"nmdc->kbase": NmdcToKBase(statusUpdates, taskCompleteIn),
+			"jdp->kbase":  JdpToKBase(statusUpdate, taskCompleteIn),
+			"nmdc->kbase": NmdcToKBase(statusUpdate, taskCompleteIn),
 		},
-		generateManifest: GenerateManifest(),
 	}
+
+	p.assemble()
 
 	return &p, nil
 }
@@ -215,6 +211,15 @@ func (p *Pipeline) Stop() error {
 	} else {
 		return &NotRunningError{}
 	}
+}
+
+func (p *Pipeline) assemble() {
+	// wire together the pipeline's stages
+	// FIXME: include error channel!
+	statusUpdate := p.pipeline.UpdatesStatus
+	stages := pipeline.Join(CreateNewTransfer(statusUpdate), DispatchToProvider(p.providers, statusUpdate))
+	stages = pipeline.Join(stages, GenerateManifest(statusUpdate))
+	p.pipeline.ReceivesCompletedTransfer = pipeline.ProcessConcurrently(p.context, 1, stages, p.pipeline.ReceivesTransferRequest)
 }
 
 // this goroutine accepts client requests and dispatches them to pipelines
@@ -345,7 +350,7 @@ func (p *Pipeline) listenToClients() {
 
 		case pipelineError := <-pipelineReportsError:
 			// for now, we log pipeline errors when received
-			slog.Error("Pipeline error: %s", pipelineError.Error())
+			slog.Error(fmt.Sprintf("Pipeline error: %s", pipelineError.Error()))
 
 		case <-recordPurgeRequested:
 			// comb over transfer records, purging those that have aged out
@@ -362,46 +367,19 @@ func (p *Pipeline) listenToClients() {
 
 // this goroutine handles all pipeline activity
 func (p *Pipeline) runPipelines() {
-	// this function generates a provider dispatch key given a Specification
-	providerKey := func(source, destination string) string {
-		return fmt.Sprintf("%s->%s", source, destination)
-	}
 
 	// channels for communicating with dispatch
-	var pipelineReceivesTransferRequest <-chan IdAndSpecification = p.pipeline.ReceivesTransferRequest
-	var pipelineCreatesTransfer chan<- Transfer = p.pipeline.CreatesTransfer
-	var pipelineReceivesDispatch <-chan Task = p.pipeline.ReceivesDispatch
 	var pipelineReceivesCancellation <-chan uuid.UUID = p.pipeline.ReceivesCancellation
 	var pipelineUpdatesStatus chan<- TransferStatusUpdate = p.pipeline.UpdatesStatus
-	var pipelineReceivesCompletedTask <-chan Task = p.pipeline.ReceivesCompletedTask
 	var pipelineReceivesStop <-chan struct{} = p.pipeline.ReceivesStop
-	var pipelineReportsError chan<- error = p.pipeline.ReportsError
 
 	// handle messages from dispatch
 	for {
 		select {
-		case idAndSpec := <-pipelineReceivesTransferRequest:
-			newTransfer, err := createNewTransfer(idAndSpec.Id, idAndSpec.Specification)
-			if err != nil {
-				pipelineReportsError <- err
-			} else {
-				pipelineCreatesTransfer <- newTransfer
-			}
-
-		case task := <-pipelineReceivesDispatch:
-			key := providerKey(task.Source, task.Destination)
-			if provider, found := p.providers[key]; found {
-				provider.Channels.Dispatch <- task
-			} else {
-				pipelineReportsError <- &InvalidSourceError{} // FIXME: or destination!
-			}
-
-		case task := <-pipelineReceivesCompletedTask:
-			// FIXME: generate manifest
-			pipelineUpdatesStatus <- TransferStatusUpdate{
-				Id: task.TransferId,
-				// FIXME: status!
-			}
+		/*
+			case transfer := <-pipelineReceivesCompletedTransfer:
+				// FIXME: ???
+		*/
 
 		case transferId := <-pipelineReceivesCancellation:
 			// FIXME:
@@ -415,138 +393,6 @@ func (p *Pipeline) runPipelines() {
 
 		}
 	}
-}
-
-// creates a new Transfer with the given ID from the given Specification
-func createNewTransfer(id uuid.UUID, spec Specification) (Transfer, error) {
-	// access the source database, resolving resource descriptors
-	source, err := databases.NewDatabase(spec.Source)
-	if err != nil {
-		return Transfer{}, err
-	}
-
-	transfer := Transfer{
-		Id:            uuid.New(),
-		Specification: spec,
-		Status: TransferStatus{
-			Code:     TransferStatusNew,
-			NumFiles: len(spec.FileIds),
-		},
-		Tasks: make([]Task, 0),
-	}
-
-	transfer.DataDescriptors = make([]any, 0)
-	{
-		descriptors, err := source.Descriptors(transfer.Specification.User.Orcid, transfer.Specification.FileIds)
-		if err != nil {
-			return Transfer{}, err
-		}
-
-		// sift through the descriptors and separate files from in-line data
-		for _, descriptor := range descriptors {
-			if _, found := descriptor["path"]; found { // file to be transferred
-				transfer.DataDescriptors = append(transfer.DataDescriptors, descriptor)
-			} else if _, found := descriptor["data"]; found { // inline data
-				transfer.DataDescriptors = append(transfer.DataDescriptors, descriptor)
-			} else { // neither!
-				err = fmt.Errorf("Descriptor '%s' (ID: %s) has no 'path' or 'data' field!",
-					descriptor["name"], descriptor["id"])
-				break
-			}
-		}
-		if err != nil {
-			return Transfer{}, err
-		}
-	}
-
-	// if the database stores its files in more than one location, check that each
-	// resource is associated with a valid endpoint
-	if len(config.Databases[transfer.Specification.Source].Endpoints) > 1 {
-		for _, d := range transfer.DataDescriptors {
-			descriptor := d.(map[string]any)
-			id := descriptor["id"].(string)
-			endpoint := descriptor["endpoint"].(string)
-			if endpoint == "" {
-				return Transfer{}, &databases.ResourceEndpointNotFoundError{
-					Database:   transfer.Specification.Source,
-					ResourceId: id,
-				}
-			}
-			if _, found := config.Endpoints[endpoint]; !found {
-				return Transfer{}, &databases.InvalidResourceEndpointError{
-					Database:   transfer.Specification.Source,
-					ResourceId: id,
-					Endpoint:   endpoint,
-				}
-			}
-		}
-	} else { // otherwise, just assign the database's endpoint to the resources
-		for _, d := range transfer.DataDescriptors {
-			descriptor := d.(map[string]any)
-			descriptor["endpoint"] = config.Databases[transfer.Specification.Source].Endpoint
-		}
-	}
-
-	// make sure the size of the payload doesn't exceed our specified limit
-	transfer.PayloadSize = payloadSize(transfer.DataDescriptors) // (in GB)
-	if transfer.PayloadSize > config.Service.MaxPayloadSize {
-		return Transfer{}, &PayloadTooLargeError{Size: transfer.PayloadSize}
-	}
-
-	// determine the destination endpoint
-	// FIXME: this conflicts with our redesign!!
-	destinationEndpoint := config.Databases[transfer.Specification.Destination].Endpoint
-
-	// construct a destination folder name
-	destination, err := databases.NewDatabase(transfer.Specification.Destination)
-	if err != nil {
-		return Transfer{}, err
-	}
-
-	username, err := destination.LocalUser(transfer.Specification.User.Orcid)
-	if err != nil {
-		return Transfer{}, err
-	}
-	transfer.DestinationFolder = filepath.Join(username, "dts-"+transfer.Id.String())
-
-	// assemble distinct endpoints and create a task for each
-	distinctEndpoints := make(map[string]any)
-	for _, d := range transfer.DataDescriptors {
-		descriptor := d.(map[string]any)
-		endpoint := descriptor["endpoint"].(string)
-		if _, found := distinctEndpoints[endpoint]; !found {
-			distinctEndpoints[endpoint] = struct{}{}
-		}
-	}
-	for sourceEndpoint := range distinctEndpoints {
-		// pick out the files corresponding to the source endpoint
-		// NOTE: this is slow, but preserves file ID ordering
-		descriptorsForEndpoint := make([]any, 0)
-		for _, d := range transfer.DataDescriptors {
-			descriptor := d.(map[string]any)
-			endpoint := descriptor["endpoint"].(string)
-			if endpoint == sourceEndpoint {
-				descriptorsForEndpoint = append(descriptorsForEndpoint, descriptor)
-			}
-		}
-
-		// set up a task for the endpoint
-		transfer.Tasks = append(transfer.Tasks, Task{
-			TransferId:          transfer.Id,
-			Destination:         transfer.Specification.Destination,
-			DestinationEndpoint: destinationEndpoint,
-			DestinationFolder:   transfer.DestinationFolder,
-			Descriptors:         descriptorsForEndpoint,
-			Source:              transfer.Specification.Source,
-			SourceEndpoint:      sourceEndpoint,
-			Status: TaskStatus{
-				Code: TaskStatusNew,
-			},
-			User: transfer.Specification.User,
-		})
-	}
-
-	return transfer, nil
 }
 
 //------------------------------------
@@ -672,14 +518,4 @@ func validateDirectory(dirType, dir string) error {
 		}
 	}
 	return nil
-}
-
-// computes the size of a payload for a transfer (in Gigabytes)
-func payloadSize(descriptors []any) float64 {
-	var size uint64
-	for _, d := range descriptors {
-		descriptor := d.(map[string]any)
-		size += uint64(descriptor["bytes"].(int))
-	}
-	return float64(size) / float64(1024*1024*1024)
 }

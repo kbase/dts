@@ -101,7 +101,7 @@ const (
 	TransferStatusProcessing
 	TransferStatusFinalizing
 	TransferStatusCanceled
-	TransferStatusCompleted
+	TransferStatusSucceeded
 	TransferStatusFailed
 )
 
@@ -138,7 +138,7 @@ const (
 	TaskStatusTransferring
 	TaskStatusProcessing
 	TaskStatusCanceled
-	TaskStatusCompleted
+	TaskStatusSucceeded
 	TaskStatusFailed
 )
 
@@ -298,7 +298,9 @@ type PipelineChannels struct {
 // stages common to all transfers
 type DispatchStages struct {
 	// initial stage: creates a transfer from a specification
-	CreateTransfer pipeline.Processor[Specification, Transfer]
+	CreateTransfer pipeline.Processor[IdAndSpecification, Transfer]
+	// final stage: generates a manifest for a completed transfer
+	GenerateManifest pipeline.Processor[Transfer, Transfer]
 }
 
 // sequence of provider-specific stages
@@ -309,8 +311,8 @@ type ProviderSequence struct {
 
 // channels used to dispatch tasks to provider sequences and return them completed
 type ProviderSequenceChannels struct {
-	Dispatch <-chan Task
-	Complete chan<- Task
+	Dispatch chan Task
+	Complete chan Task
 }
 
 // information about a specific transfer status update (dispatch <- pipeline)
@@ -452,7 +454,7 @@ func (p *Pipeline) listenToClients() {
 	// restore our registry of transfers
 	transfers, err := loadTransfers(saveFile)
 	if err != nil {
-		return err
+		slog.Error("Couldn't load existing transfers!")
 	}
 	// feed any transfers still in progress back to their provider
 	/* FIXME:
@@ -469,30 +471,28 @@ func (p *Pipeline) listenToClients() {
 	}
 	*/
 
-	ctx := context.TODO()
-
 	// channels for communicating with the client
-	var clientRequestsTransfer <-chan Specification = p.Client.RequestsTransfer
-	var clientReceivesTransferId chan<- uuid.UUID = p.Client.ReceivesTransferId
-	var clientCancelsTransfer <-chan uuid.UUID = p.Client.CancelsTransfer
-	var clientRequestsStatus <-chan uuid.UUID = p.Client.RequestsStatus
-	var clientReceivesStatus chan<- TransferStatus = p.Client.ReceivesStatus
-	var clientRequestsStop <-chan struct{} = p.Client.RequestsStop
-	var clientReceivesError chan<- error = p.Client.ReceivesError
+	var clientRequestsTransfer <-chan Specification = p.client.RequestsTransfer
+	var clientReceivesTransferId chan<- uuid.UUID = p.client.ReceivesTransferId
+	var clientCancelsTransfer <-chan uuid.UUID = p.client.CancelsTransfer
+	var clientRequestsStatus <-chan uuid.UUID = p.client.RequestsStatus
+	var clientReceivesStatus chan<- TransferStatus = p.client.ReceivesStatus
+	var clientRequestsStop <-chan struct{} = p.client.RequestsStop
+	var clientReceivesError chan<- error = p.client.ReceivesError
 
 	// channels for communicating with the pipeline
-	var pipelineReceivesTransferRequest chan<- IdAndSpecification = p.Pipeline.ReceivesTransferRequest
-	var pipelineCreatesTransfer <-chan Transfer = p.Pipeline.CreatesTransfer
-	var pipelineReceivesCancellation chan<- uuid.UUID = p.Pipeline.ReceivesCancellation
-	var pipelineReceivesDispatch chan<- Task = p.Pipeline.ReceivesDispatch
-	var pipelineUpdatesStatus <-chan TransferStatusUpdate = p.Pipeline.UpdatesStatus
-	var pipelineReceivesStop chan<- struct{} = p.Pipeline.ReceivesStop
-	var pipelineReportsError <-chan error = p.Pipeline.ReportsError
+	var pipelineReceivesTransferRequest chan<- IdAndSpecification = p.pipeline.ReceivesTransferRequest
+	var pipelineCreatesTransfer <-chan Transfer = p.pipeline.CreatesTransfer
+	var pipelineReceivesCancellation chan<- uuid.UUID = p.pipeline.ReceivesCancellation
+	var pipelineReceivesDispatch chan<- Task = p.pipeline.ReceivesDispatch
+	var pipelineUpdatesStatus <-chan TransferStatusUpdate = p.pipeline.UpdatesStatus
+	var pipelineReceivesStop chan<- struct{} = p.pipeline.ReceivesStop
+	var pipelineReportsError <-chan error = p.pipeline.ReportsError
 
 	// the task deletion period is specified in seconds
 	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
 
-	// start handling requests
+	// start handling client requests and coordinating with the pipeline
 	for {
 		select {
 		case spec := <-clientRequestsTransfer:
@@ -507,6 +507,7 @@ func (p *Pipeline) listenToClients() {
 				Id:            transferId,
 				Specification: spec,
 			}
+
 		case transferId := <-clientCancelsTransfer:
 			if _, found := transfers[transferId]; found {
 				slog.Info(fmt.Sprintf("Transfer %s: received cancellation request", transferId.String()))
@@ -515,6 +516,7 @@ func (p *Pipeline) listenToClients() {
 				err := &NotFoundError{Id: transferId}
 				clientReceivesError <- err
 			}
+
 		case transferId := <-clientRequestsStatus:
 			if record, found := transfers[transferId]; found {
 				clientReceivesStatus <- record.Status
@@ -522,12 +524,26 @@ func (p *Pipeline) listenToClients() {
 				err := &NotFoundError{Id: transferId}
 				clientReceivesError <- err
 			}
+
 		case <-clientRequestsStop:
 			err := saveTransfers(transfers, saveFile)
 			if err != nil {
 				clientReceivesError <- err
 			}
 			pipelineReceivesStop <- struct{}{}
+
+		case newTransfer := <-pipelineCreatesTransfer:
+			// the dispatch maintains transfer status information
+			transfers[newTransfer.Id] = newTransfer
+			// dispatch transfer tasks to the pipeline
+			for _, task := range newTransfer.Tasks {
+				pipelineReceivesDispatch <- task
+			}
+
+		case pipelineError := <-pipelineReportsError:
+			// for now, we log pipeline errors when received
+			slog.Error("Pipeline error: %s", pipelineError.Error())
+
 		case statusUpdate := <-pipelineUpdatesStatus:
 			if record, found := transfers[statusUpdate.Id]; found {
 				if statusUpdate.Status.Code != record.Status.Code {
@@ -555,8 +571,50 @@ func (p *Pipeline) listenToClients() {
 // this goroutine handles all pipeline activity
 func (p *Pipeline) runPipelines() {
 	// this function generates a provider dispatch key given a Specification
-	providerKey := func(spec Specification) string {
-		return fmt.Sprintf("%s->%s", spec.Source, spec.Destination)
+	providerKey := func(source, destination string) string {
+		return fmt.Sprintf("%s->%s", source, destination)
+	}
+
+	// channels for communicating with dispatch
+	var pipelineReceivesTransferRequest <-chan IdAndSpecification = p.pipeline.ReceivesTransferRequest
+	var pipelineCreatesTransfer chan<- Transfer = p.pipeline.CreatesTransfer
+	var pipelineReceivesDispatch <-chan Task = p.pipeline.ReceivesDispatch
+	var pipelineReceivesCancellation <-chan uuid.UUID = p.pipeline.ReceivesCancellation
+	var pipelineUpdatesStatus chan<- TransferStatusUpdate = p.pipeline.UpdatesStatus
+	var pipelineReceivesStop <-chan struct{} = p.pipeline.ReceivesStop
+	var pipelineReportsError chan<- error = p.pipeline.ReportsError
+
+	// handle messages from dispatch
+	for {
+		select {
+		case idAndSpec := <-pipelineReceivesTransferRequest:
+			newTransfer, err := createNewTransfer(idAndSpec.Id, idAndSpec.Specification)
+			if err != nil {
+				pipelineReportsError <- err
+			} else {
+				pipelineCreatesTransfer <- newTransfer
+			}
+
+		case task := <-pipelineReceivesDispatch:
+			key := providerKey(task.Source, task.Destination)
+			if sequence, found := p.providerSequences[key]; found {
+				sequence.Channels.Dispatch <- task
+				// FIXME: how to collect results?
+			} else {
+				pipelineReportsError <- &InvalidSourceError{} // FIXME: or destination!
+			}
+
+		case transferId := <-pipelineReceivesCancellation:
+			// FIXME:
+			pipelineUpdatesStatus <- TransferStatusUpdate{
+				Id: transferId,
+				// FIXME: status!
+			}
+
+		case <-pipelineReceivesStop:
+			// FIXME:
+
+		}
 	}
 }
 

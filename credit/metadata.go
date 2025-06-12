@@ -187,8 +187,8 @@ type PermanentID struct {
 	 */
 	Description string `json:"description"`
 	/*
-		 * The relationship between the ID and some other entity.
-	For example, when a PermanentID class is used to represent objects in the CreditMetadata field 'related_identifiers', the 'relationship_type' field captures the relationship between the resource being registered and this ID.
+			 * The relationship between the ID and some other entity.
+		For example, when a PermanentID class is used to represent objects in the CreditMetadata field 'related_identifiers', the 'relationship_type' field captures the relationship between the resource being registered and this ID.
 
 	*/
 	RelationshipType string `json:"relationship_type"`
@@ -279,9 +279,9 @@ type CreditMetadata struct {
 	 */
 	Identifier string `json:"identifier"`
 	/*
-		 * Usage license for the resource. Use one of the SPDX license identifiers or provide a link to the license text if no SPDX ID is available.
+			 * Usage license for the resource. Use one of the SPDX license identifiers or provide a link to the license text if no SPDX ID is available.
 
-	All data published at KBase is done so under a Creative Commons 0 or Creative Commons 4.0 license.
+		All data published at KBase is done so under a Creative Commons 0 or Creative Commons 4.0 license.
 
 	*/
 	License License `json:"license"`

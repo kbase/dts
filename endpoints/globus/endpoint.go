@@ -408,11 +408,11 @@ func (ep *Endpoint) authenticate() error {
 			return fmt.Errorf("Couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
 		}
 		if len(authError.Description) > 0 {
-			return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s (%d)",
-				authError.Error, resp.StatusCode)
+			return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s; %s (%d)",
+				authError.Error, authError.Description, resp.StatusCode)
 		}
-		return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s; %s (%d)",
-			authError.Error, authError.Description, resp.StatusCode)
+		return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s (%d)",
+			authError.Error, resp.StatusCode)
 	}
 
 	// read and unmarshal the response

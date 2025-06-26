@@ -4,6 +4,7 @@
 # service parameters
 service:
   name: dev                  # descriptive name for config (e.g. dev, prod)
+  secret: <secret>           # the secret that decrypt's the DTS authenticator access file
   port: 8080                 # port on which the service listenѕ
   max_connections: 100       # maximum number of incoming HTTP connections
   max_payload_size: 100      # limit (if any) on DTS payload size (gigabytes)

@@ -72,6 +72,10 @@ func Start() error {
 	// if this is the first call to Start(), register our built-in endpoint
 	// and database providers
 	if firstCall {
+		// start a transfer log/journal
+		handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+		transferJournal = slog.New(handler)
+
 		// NOTE: it's okay if these endpoint providers have already been registered,
 		// NOTE: as they can be used in testing
 		err := endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
@@ -259,6 +263,8 @@ var firstCall = true            // indicates first call to Start()
 var running bool                // true if tasks are processing, false if not
 var taskChannels channelsType   // channels used for processing tasks
 var stopHeartbeat chan struct{} // send a pulse to this channel to halt polling
+
+var transferJournal *slog.Logger
 
 // loads a map of task IDs to tasks from a previously saved file if available,
 // or creates an empty map if no such file is available or valid

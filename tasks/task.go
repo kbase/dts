@@ -37,6 +37,7 @@ import (
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
+	"github.com/kbase/dts/journal"
 )
 
 // This type tracks the lifecycle of a file transfer task that copies files from
@@ -175,6 +176,17 @@ func (task *transferTask) start() error {
 			err = subErr
 		}
 	}
+	if err != nil {
+		return err
+	}
+
+	// log the new transfer
+	payloadSizeBytes := int64(1024*1024*1024*task.PayloadSize)
+	numFiles := 0
+	for _, subTask := range task.Subtasks {
+		numFiles += subTask.TransferStatus.NumFiles
+	}
+	err = journal.LogNewTransfer(task.Id, task.Source, task.Destination, task.User.Orcid, payloadSizeBytes, numFiles)
 
 	// provisionally, we set the tasks's status to "staging"
 	task.Status.Code = TransferStatusStaging
@@ -300,7 +312,7 @@ func (task *transferTask) Cancel() error {
 	for i := range task.Subtasks { // cancel subtasks
 		task.Subtasks[i].cancel()
 	}
-	return nil
+	return journal.LogTransferCancellation(task.Id)
 }
 
 // returns the duration since the task completed (successfully or otherwise),
@@ -397,6 +409,7 @@ func (task *transferTask) checkManifest() error {
 	}
 	if xferStatus.Code == TransferStatusSucceeded ||
 		xferStatus.Code == TransferStatusFailed { // manifest transferred
+		journal.LogTransferCompletion(task.Id, task.ManifestFile)
 		task.Manifest = uuid.NullUUID{}
 		os.Remove(task.ManifestFile)
 

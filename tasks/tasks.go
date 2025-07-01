@@ -43,6 +43,7 @@ import (
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/local"
+	"github.com/kbase/dts/journal"
 )
 
 // useful type aliases
@@ -72,9 +73,6 @@ func Start() error {
 	// if this is the first call to Start(), register our built-in endpoint
 	// and database providers
 	if firstCall {
-		// start a transfer log/journal
-		handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-		transferJournal = slog.New(handler)
 
 		// NOTE: it's okay if these endpoint providers have already been registered,
 		// NOTE: as they can be used in testing
@@ -105,6 +103,10 @@ func Start() error {
 				return err
 			}
 		}
+
+		// fire up the transfer journal
+		journal.Init()
+
 		firstCall = false
 	}
 
@@ -158,6 +160,7 @@ func Stop() error {
 	if running {
 		taskChannels.Stop <- struct{}{}
 		err = <-taskChannels.Error
+		journal.Finalize()
 		running = false
 	} else {
 		err = &NotRunningError{}
@@ -226,6 +229,7 @@ func Create(spec Specification) (uuid.UUID, error) {
 	case taskId = <-taskChannels.ReturnTaskId:
 	case err = <-taskChannels.Error:
 	}
+
 	return taskId, err
 }
 
@@ -263,8 +267,6 @@ var firstCall = true            // indicates first call to Start()
 var running bool                // true if tasks are processing, false if not
 var taskChannels channelsType   // channels used for processing tasks
 var stopHeartbeat chan struct{} // send a pulse to this channel to halt polling
-
-var transferJournal *slog.Logger
 
 // loads a map of task IDs to tasks from a previously saved file if available,
 // or creates an empty map if no such file is available or valid
@@ -428,6 +430,7 @@ func processTasks() {
 							slog.Info(fmt.Sprintf("Task %s: completed successfully", task.Id.String()))
 						case TransferStatusFailed:
 							slog.Info(fmt.Sprintf("Task %s: failed", task.Id.String()))
+							journal.LogTransferFailure(task.Id)
 						}
 					}
 				}

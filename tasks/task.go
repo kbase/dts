@@ -181,7 +181,7 @@ func (task *transferTask) start() error {
 	}
 
 	// log the new transfer
-	payloadSizeBytes := int64(1024*1024*1024*task.PayloadSize)
+	payloadSizeBytes := int64(1024 * 1024 * 1024 * task.PayloadSize)
 	numFiles := 0
 	for _, subTask := range task.Subtasks {
 		numFiles += subTask.TransferStatus.NumFiles
@@ -312,7 +312,7 @@ func (task *transferTask) Cancel() error {
 	for i := range task.Subtasks { // cancel subtasks
 		task.Subtasks[i].cancel()
 	}
-	return journal.LogTransferCancellation(task.Id)
+	return journal.LogCanceledTransfer(task.Id)
 }
 
 // returns the duration since the task completed (successfully or otherwise),
@@ -409,7 +409,7 @@ func (task *transferTask) checkManifest() error {
 	}
 	if xferStatus.Code == TransferStatusSucceeded ||
 		xferStatus.Code == TransferStatusFailed { // manifest transferred
-		journal.LogTransferCompletion(task.Id, task.ManifestFile)
+		journal.LogCompletedTransfer(task.Id, task.ManifestFile)
 		task.Manifest = uuid.NullUUID{}
 		os.Remove(task.ManifestFile)
 

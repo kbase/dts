@@ -23,9 +23,7 @@ package journal
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -43,46 +41,62 @@ import (
 
 // initialize the DTS transfer journal
 func Init() error {
-	dbPath := filepath.Join(config.Service.DataDirectory, fmt.Sprintf("%s-journal.db", config.Service.Name))
-
-	var err error
-	var flags sqlite.OpenFlags
-	if _, err = os.Stat(dbPath); err == nil { // database exists, so open read-write
-		flags = sqlite.OpenReadWrite
-	} else if errors.Is(err, os.ErrNotExist) { // database does not exist, so create it
-		flags = sqlite.OpenCreate
-	} else { // database file may or may not exist? Only the error knows for certain
-		return err
+	if !IsOpen() {
+		var err error
+		dbPath := filepath.Join(config.Service.DataDirectory, fmt.Sprintf("%s-journal.db", config.Service.Name))
+		conn_, err = sqlite.OpenConn(dbPath)
+		if err != nil {
+			return err
+		}
+		return createSchema()
 	}
-
-	conn_, err = sqlite.OpenConn(dbPath, flags)
-	if err != nil {
-		return err
-	}
-	return createSchema()
+	return nil
 }
 
 // saves and closes the DTS transfer journal (if it's been opened)
 func Finalize() error {
 	if conn_ != nil {
-		return conn_.Close()
+		err := conn_.Close()
+		conn_ = nil
+		return err
 	}
 	return nil
 }
 
+// returns true if the journal is open for writing, false if not
+func IsOpen() bool {
+	return conn_ != nil
+}
+
 // records a newly requested transfer with the given information
+// id: the unique identifier for the transfer
+// source: the name of the database from which files are transfered
+// destination: the name of the database to which files are transfered
+// orcid: the ORCID for the user requesting the transfer
+// payloadSize: the size of the transfer's payload in bytes, excluding the manifest
+// numFiles: the number of files in the transfer's payload, excluding the manifest
 func LogNewTransfer(id uuid.UUID, source, destination, orcid string, payloadSize int64, numFiles int) error {
-	return sqlitex.Execute(conn_, "INSERT dts.transfers (id, source, destination, orcid, start_time, payload_size, num_files) VALUES (?, ?, ?, ?, ?, ?, ?);", 
+	if !IsOpen() {
+		return &NotOpenError{}
+	}
+	formattedStartTime := time.Now().Format(time.DateTime)
+	return sqlitex.Execute(conn_, "INSERT INTO transfers (id, source, destination, orcid, start_time, payload_size, num_files) VALUES (?, ?, ?, ?, ?, ?, ?);",
 		&sqlitex.ExecOptions{
-			Args: []any{id.String(), source, destination, orcid, time.Now().String(), payloadSize, numFiles},
+			Args: []any{id.String(), source, destination, orcid, formattedStartTime, payloadSize, numFiles},
 		})
 }
 
 // records the successful completion of an existing transfer
-func LogTransferCompletion(id uuid.UUID, manifestFile string) error {
-	err := sqlitex.Execute(conn_, "UPDATE dts.transfers SET stop_time = ?, status = 'succeeded' WHERE id = ?;", 
+// id: the unique identifier for the transfer
+// manifestFile: the path to the manifest file (to be read and included in the journal)
+func LogCompletedTransfer(id uuid.UUID, manifestFile string) error {
+	if !IsOpen() {
+		return &NotOpenError{}
+	}
+	formattedStopTime := time.Now().Format(time.DateTime)
+	err := sqlitex.Execute(conn_, "UPDATE transfers SET stop_time = ?, status = 'succeeded' WHERE id = ?;",
 		&sqlitex.ExecOptions{
-			Args: []any{time.Now().String(), id.String()},
+			Args: []any{formattedStopTime, id.String()},
 		})
 	if err != nil {
 		return err
@@ -90,36 +104,44 @@ func LogTransferCompletion(id uuid.UUID, manifestFile string) error {
 
 	// store the manifest for the completed transfer
 	manifest, err := datapackage.Load(manifestFile, validator.InMemoryLoader())
+	if err != nil {
+		return err
+	}
 	jsonManifest, err := json.Marshal(manifest.Descriptor())
-	return sqlitex.Execute(conn_, "INSERT dts.manifests (id, manifest) VALUES (?, JSON(?));", 
+	if err != nil {
+		return err
+	}
+	return sqlitex.Execute(conn_, "INSERT INTO manifests (id, manifest) VALUES (?, JSON(?));",
 		&sqlitex.ExecOptions{
 			Args: []any{id.String(), string(jsonManifest)},
 		})
 }
 
 // records the unsuccessful termination of an existing transfer
-func LogTransferFailure(id uuid.UUID) error {
-	return sqlitex.Execute(conn_, "UPDATE dts.transfers SET stop_time = ?, status = 'failed' WHERE id = ?;", 
+// id: the unique identifier for the transfer
+func LogFailedTransfer(id uuid.UUID) error {
+	if !IsOpen() {
+		return &NotOpenError{}
+	}
+	return sqlitex.Execute(conn_, "UPDATE transfers SET stop_time = ?, status = 'failed' WHERE id = ?;",
 		&sqlitex.ExecOptions{
 			Args: []any{time.Now().String(), id.String()},
 		})
 }
 
 // records the cancellation of an existing transfer
-func LogTransferCancellation(id uuid.UUID) error {
-	return sqlitex.Execute(conn_, "UPDATE dts.transfers SET stop_time = ?, status = 'canceled' WHERE id = ?;", 
+// id: the unique identifier for the transfer
+func LogCanceledTransfer(id uuid.UUID) error {
+	if !IsOpen() {
+		return &NotOpenError{}
+	}
+	return sqlitex.Execute(conn_, "UPDATE transfers SET stop_time = ?, status = 'canceled' WHERE id = ?;",
 		&sqlitex.ExecOptions{
 			Args: []any{time.Now().String(), id.String()},
 		})
 }
 
-//-----------
-// Internals
-//-----------
-
-// transfer journal database connection
-var conn_ *sqlite.Conn
-
+// a record storing all information relevant to a transfer
 type Record struct {
 	// UUID associated with the transfer
 	Id uuid.UUID
@@ -134,17 +156,79 @@ type Record struct {
 	// status of the transfer (succeeded, failed, staging, transferring, canceled)
 	Status string
 	// size of the transfer's payload in bytes
-	PayloadSize int64 
+	PayloadSize int64
 	// number of files in the transfer's payload
 	NumFiles int
 	// manifest containing metadata for the transfer's payload
-	Manifest map[string]any
+	Manifest *datapackage.Package
 }
+
+// retrieves the transfer record for the given ID -- useful for testing
+// id: the unique identifier for the transfer
+func TransferRecord(id uuid.UUID) (Record, error) {
+	if !IsOpen() {
+		return Record{}, NotOpenError{}
+	}
+	var record Record
+	err := sqlitex.Execute(conn_, "SELECT source, destination, orcid, start_time, stop_time, status, payload_size, num_files FROM transfers WHERE id = ?;",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				formattedStartTime, err := time.Parse(time.DateTime, stmt.ColumnText(3))
+				if err != nil {
+					return err
+				}
+				formattedStopTime := time.Time{}
+				if stmt.ColumnText(4) != "" {
+					formattedStopTime, err = time.Parse(time.DateTime, stmt.ColumnText(4))
+					if err != nil {
+						return err
+					}
+				}
+				record = Record{
+					Id:          id,
+					Source:      stmt.ColumnText(0),
+					Destination: stmt.ColumnText(1),
+					Orcid:       stmt.ColumnText(2),
+					StartTime:   formattedStartTime,
+					StopTime:    formattedStopTime,
+					Status:      stmt.ColumnText(5),
+					PayloadSize: stmt.ColumnInt64(6),
+					NumFiles:    stmt.ColumnInt(7),
+				}
+				return nil
+			},
+			Args: []any{id.String()},
+		})
+
+	// get the manifest if possible
+	if record.Status == "succeeded" {
+		err = sqlitex.Execute(conn_, "SELECT manifest FROM manifests WHERE id = ?;",
+			&sqlitex.ExecOptions{
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					manifest, err := datapackage.FromString(stmt.ColumnText(0), "manifest.json", validator.InMemoryLoader())
+					if err != nil {
+						return err
+					}
+					record.Manifest = manifest
+					return nil
+				},
+				Args: []any{id.String()},
+			})
+	}
+	return record, err
+}
+
+//-----------
+// Internals
+//-----------
+
+// transfer journal database connection
+var conn_ *sqlite.Conn
 
 // creates the schema for the transfer journal when it's first created
 func createSchema() error {
-	script := 
-`CREATE TABLE IF NOT EXISTS dts.transfers (
+	script :=
+		`CREATE TABLE IF NOT EXISTS transfers (
 	id TEXT PRIMARY KEY,
 	source TEXT NOT NULL,
 	destination TEXT NOT NULL,
@@ -156,11 +240,10 @@ func createSchema() error {
 	num_files INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS dts.manifests (
+CREATE TABLE IF NOT EXISTS manifests (
 	id TEXT,
 	manifest TEXT NOT NULL
 );
 `
 	return sqlitex.ExecuteScript(conn_, script, nil)
 }
-

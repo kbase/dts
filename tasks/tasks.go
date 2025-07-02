@@ -430,7 +430,7 @@ func processTasks() {
 							slog.Info(fmt.Sprintf("Task %s: completed successfully", task.Id.String()))
 						case TransferStatusFailed:
 							slog.Info(fmt.Sprintf("Task %s: failed", task.Id.String()))
-							journal.LogTransferFailure(task.Id)
+							journal.LogFailedTransfer(task.Id)
 						}
 					}
 				}

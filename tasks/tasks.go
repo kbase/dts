@@ -85,23 +85,20 @@ func Start() error {
 				return err
 			}
 		}
+
+		// register databases
+		// NOTE: if this fails, we log it and continue, and the database is simply not available
 		if _, found := config.Databases["jdp"]; found {
 			err = databases.RegisterDatabase("jdp", jdp.NewDatabase)
-			if err != nil {
-				return err
-			}
 		}
 		if _, found := config.Databases["kbase"]; found {
 			err = databases.RegisterDatabase("kbase", kbase.NewDatabase)
-			if err != nil {
-				return err
-			}
 		}
 		if _, found := config.Databases["nmdc"]; found {
 			err = databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
-			if err != nil {
-				return err
-			}
+		}
+		if err != nil {
+			slog.Error(err.Error())
 		}
 
 		firstCall = false

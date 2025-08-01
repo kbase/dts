@@ -359,7 +359,7 @@ func (task *transferTask) createManifest() (*datapackage.Package, error) {
 	}
 
 	// NOTE: for non-custom transfers, we embed the local username for the destination database in
-	// NOTE: this record NOTE: in case it's useful (e.g. for the KBase staging service)
+	// this record in case it's useful (e.g. for the KBase staging service)
 	var err error
 	var username string
 	if _, err := endpoints.ParseCustomSpec(task.Destination); err != nil { // custom transfer?
@@ -395,8 +395,8 @@ func (task *transferTask) createManifest() (*datapackage.Package, error) {
 	return manifest, nil
 }
 
-// checks whether the file manifest for a task has been generated and, if so,
-// finalizes the transfer and marks the task as completed
+// checks whether the file manifest for a task has been transferred and, if so, finalizes the
+// transfer and marks the task as completed
 func (task *transferTask) checkManifest() error {
 	// has the manifest transfer completed?
 	localEndpoint, err := endpoints.NewEndpoint(config.Service.Endpoint)

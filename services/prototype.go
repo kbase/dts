@@ -133,7 +133,7 @@ func (service *prototype) Close() {
 // Version numbers
 var majorVersion = 0
 var minorVersion = 8
-var patchVersion = 0
+var patchVersion = 2
 
 // Version string
 var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
@@ -143,7 +143,7 @@ var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
 // encountered). This returns either an auth.User (if authorized via the DTS Authenticator) or
 // an auth.Client (if authorized via the KBase auth2 server).
 func authorize(authorizationHeader string) (any, error) {
-	if !strings.Contains(authorizationHeader, "Bearer") {
+	if !strings.Contains(authorizationHeader, "Bearer ") {
 		return auth.User{}, fmt.Errorf("Invalid authorization header")
 	}
 	b64Token := authorizationHeader[len("Bearer "):]
@@ -234,7 +234,6 @@ func (service *prototype) getDatabases(ctx context.Context,
 			Name:         db.Name,
 			Organization: db.Organization,
 		})
-		slog.Info(fmt.Sprintf("Oh yeah: %s\n", dbName))
 	}
 	slices.SortFunc(output.Body, func(db1, db2 DatabaseResponse) int { // sort by name
 		return cmp.Compare(db1.Name, db2.Name)

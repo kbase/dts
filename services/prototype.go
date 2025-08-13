@@ -71,6 +71,7 @@ func NewDTSPrototype() (TransferService, error) {
 	huma.Post(api, "/api/v1/transfers", service.createTransfer)
 	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
 	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)
+	huma.Post(api, "/api/v1/transfers/{id}/repeat", service.repeatTransfer)
 
 	return service, nil
 }
@@ -775,6 +776,75 @@ func (service *prototype) deleteTransfer(ctx context.Context,
 	}
 	return &TaskDeletionOutput{
 		Status: http.StatusAccepted,
+	}, nil
+}
+
+// handler method for repeating a prior file transfer operation
+func (service *prototype) repeatTransfer(ctx context.Context,
+	input *struct {
+		Authorization string `header:"Authorization" doc:"Authorization header with encoded access token"`
+		Body          string `doc:"The body of a POST request for a repeated file transfer (the UUID of the transfer to repeat)"`
+		ContentType   string `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
+	}) (*TransferOutput, error) {
+
+	userOrClient, err := authorize(input.Authorization)
+	if err != nil {
+		return nil, err
+	}
+
+	// fetch information about the requesting user
+	user, isUser := userOrClient.(auth.User)
+	if !isUser {
+		client := userOrClient.(auth.Client)
+		user = auth.User{
+			Name:         client.Name,
+			Email:        client.Email,
+			Orcid:        client.Orcid,
+			Organization: client.Organization,
+		}
+	}
+
+	// pull up information on the transfer to be repeated
+	// FIXME:
+	var request TransferRequest
+
+	if request.Orcid == "" {
+		return nil, huma.Error401Unauthorized("No user ORCID was provided")
+	}
+	if !isUser {
+		// Override the client's ORCID
+		user.Orcid = request.Orcid
+	} else {
+		// a user is requesting a transfer on behalf of another user
+		// FIXME: for now, we only extract the ORCID and keep everything else the same, but at length
+		// FIXME: we should fill in the other fields with the ORCID public record
+		user.Orcid = request.Orcid
+	}
+
+	taskId, err := tasks.Create(tasks.Specification{
+		User:         auth.User{Orcid: request.Orcid},
+		Source:       request.Source,
+		Destination:  request.Destination,
+		FileIds:      request.FileIds,
+		Description:  request.Description,
+		Instructions: request.Instructions,
+	})
+	if err != nil {
+		slog.Error(err.Error())
+		switch err.(type) {
+		case *tasks.NoFilesRequestedError:
+			return nil, huma.Error400BadRequest(err.Error())
+		case *databases.NotFoundError:
+			return nil, huma.Error404NotFound(err.Error())
+		default:
+			return nil, huma.Error500InternalServerError(err.Error())
+		}
+	}
+	return &TransferOutput{
+		Body: TransferResponse{
+			Id: taskId,
+		},
+		Status: http.StatusCreated,
 	}, nil
 }
 

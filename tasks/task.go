@@ -246,7 +246,7 @@ func (task *transferTask) Update() error {
 				task.Status.NumFiles += subtask.TransferStatus.NumFiles
 				if subtask.Staging.Valid {
 					subtaskStaging = true
-				} else if subtask.Transfer.Valid {
+				} else {
 					task.Status.NumFilesTransferred += subtask.TransferStatus.NumFilesTransferred
 					task.Status.NumFilesSkipped += subtask.TransferStatus.NumFilesSkipped
 				}

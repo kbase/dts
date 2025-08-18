@@ -54,6 +54,45 @@ func usage() {
 	os.Exit(1)
 }
 
+// this Handler dispatches a log messages to a log file in addition to stdout, which is useful for
+// debugging in NERSC's Spin environment
+type SpinLogHandler struct {
+	File, Stdout slog.Handler
+}
+
+func NewSpinLogHandler(logFile io.Writer, logLevel *slog.LevelVar) *SpinLogHandler {
+	return &SpinLogHandler{
+		File:   slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: logLevel}),
+		Stdout: slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}),
+	}
+}
+
+func (h *SpinLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.Stdout.Enabled(ctx, level)
+}
+
+func (h *SpinLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	err := h.Stdout.Handle(ctx, record)
+	if err != nil {
+		return err
+	}
+	return h.File.Handle(ctx, record)
+}
+
+func (h *SpinLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &SpinLogHandler{
+		File:   h.File.WithAttrs(attrs),
+		Stdout: h.Stdout.WithAttrs(attrs),
+	}
+}
+
+func (h *SpinLogHandler) WithGroup(name string) slog.Handler {
+	return &SpinLogHandler{
+		File:   h.File.WithGroup(name),
+		Stdout: h.Stdout.WithGroup(name),
+	}
+}
+
 // sets up logging; by default DTS writes to <data-directory>/dts-<start-time>.log
 func enableLogging() error {
 	logLevel := new(slog.LevelVar)
@@ -64,13 +103,12 @@ func enableLogging() error {
 	}
 
 	logFilename := filepath.Join(config.Service.DataDirectory, fmt.Sprintf("dts-log-%s.json", time.Now().Format(time.DateOnly)))
-	logFile, err := os.Create(logFilename)
+	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 
-	handler := slog.NewJSONHandler(logFile,
-		&slog.HandlerOptions{Level: logLevel})
+	handler := NewSpinLogHandler(logFile, logLevel)
 	slog.SetDefault(slog.New(handler))
 	slog.Debug("Debug logging enabled.")
 

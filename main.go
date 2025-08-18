@@ -29,6 +29,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -53,17 +54,27 @@ func usage() {
 	os.Exit(1)
 }
 
-func enableLogging() {
+// sets up logging; by default DTS writes to <data-directory>/dts-<start-time>.log
+func enableLogging() error {
 	logLevel := new(slog.LevelVar)
 	if config.Service.Debug {
 		logLevel.Set(slog.LevelDebug)
 	} else {
 		logLevel.Set(slog.LevelInfo)
 	}
-	handler := slog.NewJSONHandler(os.Stdout,
+
+	logFilename := filepath.Join(config.Service.DataDirectory, fmt.Sprintf("dts-log-%s.json", time.Now().Format(time.DateOnly)))
+	logFile, err := os.Create(logFilename)
+	if err != nil {
+		return err
+	}
+
+	handler := slog.NewJSONHandler(logFile,
 		&slog.HandlerOptions{Level: logLevel})
 	slog.SetDefault(slog.New(handler))
 	slog.Debug("Debug logging enabled.")
+
+	return nil
 }
 
 func main() {

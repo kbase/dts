@@ -23,14 +23,11 @@ package transfers
 
 import (
 	"bytes"
-	"encoding/gob"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -66,19 +63,19 @@ const (
 // starts processing transfers according to the given configuration, returning an
 // informative error if anything prevents this
 func Start() error {
-	if orchestrator.Running {
+	if global.Running {
 		return &AlreadyRunningError{}
 	}
 
 	// if this is the first call to Start(), register our built-in endpoint and database providers
-	if !orchestrator.Started {
+	if !global.Started {
 		if err := registerEndpointProviders(); err != nil {
 			return err
 		}
 		if err := registerDatabases(); err != nil {
 			return err
 		}
-		orchestrator.Started = true
+		global.Started = true
 	}
 
 	// do the necessary directories exist, and are they writable/readable?
@@ -96,10 +93,11 @@ func Start() error {
 		return err
 	}
 
-	startOrchestration()
+	if err := startOrchestration(); err != nil {
+		return err
+	}
 
-	// okay, we're running now
-	orchestrator.Running = true
+	global.Running = true
 
 	return nil
 }
@@ -109,8 +107,7 @@ func Start() error {
 func Stop() error {
 	var err error
 	if global.Running {
-		global.Channels.Stop <- struct{}{}
-		err = <-global.Channels.Error
+		err := dispatcher.Stop()
 		if err != nil {
 			return err
 		}
@@ -174,43 +171,29 @@ func Create(spec Specification) (uuid.UUID, error) {
 	}
 
 	// create a new task and send it along for processing
-	global.Channels.Client.RequestTransfer <- spec
-	select {
-	case taskId = <-global.Channels.Client.FetchTransferId:
-	case err = <-global.Channels.Client.Error:
-	}
-
-	return taskId, err
+	return dispatcher.CreateTransfer(spec)
 }
 
 // Given a task UUID, returns its transfer status (or a non-nil error
 // indicating any issues encountered).
-func Status(taskId uuid.UUID) (TransferStatus, error) {
-	var status TransferStatus
-	var err error
-	global.Channels.Client.RequestStatus <- taskId
-	select {
-	case status = <-global.Channels.Client.FetchStatus:
-	case err = <-global.Channels.Client.Error:
-	}
-	return status, err
+func Status(transferId uuid.UUID) (TransferStatus, error) {
+	return dispatcher.GetTransferStatus(transferId)
 }
 
 // Requests that the task with the given UUID be canceled. Clients should check
 // the status of the task separately.
 func Cancel(taskId uuid.UUID) error {
-	var err error
-	global.Channels.Client.CancelTransfer <- taskId
-	select { // default block provides non-blocking error check
-	case err = <-global.Channels.Client.Error:
-	default:
-	}
-	return err
+	return dispatcher.CancelTransfer(transferId)
 }
 
 //===========
 // Internals
 //===========
+
+// globals
+var global struct {
+	Running, Started bool
+}
 
 //-----------------------------------------------
 // Provider Registration and Resource Validation
@@ -320,378 +303,63 @@ func validateDirectory(dirType, dir string) error {
 // their status. Transfers and status checks are handled by a family of goroutines that communicate
 // with each other and the main goroutine via channels. These goroutines include:
 //
-// * dispatch: handles all client requests, communicates with other goroutines as needed
-// * stageFiles: handles file staging by communicating with provider databases and endpoints
-// * transferFiles: handles file transfers by communicatig with provider databases and endpoints
-// * sendManifests: generates a transfer manifest after each transfer has completed and sends it to
-//                  the correct destination
-//
-// Transfer Datastore
-//
-// Transfer information is stored in a centralized data store maintained by a goroutine
-// named transferStore, which offers a simple API to create, update, and fetch information
-// (see data_store.go):
-//
-// * createNewTransfer() -> (transferId, numFiles, error)
-// * cancelTransfer() -> error
-// * getTransferStatus(transferId) -> (TransferStatus, error)
-// * stopTransfers() -> error
+// * dispatcher: handles all client requests, communicates with other goroutines as needed
+// * stager: handles file staging by communicating with provider databases and endpoints
+// * mover: handles file transfers by communicatig with provider databases and endpoints
+// * manifestor: generates a transfer manifest after each transfer has completed and sends it to
+//              the correct destination
+// * store: maintains metadata records and status info for ongoing and completed transfers
 
-type orchestratorState struct {
-	Channels orchestratorChannels
-	Running, Started bool
-}
-
-type orchestratorChannels struct {
-	Dispatcher dispatcherChannels
-	Stager stagerChannels
-	Mover moverChannels
-	Manifestor manifestorChannels
-	Store storeChannels
-}
-
-var orchestrator orchestratorState
-
-// channels used internally by non-main goroutines
-type internalChannels struct {
-	StageFiles       chan []any         // sends file descriptors to stageFiles
-	TransferFiles    chan []any         // sends file descriptors to transferFiles
-	GenerateManifest chan []any         // sends file descriptors IDs to sendManifests
-	UpdateStatus     chan transferInfo  // sends status updates to monitorTransfers
-}
-
-func startOrchestration() {
-	orchestrator.Channels.Dispatcher = startDispatcher()
-	orchestrator.Channels.Stager = startStager()
-	orchestrator.Channels.Mover = startMover()
-	orchestrator.Channels.Manifestor = startManifestor()
-	orchestrator.Channels.Store = startStore()
+func startOrchestration() error {
+	if err := dispatcher.Start(); err != nil {
+		return err
+	}
+	if err := stager.Start(); err != nil {
+		return err
+	}
+	if err := mover.Start(); err != nil {
+		return err
+	}
+	if err := manifestor.Start(); err != nil {
+		return err
+	}
+	return store.Start()
 }
 
 func stopOrchestration() error {
-	if err := stopDispatcher(); err != nil {
+	if err := dispatcher.Stop(); err != nil {
 		return err
 	}
-	if err := stopStager(); err != nil {
+	if err := stager.Stop(); err != nil {
 		return err
 	}
-	if err := startMover(); err != nil {
+	if err := mover.Stop(); err != nil {
 		return err
 	}
-	if err := startManifestor(); err != nil {
+	if err := manifestor.Stop(); err != nil {
 		return err
 	}
-	return startStore()
+	return store.Stop()
 }
 
-func stageFiles() {
-	for global.Running {
+// resolves the given destination (name) string, accounting for custom transfers
+func destinationEndpoint(destination string) (endpoints.Endpoint, error) {
+	// everything's been validated at this point, so no need to check for errors
+	if strings.Contains(destination, ":") { // custom transfer spec
+		customSpec, _ := endpoints.ParseCustomSpec(destination)
+		endpointId, _ := uuid.Parse(customSpec.Id)
+		credential := config.Credentials[customSpec.Credential]
+		clientId, _ := uuid.Parse(credential.Id)
+		return globus.NewEndpoint("Custom endpoint", endpointId, customSpec.Path, clientId, credential.Secret)
 	}
+	return endpoints.NewEndpoint(config.Databases[destination].Endpoint)
 }
 
-// this goroutine handles the transfer of file payloads
-func transferFiles() {
-	for global.Running {
+// resolves the folder at the given destination in which transferred files are deposited, with the
+// given subfolder appended
+func destinationFolder(destination, subfolder string) string {
+	if customSpec, err := endpoints.ParseCustomSpec(destination); err == nil { // custom transfer?
+		return filepath.Join(customSpec.Path, subfolder)
 	}
-}
-
-// this goroutine accepts a set of file descriptors from the transferFiles goroutine, generating a
-// manifest from it and sending it along to its destination and updating the transfer status
-func sendManifests() {
-	for global.Running {
-	}
-}
-
-// This goroutine maintains transfer statuses, accepting updates from other goroutines and managing
-// state transitions.
-func updateStatuses() {
-	// create or recreate a persistent table of transfer-related tasks
-	dataStore := filepath.Join(config.Service.DataDirectory, "dts.gob")
-	tasks := createOrLoadTasks(dataStore)
-
-	// parse the task channels into directional types as needed
-	var createTaskChan <-chan transferTask = taskChannels.CreateTask
-	var cancelTaskChan <-chan uuid.UUID = taskChannels.CancelTask
-	var getTaskStatusChan <-chan uuid.UUID = taskChannels.GetTaskStatus
-	var returnTaskIdChan chan<- uuid.UUID = taskChannels.ReturnTaskId
-	var returnTaskStatusChan chan<- TransferStatus = taskChannels.ReturnTaskStatus
-	var errorChan chan<- error = taskChannels.Error
-	var pollChan <-chan struct{} = taskChannels.Poll
-	var stopChan <-chan struct{} = taskChannels.Stop
-
-	// the task deletion period is specified in seconds
-	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
-
-	// start scurrying around
-	running := true
-	for running {
-		select {
-		case newTask := <-createTaskChan: // Create() called
-			newTask.Id = uuid.New()
-			newTask.StartTime = time.Now()
-			tasks[newTask.Id] = newTask
-			returnTaskIdChan <- newTask.Id
-			slog.Info(fmt.Sprintf("Created new transfer task %s (%d file(s) requested)",
-				newTask.Id.String(), len(newTask.FileIds)))
-		case taskId := <-cancelTaskChan: // Cancel() called
-			if task, found := tasks[taskId]; found {
-				slog.Info(fmt.Sprintf("Task %s: received cancellation request", taskId.String()))
-				err := task.Cancel()
-				if err != nil {
-					task.Status.Code = TransferStatusUnknown
-					task.Status.Message = fmt.Sprintf("error in cancellation: %s", err.Error())
-					task.CompletionTime = time.Now()
-					slog.Error(fmt.Sprintf("Task %s: %s", task.Id.String(), task.Status.Message))
-					tasks[task.Id] = task
-				}
-			} else {
-				err := &NotFoundError{Id: taskId}
-				errorChan <- err
-			}
-		case taskId := <-getTaskStatusChan: // Status() called
-			if task, found := tasks[taskId]; found {
-				returnTaskStatusChan <- task.Status
-			} else {
-				err := &NotFoundError{Id: taskId}
-				errorChan <- err
-			}
-		case <-pollChan: // time to move things along
-			for taskId, task := range tasks {
-				if !task.Completed() {
-					oldStatus := task.Status
-					err := task.Update()
-					if err != nil {
-						// We log task update errors but do not propagate them. All
-						// task errors result in a failed status.
-						task.Status.Code = TransferStatusFailed
-						task.Status.Message = err.Error()
-						task.CompletionTime = time.Now()
-						slog.Error(fmt.Sprintf("Task %s: %s", task.Id.String(), err.Error()))
-					}
-					if task.Status.Code != oldStatus.Code {
-						switch task.Status.Code {
-						case TransferStatusStaging:
-							slog.Info(fmt.Sprintf("Task %s: staging %d file(s) (%g GB)",
-								task.Id.String(), len(task.FileIds), task.PayloadSize))
-						case TransferStatusActive:
-							slog.Info(fmt.Sprintf("Task %s: beginning transfer (%d file(s), %g GB)",
-								task.Id.String(), len(task.FileIds), task.PayloadSize))
-						case TransferStatusInactive:
-							slog.Info(fmt.Sprintf("Task %s: suspended transfer", task.Id.String()))
-						case TransferStatusFinalizing:
-							slog.Info(fmt.Sprintf("Task %s: finalizing transfer", task.Id.String()))
-						case TransferStatusSucceeded:
-							slog.Info(fmt.Sprintf("Task %s: completed successfully", task.Id.String()))
-						case TransferStatusFailed:
-							slog.Info(fmt.Sprintf("Task %s: failed", task.Id.String()))
-							err := journal.RecordTransfer(journal.Record{
-								Id:          task.Id,
-								Source:      task.Source,
-								Destination: task.Destination,
-								Orcid:       task.User.Orcid,
-								StartTime:   task.StartTime,
-								StopTime:    time.Now(),
-								Status:      "failed",
-								PayloadSize: int64(1024 * 1024 * 1024 * task.PayloadSize), // GB -> B
-								NumFiles:    len(task.FileIds),
-							})
-							if err != nil {
-								slog.Error(err.Error())
-							}
-						}
-					}
-				}
-
-				// if the task completed a long enough time go, delete its entry
-				if task.Age() > deleteAfter {
-					slog.Debug(fmt.Sprintf("Task %s: purging transfer record", task.Id.String()))
-					delete(tasks, taskId)
-				} else { // update its entry
-					tasks[taskId] = task
-				}
-			}
-		case <-stopChan: // Stop() called
-			err := saveTasks(tasks, dataStore) // don't forget to save our state!
-			errorChan <- err
-			running = false
-		}
-	}
-}
-
-// loads a map of task IDs to tasks from a previously saved file if available,
-// or creates an empty map if no such file is available or valid
-func createOrLoadTasks(dataFile string) map[uuid.UUID]transferTask {
-	file, err := os.Open(dataFile)
-	if err != nil {
-		return make(map[uuid.UUID]transferTask)
-	}
-	slog.Debug(fmt.Sprintf("Found previous tasks in %s.", dataFile))
-	defer file.Close()
-	enc := gob.NewDecoder(file)
-	var tasks map[uuid.UUID]transferTask
-	var databaseStates databases.DatabaseSaveStates
-	if err = enc.Decode(&tasks); err == nil {
-		err = enc.Decode(&databaseStates)
-	}
-	if err != nil { // file not readable
-		slog.Error(fmt.Sprintf("Reading task file %s: %s", dataFile, err.Error()))
-		return make(map[uuid.UUID]transferTask)
-	}
-	if err = databases.Load(databaseStates); err != nil {
-		slog.Error(fmt.Sprintf("Restoring database states: %s", err.Error()))
-	}
-	slog.Debug(fmt.Sprintf("Restored %d tasks from %s", len(tasks), dataFile))
-	return tasks
-}
-
-// saves a map of task IDs to tasks to the given file
-func saveTasks(tasks map[uuid.UUID]transferTask, dataFile string) error {
-	if len(tasks) > 0 {
-		slog.Debug(fmt.Sprintf("Saving %d tasks to %s", len(tasks), dataFile))
-		file, err := os.OpenFile(dataFile, os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			return fmt.Errorf("Opening task file %s: %s", dataFile, err.Error())
-		}
-		enc := gob.NewEncoder(file)
-		if err = enc.Encode(tasks); err == nil {
-			var databaseStates databases.DatabaseSaveStates
-			if databaseStates, err = databases.Save(); err == nil {
-				err = enc.Encode(databaseStates)
-			}
-		}
-		if err != nil {
-			file.Close()
-			os.Remove(dataFile)
-			return fmt.Errorf("Saving tasks: %s", err.Error())
-		}
-		err = file.Close()
-		if err != nil {
-			os.Remove(dataFile)
-			return fmt.Errorf("Writing task file %s: %s", dataFile, err.Error())
-		}
-		slog.Debug(fmt.Sprintf("Saved %d tasks to %s", len(tasks), dataFile))
-	} else {
-		_, err := os.Stat(dataFile)
-		if !errors.Is(err, fs.ErrNotExist) { // file exists
-			os.Remove(dataFile)
-		}
-	}
-	return nil
-}
-
-// this function runs in its own goroutine, using the given local endpoint
-// for local file transfers, and the given channels to communicate with
-// the main thread
-func processTasks() {
-	// create or recreate a persistent table of transfer-related tasks
-	dataStore := filepath.Join(config.Service.DataDirectory, "dts.gob")
-	tasks := createOrLoadTasks(dataStore)
-
-	// parse the task channels into directional types as needed
-	var createTaskChan <-chan transferTask = taskChannels.CreateTask
-	var cancelTaskChan <-chan uuid.UUID = taskChannels.CancelTask
-	var getTaskStatusChan <-chan uuid.UUID = taskChannels.GetTaskStatus
-	var returnTaskIdChan chan<- uuid.UUID = taskChannels.ReturnTaskId
-	var returnTaskStatusChan chan<- TransferStatus = taskChannels.ReturnTaskStatus
-	var errorChan chan<- error = taskChannels.Error
-	var pollChan <-chan struct{} = taskChannels.Poll
-	var stopChan <-chan struct{} = taskChannels.Stop
-
-	// the task deletion period is specified in seconds
-	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
-
-	// start scurrying around
-	running := true
-	for running {
-		select {
-		case newTask := <-createTaskChan: // Create() called
-			newTask.Id = uuid.New()
-			newTask.StartTime = time.Now()
-			tasks[newTask.Id] = newTask
-			returnTaskIdChan <- newTask.Id
-			slog.Info(fmt.Sprintf("Created new transfer task %s (%d file(s) requested)",
-				newTask.Id.String(), len(newTask.FileIds)))
-		case taskId := <-cancelTaskChan: // Cancel() called
-			if task, found := tasks[taskId]; found {
-				slog.Info(fmt.Sprintf("Task %s: received cancellation request", taskId.String()))
-				err := task.Cancel()
-				if err != nil {
-					task.Status.Code = TransferStatusUnknown
-					task.Status.Message = fmt.Sprintf("error in cancellation: %s", err.Error())
-					task.CompletionTime = time.Now()
-					slog.Error(fmt.Sprintf("Task %s: %s", task.Id.String(), task.Status.Message))
-					tasks[task.Id] = task
-				}
-			} else {
-				err := &NotFoundError{Id: taskId}
-				errorChan <- err
-			}
-		case taskId := <-getTaskStatusChan: // Status() called
-			if task, found := tasks[taskId]; found {
-				returnTaskStatusChan <- task.Status
-			} else {
-				err := &NotFoundError{Id: taskId}
-				errorChan <- err
-			}
-		case <-pollChan: // time to move things along
-			for taskId, task := range tasks {
-				if !task.Completed() {
-					oldStatus := task.Status
-					err := task.Update()
-					if err != nil {
-						// We log task update errors but do not propagate them. All
-						// task errors result in a failed status.
-						task.Status.Code = TransferStatusFailed
-						task.Status.Message = err.Error()
-						task.CompletionTime = time.Now()
-						slog.Error(fmt.Sprintf("Task %s: %s", task.Id.String(), err.Error()))
-					}
-					if task.Status.Code != oldStatus.Code {
-						switch task.Status.Code {
-						case TransferStatusStaging:
-							slog.Info(fmt.Sprintf("Task %s: staging %d file(s) (%g GB)",
-								task.Id.String(), len(task.FileIds), task.PayloadSize))
-						case TransferStatusActive:
-							slog.Info(fmt.Sprintf("Task %s: beginning transfer (%d file(s), %g GB)",
-								task.Id.String(), len(task.FileIds), task.PayloadSize))
-						case TransferStatusInactive:
-							slog.Info(fmt.Sprintf("Task %s: suspended transfer", task.Id.String()))
-						case TransferStatusFinalizing:
-							slog.Info(fmt.Sprintf("Task %s: finalizing transfer", task.Id.String()))
-						case TransferStatusSucceeded:
-							slog.Info(fmt.Sprintf("Task %s: completed successfully", task.Id.String()))
-						case TransferStatusFailed:
-							slog.Info(fmt.Sprintf("Task %s: failed", task.Id.String()))
-							err := journal.RecordTransfer(journal.Record{
-								Id:          task.Id,
-								Source:      task.Source,
-								Destination: task.Destination,
-								Orcid:       task.User.Orcid,
-								StartTime:   task.StartTime,
-								StopTime:    time.Now(),
-								Status:      "failed",
-								PayloadSize: int64(1024 * 1024 * 1024 * task.PayloadSize), // GB -> B
-								NumFiles:    len(task.FileIds),
-							})
-							if err != nil {
-								slog.Error(err.Error())
-							}
-						}
-					}
-				}
-
-				// if the task completed a long enough time go, delete its entry
-				if task.Age() > deleteAfter {
-					slog.Debug(fmt.Sprintf("Task %s: purging transfer record", task.Id.String()))
-					delete(tasks, taskId)
-				} else { // update its entry
-					tasks[taskId] = task
-				}
-			}
-		case <-stopChan: // Stop() called
-			err := saveTasks(tasks, dataStore) // don't forget to save our state!
-			errorChan <- err
-			running = false
-		}
-	}
+	return subfolder
 }

@@ -25,33 +25,135 @@ import (
 	"github.com/google/uuid"
 )
 
-func startStore() error {
+//-------
+// Store
+//-------
+
+// The transfer metadata store maintains a table of active and completed transfers and all related
+// metadata. The store only tracks the state of the transfers--it doesn't initiate any activity.
+
+// store global state
+var store storeState
+
+type storeState struct {
+	Channels storeChannels
+}
+
+type storeChannels struct {
+	RequestNewTransfer chan Specification
+	ReturnNewTransfer  chan transferIdAndNumFiles
+
+	SetStatus     chan transferIdAndStatus
+	RequestStatus chan uuid.UUID
+	ReturnStatus  chan TransferStatus
+
+	RequestDescriptors chan uuid.UUID
+	ReturnDescriptors  chan []map[string]any
+
+	Error chan error
+	Stop  chan struct{}
+}
+
+type transferIdAndNumFiles struct {
+	Id       uuid.UUID
+	NumFiles int
+}
+
+type transferIdAndStatus struct {
+	Id     uuid.UUID
+	Status TransferStatus
+}
+
+// starts the store goroutine
+func (s *storeState) Start() error {
+	s.Channels = storeChannels{
+		RequestNewTransfer: make(chan Specification, 32),
+		ReturnNewTransfer:  make(chan transferIdAndNumFiles, 32),
+		SetStatus:          make(chan transferIdAndStatus, 32),
+		RequestStatus:      make(chan uuid.UUID, 32),
+		ReturnStatus:       make(chan TransferStatus, 32),
+		Error:              make(chan error, 32),
+		Stop:               make(chan struct{}),
+	}
+	go s.process()
 	return nil
 }
 
-func stopStore() error {
+// stops the store goroutine
+func (s *storeState) Stop() error {
 	return nil
 }
 
-func createNewTransfer(spec Specification) (uuid.UUID, int, error) {
-	var transferId uuid.UUID
-	var numFiles int
-	return transferId, numFiles, nil
+// creates a new entry for a transfer within the store, populating it with relevant metadata
+func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, int, error) {
+	s.Channels.RequestNewTransfer <- spec
+	select {
+	case idAndNumFiles := <-store.Channels.ReturnNewTransfer:
+		return idAndNumFiles.Id, idAndNumFiles.NumFiles, nil
+	case err := <-store.Channels.Error:
+		return uuid.UUID{}, 0, err
+	}
 }
 
-func cancelTransfer(transferId uuid.UUID) error {
-	return nil
+func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) error {
+	s.Channels.SetStatus <- transferIdAndStatus{
+		Id:     transferId,
+		Status: status,
+	}
+	return <-store.Channels.Error
 }
 
-func getTransferStatus(transferId uuid.UUID) (TransferStatus, error) {
-	var status TransferStatus
-	var err error
-	return status, err
+func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
+	s.Channels.RequestStatus <- transferId
+	select {
+	case status := <-store.Channels.ReturnStatus:
+		return status, nil
+	case err := <-store.Channels.Error:
+		return TransferStatus{}, err
+	}
+}
+
+func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, error) {
+	store.Channels.RequestDescriptors <- transferId
+	select {
+	case descriptors := <-store.Channels.ReturnDescriptors:
+		return descriptors, nil
+	case err := <-store.Channels.Error:
+		return nil, err
+	}
 }
 
 // goroutine for transfer data store
-func store() {
+func (s *storeState) process() {
 	running := true
+	transfers := make(map[uuid.UUID]transferStoreEntry)
 	for running {
+		select {
+		case spec := <-store.Channels.RequestNewTransfer:
+
+		case idAndStatus := <-store.Channels.SetStatus:
+			if transfer, found := transfers[idAndStatus.Id]; found {
+				transfer.Status = idAndStatus.Status
+				transfers[idAndStatus.Id] = transfer
+			}
+		case id := <-store.Channels.RequestStatus:
+		case <-store.Channels.Stop:
+			running = false
+		}
 	}
+}
+
+// an entry in the transfer metadata store
+type transferStoreEntry struct {
+	Destination string // name of destination database (in config) OR custom spec
+	Source      string // name of source database (in config)
+	Status      TransferStatus
+	Tasks       []transferTaskEntry // single source -> destination transfer tasks
+}
+
+// Transfers consist of one or more "tasks", each of which transfers files from a single source to a
+// single destination portion of a transfer
+type transferTaskEntry struct {
+	Source      string // name of source endpoint (in config)
+	Destination string // name of destination endpoint (in config) OR custom spec
 }

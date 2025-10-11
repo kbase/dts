@@ -28,41 +28,73 @@ import (
 	"github.com/google/uuid"
 )
 
+//------------
+// Dispatcher
+//------------
+
+// dispatcher global state
+var dispatcher dispatcherState
+
 type dispatcherState struct {
 	Channels dispatcherChannels
 }
 
 type dispatcherChannels struct {
-	RequestTransfer chan Specification  // used by client to create a new transfer
-	FetchTransferId chan uuid.UUID      // returns task ID to client
-	CancelTransfer  chan uuid.UUID      // used by client to cancel a transfer
-	RequestStatus   chan uuid.UUID      // used by client to request transfer status
-	FetchStatus 		chan TransferStatus // returns task status to client
-	Error      			chan error          // internal -> client error propagation
-	Stop            chan struct{}       // used by client to stop task management
+	RequestTransfer  chan Specification // used by client to create a new transfer
+	ReturnTransferId chan uuid.UUID     // returns task ID to client
+
+	CancelTransfer chan uuid.UUID // used by client to cancel a transfer
+
+	RequestStatus chan uuid.UUID      // used by client to request transfer status
+	ReturnStatus  chan TransferStatus // returns task status to client
+
+	Error chan error    // internal -> client error propagation
+	Stop  chan struct{} // used by client to stop task management
 }
 
-// dispatcher global state
-var dispatcher dispatcherState
-
-func startDispatcher() error {
-	dispatcher.Channels = dispatcherChannels{
+func (d *dispatcherState) Start() error {
+	d.Channels = dispatcherChannels{
 		RequestTransfer:  make(chan Specification, 32),
-		FetchTransferId:  make(chan uuid.UUID, 32),
+		ReturnTransferId: make(chan uuid.UUID, 32),
 		CancelTransfer:   make(chan uuid.UUID, 32),
 		RequestStatus:    make(chan uuid.UUID, 32),
-		FetchStatus: 	  	make(chan TransferStatus, 32),
+		ReturnStatus:     make(chan TransferStatus, 32),
 		Error:            make(chan error, 32),
 		Stop:             make(chan struct{}),
 	}
-	go dispatcher_()
+	go d.process()
 
 	return nil
 }
 
+func (d *dispatcherState) Stop() error {
+	d.Channels.Stop <- struct{}{}
+	return <-d.Channels.Error
+}
+
+func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) {
+	d.Channels.RequestTransfer <- spec
+	select {
+	case id := <-d.Channels.ReturnTransferId:
+		return id, nil
+	case err := <-d.Channels.Error:
+		return uuid.UUID{}, err
+	}
+}
+
+func (d *dispatcherState) GetTransferStatus(id uuid.UUID) (TransferStatus, error) {
+	d.Channels.RequestStatus <- id
+	select {
+	case status := <-d.Channels.ReturnStatus:
+		return status, nil
+	case err := <-d.Channels.Error:
+		return TransferStatus{}, err
+	}
+}
+
 // This goroutine handles all client interactions, sending data along channels to internal
 // goroutines as needed.
-func dispatcher_() {
+func (d *dispatcherState) process() {
 
 	// client input channels
 	var newTransferRequested <-chan Specification = dispatcher.Channels.RequestTransfer
@@ -71,8 +103,8 @@ func dispatcher_() {
 	var stopRequested <-chan struct{} = dispatcher.Channels.Stop
 
 	// client output channels
-	var returnTransferId chan<- uuid.UUID = dispatcher.Channels.FetchTransferId
-	var returnStatus chan<- TransferStatus = dispatcher.Channels.FetchStatus
+	var returnTransferId chan<- uuid.UUID = dispatcher.Channels.ReturnTransferId
+	var returnStatus chan<- TransferStatus = dispatcher.Channels.ReturnStatus
 	var returnError chan<- error = dispatcher.Channels.Error
 
 	// respond to client requests
@@ -80,7 +112,7 @@ func dispatcher_() {
 	for running {
 		select {
 		case spec := <-newTransferRequested:
-			transferId, numFiles, err := createNewTransfer(spec)
+			transferId, numFiles, err := store.NewTransfer(spec)
 			if err != nil {
 				returnError <- err
 				break
@@ -95,15 +127,13 @@ func dispatcher_() {
 				returnError <- err
 			}
 		case transferId := <-statusRequested:
-			status, err := getTransferStatus(transferId)
+			status, err := store.GetStatus(transferId)
 			if err != nil {
 				returnError <- err
 				break
 			}
 			returnStatus <- status
 		case <-stopRequested:
-			err := stopStore()
-			returnError <- err
 			running = false
 		}
 	}

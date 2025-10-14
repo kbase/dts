@@ -40,6 +40,17 @@ import (
 
 var mockKBaseServer *httptest.Server
 
+func setupKBaseAuthServerTests() {
+	// spin up a mock KBase server for testing
+	mockKBaseServer = createMockKBaseServer()
+}
+
+func breakdownKBaseAuthServerTests() {
+	if mockKBaseServer != nil {
+		mockKBaseServer.Close()
+	}
+}
+
 // create a mock KBase Auth Server for testing without hitting the real server
 func createMockKBaseServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +83,28 @@ func handleMeEndpoint(w http.ResponseWriter, r *http.Request, authToken string) 
 				UserName string `json:"provusername"`
 			}{
 				{Provider: "OrcID", UserName: "testuser"},
+			},
+		}
+		json.NewEncoder(w).Encode(user)
+	case "no_idents_token":
+		// Return user data with no identifiers
+		user := kbaseUser{
+			Username: "noidentuser",
+			Display:  "No Ident User",
+			Email:    "noident@email.com",
+		}
+		json.NewEncoder(w).Encode(user)
+	case "no_orcid_token":
+		// Return user data with identifiers but no OrcID
+		user := kbaseUser{
+			Username: "noorciduser",
+			Display:  "No OrcID User",
+			Email:    "noorcid@email.com",
+			Idents: []struct{
+				Provider string `json:"provider"`
+				UserName string `json:"provusername"`
+			}{
+				{Provider: "Google", UserName: "noorciduser"},
 			},
 		}
 		json.NewEncoder(w).Encode(user)
@@ -131,6 +164,32 @@ func TestInvalidToken(t *testing.T) {
 		})
 	assert.Nil(server, "Authentication server created with invalid token")
 	assert.NotNil(err, "Invalid token for authentication server triggered no error")
+}
+
+// tests that the proxy handles missing identifiers correctly
+func TestNoIdentifiers(t *testing.T) {
+	assert := assert.New(t)
+
+	// test with the mock server
+	server, err := NewKBaseAuthServer("no_idents_token",
+		func(cfg *KBaseAuthServerConfig) {
+			cfg.BaseURL = mockKBaseServer.URL
+		})
+	assert.Nil(server, "Authentication server created for access token with no identifiers")
+	assert.NotNil(err, "Access token with no identifiers for authentication server triggered no error")
+}
+
+// tests that the proxy handles missing OrcID identifiers correctly
+func TestNoOrcID(t *testing.T) {
+	assert := assert.New(t)
+
+	// test with the mock server
+	server, err := NewKBaseAuthServer("no_orcid_token",
+		func(cfg *KBaseAuthServerConfig) {
+			cfg.BaseURL = mockKBaseServer.URL
+		})
+	assert.Nil(server, "Authentication server created for access token with no ORCID")
+	assert.NotNil(err, "Access token with no ORCID for authentication server triggered no error")
 }
 
 // tests whether the authentication server can return information for the

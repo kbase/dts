@@ -2,7 +2,7 @@ name: autotest_prs
 
 on:
   push:
-    branches: [ main, develop-format-action ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 

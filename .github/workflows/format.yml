@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop-format-action
 
 jobs:
   format:
@@ -48,4 +47,4 @@ jobs:
           branch: main-formatting
           title: "Apply go fmt formatting"
           body: "This PR applies go fmt formatting to the codebase."
-          base: develop-format-action
+          base: main

@@ -22,8 +22,7 @@
 package transfers
 
 import (
-	"errors"
-	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,64 +46,40 @@ type moverState struct {
 }
 
 type moverChannels struct {
-	RequestMove  chan moveRequest
-	ReturnMoveId chan uuid.UUID
-
-	RequestStatus chan uuid.UUID
-	ReturnStatus  chan TransferStatus
-
-	Error chan error
-	Stop  chan struct{}
-}
-
-type moveRequest struct {
-	Descriptors         []map[string]any
-	Source, Destination string
+	RequestMove         chan uuid.UUID
+	RequestCancellation chan uuid.UUID
+	Error               chan error
+	Stop                chan struct{}
 }
 
 // starts the mover
 func (m *moverState) Start() error {
 	m.Channels = moverChannels{
-		RequestMove:   make(chan moveRequest, 32),
-		ReturnMoveId:  make(chan uuid.UUID, 32),
-		RequestStatus: make(chan uuid.UUID, 32),
-		ReturnStatus:  make(chan TransferStatus, 32),
-		Error:         make(chan error, 32),
-		Stop:          make(chan struct{}),
+		RequestMove: make(chan uuid.UUID, 32),
+		Error:       make(chan error, 32),
+		Stop:        make(chan struct{}),
 	}
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process()
 	return nil
 }
 
-// stops the store goroutine
+// stops the mover goroutine
 func (m *moverState) Stop() error {
 	m.Channels.Stop <- struct{}{}
 	return <-m.Channels.Error
 }
 
-func (m *moverState) Move(descriptors []map[string]any, source, destination string) (uuid.UUID, error) {
-	m.Channels.RequestMove <- moveRequest{
-		Descriptors: descriptors,
-		Source:      source,
-		Destination: destination,
-	}
-	select {
-	case id := <-mover.Channels.ReturnMoveId:
-		return id, nil
-	case err := <-mover.Channels.Error:
-		return uuid.UUID{}, err
-	}
+// starts moving files associated with the given transfer ID
+func (m *moverState) MoveFiles(transferId uuid.UUID) error {
+	m.Channels.RequestMove <- transferId
+	return <-mover.Channels.Error
 }
 
-func (m *moverState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
-	m.Channels.RequestStatus <- transferId
-	select {
-	case status := <-mover.Channels.ReturnStatus:
-		return status, nil
-	case err := <-mover.Channels.Error:
-		return TransferStatus{}, err
-	}
+// cancels a file move operation
+func (m *moverState) Cancel(transferId uuid.UUID) error {
+	m.Channels.RequestCancellation <- transferId
+	return <-mover.Channels.Error
 }
 
 //----------------------------------------------------
@@ -115,72 +90,151 @@ func (m *moverState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 func (m *moverState) process() {
 	running := true
 	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
-	moves := make(map[uuid.UUID]moveRequest)
+	moveOperations := make(map[uuid.UUID][]moveOperation) // a single transfer can be several move operations!
 	for running {
 		select {
-		case move := <-mover.Channels.RequestMove:
-			id, err := m.start(move)
+		case transferId := <-mover.Channels.RequestMove:
+			entries, err := m.start(transferId)
 			if err != nil {
 				mover.Channels.Error <- err
 			}
-			moves[id] = move
-			mover.Channels.ReturnMoveId <- id
-		case id := <-mover.Channels.RequestStatus:
-			move, found := moves[id]
-			if !found {
-				mover.Channels.Error <- errors.New(fmt.Sprintf("Invalid move ID: %s", id.String()))
-				break
-			}
-			source := mover.Endpoints[move.Source]
-			status, err := source.Status(id)
-			if err != nil {
+			moveOperations[transferId] = entries
+		case transferId := <-mover.Channels.RequestCancellation:
+			if moves, found := moveOperations[transferId]; found {
+				err := m.cancel(moves)
+				if err == nil {
+					delete(moveOperations, transferId)
+				}
 				mover.Channels.Error <- err
-				break
+			} else {
+				mover.Channels.Error <- NotFoundError{Id: transferId}
 			}
-			mover.Channels.ReturnStatus <- status
 		case <-mover.Channels.Stop:
 			running = false
 		}
 
 		time.Sleep(pollInterval)
+
+		// check the move statuses and advance as needed
+		for transferId, moves := range moveOperations {
+			completed, err := m.updateStatus(transferId, moves)
+			if err != nil {
+				mover.Channels.Error <- err
+				continue
+			}
+			if completed {
+				delete(moveOperations, transferId)
+			}
+		}
 	}
 }
 
-func (m *moverState) start(move moveRequest) (uuid.UUID, error) {
-	// obtain (and/or record) the properly-resolved source and destination endpoints
-	if _, found := mover.Endpoints[move.Source]; !found {
-		source, err := endpoints.NewEndpoint(move.Source)
-		if err != nil {
-			return uuid.UUID{}, err
-		}
-		mover.Endpoints[move.Source] = source
-	}
-	if _, found := mover.Endpoints[move.Destination]; !found {
-		destination, err := destinationEndpoint(move.Destination)
-		if err != nil {
-			return uuid.UUID{}, err
-		}
-		mover.Endpoints[move.Destination] = destination
-	}
+type moveOperation struct {
+	Id                                  uuid.UUID // move ID (distinct from transfer ID)
+	SourceEndpoint, DestinationEndpoint string
+	Completed                           bool
+}
 
-	source := mover.Endpoints[move.Source]
-	destination := mover.Endpoints[move.Destination]
-
-	// assemble file transfers from the descriptors
-	files := make([]endpoints.FileTransfer, len(move.Descriptors))
-	for i, d := range move.Descriptors {
-		path := d["path"].(string)
-		destinationPath := destinationFolder(move.Destination, path)
-		files[i] = FileTransfer{
-			SourcePath:      path,
-			DestinationPath: destinationPath,
-			Hash:            d["hash"].(string),
-		}
-	}
-
-	id, err := source.Transfer(destination, files)
+// starts moving files for the transfer with the given ID, returning one or more move operations,
+// depending on the number of relevant source endpoints
+func (m *moverState) start(transferId uuid.UUID) ([]moveOperation, error) {
+	spec, err := store.GetSpecification(transferId)
 	if err != nil {
-		return uuid.UUID{}, err
+		return nil, err
 	}
-	return id, nil
+	descriptors, err := store.GetDescriptors(transferId)
+	if err != nil {
+		return nil, err
+	}
+
+	// start transfers for each endpoint
+	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
+	moves := make([]moveOperation, 0)
+	for source, descriptorsForSource := range descriptorsForEndpoint {
+		files := make([]endpoints.FileTransfer, len(descriptorsForSource))
+		for i, descriptor := range descriptorsForSource {
+			path := descriptor["path"].(string)
+			destinationPath := filepath.Join(destinationFolder(spec.Destination), path)
+			files[i] = endpoints.FileTransfer{
+				SourcePath:      path,
+				DestinationPath: destinationPath,
+				Hash:            descriptor["hash"].(string),
+			}
+		}
+		sourceEndpoint, err := endpoints.NewEndpoint(source)
+		if err != nil {
+			return nil, err
+		}
+		destinationEndpoint, err := endpoints.NewEndpoint(spec.Destination)
+		if err != nil {
+			return nil, err
+		}
+		id, err := sourceEndpoint.Transfer(destinationEndpoint, files)
+		if err != nil {
+			return nil, err
+		}
+		moves = append(moves, moveOperation{
+			Id:                  id,
+			SourceEndpoint:      source,
+			DestinationEndpoint: spec.Destination,
+		})
+	}
+	return moves, nil
+}
+
+// update the status of the transfer with the given ID given its distinct file move operations,
+// returning true if the transfer has completed (successfully or unsuccessfully), false otherwise
+func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (bool, error) {
+	var transferStatus TransferStatus
+
+	atLeastOneMoveFailed := false
+	movesAllSucceeded := true
+	for i, move := range moves {
+		source, err := endpoints.NewEndpoint(move.SourceEndpoint)
+		if err != nil {
+			return false, err
+		}
+		moveStatus, err := source.Status(transferId)
+		if err != nil {
+			return false, err
+		}
+		transferStatus.NumFiles += moveStatus.NumFiles
+		transferStatus.NumFilesTransferred += moveStatus.NumFilesTransferred
+		transferStatus.NumFilesSkipped += moveStatus.NumFilesSkipped
+
+		if moveStatus.Code == TransferStatusSucceeded {
+			moves[i].Completed = true
+		} else {
+			movesAllSucceeded = false
+			if moveStatus.Code == TransferStatusFailed {
+				transferStatus.Message = moveStatus.Message
+				atLeastOneMoveFailed = true
+				moves[i].Completed = true
+			}
+		}
+	}
+
+	// take stock and update
+	if movesAllSucceeded {
+		manifestor.Generate(transferId)
+	} else if atLeastOneMoveFailed {
+		transferStatus.Code = TransferStatusFailed
+	}
+
+	return movesAllSucceeded || atLeastOneMoveFailed, store.SetStatus(transferId, transferStatus)
+}
+
+func (m *moverState) cancel(moves []moveOperation) error {
+	var e error
+	for _, move := range moves {
+		endpoint, err := endpoints.NewEndpoint(move.SourceEndpoint)
+		if err != nil {
+			return err
+		}
+		err = endpoint.Cancel(move.Id)
+		if err != nil && e == nil {
+			e = err
+		}
+	}
+	return e
 }

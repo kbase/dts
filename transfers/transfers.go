@@ -23,7 +23,6 @@ package transfers
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"

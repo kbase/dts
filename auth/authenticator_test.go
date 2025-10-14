@@ -73,6 +73,7 @@ var TestUser = User{
 	Email:        "jsc@example.com",
 	Orcid:        "0000-0002-1825-0097",
 	Organization: "Brown University",
+	IsSuper:      true,
 }
 
 func setup() {
@@ -158,6 +159,7 @@ func (t *SerialTests) TestGetUser() {
 	assert.Equal(TestUser.Email, user.Email)
 	assert.Equal(TestUser.Orcid, user.Orcid)
 	assert.Equal(TestUser.Organization, user.Organization)
+	assert.Equal(TestUser.IsSuper, user.IsSuper)
 }
 
 // tests whether the authenticator server can return information for a

@@ -193,6 +193,7 @@ func (d *dispatcherState) cancel(transferId uuid.UUID) error {
 	}
 	switch status.Code {
 	case TransferStatusUnknown, TransferStatusSucceeded, TransferStatusFailed:
+		return nil
 	case TransferStatusStaging:
 		return stager.Cancel(transferId)
 	case TransferStatusActive, TransferStatusInactive:
@@ -200,4 +201,5 @@ func (d *dispatcherState) cancel(transferId uuid.UUID) error {
 	case TransferStatusFinalizing:
 		return manifestor.Cancel(transferId)
 	}
+	return nil
 }

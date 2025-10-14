@@ -182,6 +182,7 @@ func (t *SerialTests) TestGetUserAfterReread() {
 	assert.Equal(TestUser.Email, user.Email)
 	assert.Equal(TestUser.Orcid, user.Orcid)
 	assert.Equal(TestUser.Organization, user.Organization)
+	assert.Equal(TestUser.IsSuper, user.IsSuper)
 }
 
 // tests whether the authenticator server handles a bad re-read correctly

@@ -28,13 +28,15 @@
 package auth
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -51,77 +53,73 @@ func breakdownKBaseAuthServerTests() {
 	}
 }
 
-// create a mock KBase Auth Server for testing without hitting the real server
-func createMockKBaseServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// get the auth header
-		authHeader := r.Header.Get("Authorization")
-		
-		switch {
-		case r.URL.Path == "/services/auth/api/V2/me" && r.Method == "GET":
-			handleMeEndpoint(w, r, authHeader)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, `{"httpcode": 404, "error": "Not Found", "message": "Unknown endpoint"}`)
-		}
-	}))
+// Response structure for mock KBase Auth Server
+type KBaseUserResponse struct {
+	Body kbaseUser `json:"body"`
 }
 
-// mock response for the /me endpoint
-func handleMeEndpoint(w http.ResponseWriter, r *http.Request, authToken string) {
-	w.Header().Set("Content-Type", "application/json")
+// create a mock KBase Auth Server for testing without hitting the real server
+func createMockKBaseServer() *httptest.Server {
+	router := mux.NewRouter()
+	api := humamux.New(router, huma.DefaultConfig("Mock KBase Auth Server", "2.0.0"))
 
-	switch authToken {
-	case "valid_token":
-		// Return valid user data
-		user := kbaseUser{
-			Username: "testuser",
-			Display: "Test User",
-			Email:    "test@email.com",
-			Idents: []struct {
-				Provider string `json:"provider"`
-				UserName string `json:"provusername"`
-			}{
-				{Provider: "OrcID", UserName: "testuser"},
-			},
+	// me endpoint
+	huma.Register(api, huma.Operation{
+		OperationID: "getMe",
+		Method:      http.MethodGet,
+		Path:       "/services/auth/api/V2/me",
+		Security: []map[string][]string{{"bearerAuth": {}}},
+	}, func(ctx context.Context, input *struct{
+		Authorization string `header:"Authorization"`
+	}) (*KBaseUserResponse, error) {
+
+		switch input.Authorization {
+		case "valid_token":
+			// Return valid user data
+			return &KBaseUserResponse{
+				Body: kbaseUser{
+					Username: "testuser",
+					Display:  "Test User",
+					Email:    "test@email.com",
+					Idents: []struct {
+						Provider string `json:"provider"`
+						UserName string `json:"provusername"`
+					}{
+						{Provider: "OrcID", UserName: "testuser"},
+					},
+				},
+			}, nil
+		case "no_idents_token":
+			// Return user data with no identifiers
+			return &KBaseUserResponse{
+				Body: kbaseUser{
+					Username: "noidentuser",
+					Display:  "No Ident User",
+					Email:    "noident@email.com",
+				},
+			}, nil
+		case "no_orcid_token":
+			// Return user data with identifiers but no OrcID
+			return &KBaseUserResponse{
+				Body: kbaseUser{
+					Username: "noorciduser",
+					Display:  "No OrcID User",
+					Email:    "noorcid@email.com",
+					Idents: []struct {
+						Provider string `json:"provider"`
+						UserName string `json:"provusername"`
+					}{
+						{Provider: "Google", UserName: "noorciduser"},
+					},
+				},
+			}, nil
+		default:
+			// Invalid token
+			return nil, huma.NewError(http.StatusUnauthorized, "Unauthorized")
 		}
-		json.NewEncoder(w).Encode(user)
-	case "no_idents_token":
-		// Return user data with no identifiers
-		user := kbaseUser{
-			Username: "noidentuser",
-			Display:  "No Ident User",
-			Email:    "noident@email.com",
-		}
-		json.NewEncoder(w).Encode(user)
-	case "no_orcid_token":
-		// Return user data with identifiers but no OrcID
-		user := kbaseUser{
-			Username: "noorciduser",
-			Display:  "No OrcID User",
-			Email:    "noorcid@email.com",
-			Idents: []struct{
-				Provider string `json:"provider"`
-				UserName string `json:"provusername"`
-			}{
-				{Provider: "Google", UserName: "noorciduser"},
-			},
-		}
-		json.NewEncoder(w).Encode(user)
-	default:
-		// Invalid token
-		w.WriteHeader(http.StatusUnauthorized)
-		errorResp := kbaseAuthErrorResponse{
-			HttpCode:  http.StatusUnauthorized,
-			HttpStatus: 401,
-			AppCode:   0,
-			AppError:  "Unauthorized",
-			Message:   "Invalid token",
-			CallId:    0,
-			Time:      0,
-		}
-		json.NewEncoder(w).Encode(errorResp)
-	}
+	})
+
+	return httptest.NewServer(router)
 }
 
 // tests whether a proxy for the KBase authentication server can be

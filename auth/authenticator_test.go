@@ -110,6 +110,9 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't write test access data file: %s", err.Error())
 	}
+
+	// spin up a mock KBase server for testing
+	mockKBaseServer = createMockKBaseServer()
 }
 
 // To run the tests serially, we attach them to a SerialTests type and
@@ -169,5 +172,8 @@ func breakdown() {
 	if TestDir != "" {
 		log.Printf("Deleting testing directory %s...\n", TestDir)
 		os.RemoveAll(TestDir)
+	}
+	if mockKBaseServer != nil {
+		mockKBaseServer.Close()
 	}
 }

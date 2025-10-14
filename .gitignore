@@ -4,3 +4,10 @@ dts
 site/
 data/
 services/docs/
+
+# Editor directories and files
+.vscode/
+
+# output files
+*.log
+*.out

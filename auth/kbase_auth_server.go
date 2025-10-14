@@ -40,10 +40,36 @@ type KBaseAuthServer struct {
 	AccessToken string
 }
 
+// configuration options for a KBaseAuthServer
+type KBaseAuthServerConfig struct {
+    // base URL for the KBase Auth2 server
+	BaseURL string
+	// authentication endpoint (relative to BaseURL)
+	AuthEndpoint string
+	// API version
+	ApiVersion int
+}
+
+type KBaseAuthServerOption func(*KBaseAuthServerConfig)
+
 // constructs or retrieves a proxy to the KBase authentication server using the
 // given OAuth2 access token (corresponding to the current user), or returns a
-// non-nil error explaining any issue encountered
-func NewKBaseAuthServer(accessToken string) (*KBaseAuthServer, error) {
+// non-nil error explaining any issue encountered.
+// options can be used to modify the default configuration, and are typically
+// used for testing with a mock server
+func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*KBaseAuthServer, error) {
+
+    // set up default configuration
+	cfg := KBaseAuthServerConfig{
+		BaseURL: kbaseURL,
+		AuthEndpoint: kbaseAuthPath,
+		ApiVersion: kbaseAPIVersion,
+	}
+
+	// apply any provided options
+	for _, opt := range options {
+		opt(&cfg)
+	}
 
 	// check our list of KBase auth server instances for this access token
 	if instances == nil {
@@ -53,8 +79,8 @@ func NewKBaseAuthServer(accessToken string) (*KBaseAuthServer, error) {
 		return server, nil
 	} else {
 		server := KBaseAuthServer{
-			URL:         fmt.Sprintf("%s/services/auth", kbaseURL),
-			ApiVersion:  2,
+			URL:         fmt.Sprintf("%s/%s", cfg.BaseURL, cfg.AuthEndpoint),
+			ApiVersion:  cfg.ApiVersion,
 			AccessToken: accessToken,
 		}
 
@@ -97,6 +123,8 @@ func (server KBaseAuthServer) Client() (Client, error) {
 
 const (
 	kbaseURL = "https://kbase.us"
+	kbaseAuthPath = "services/auth"
+	kbaseAPIVersion = 2
 )
 
 // a record containing information about a user logged into the KBase Auth2

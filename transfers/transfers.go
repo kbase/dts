@@ -23,6 +23,7 @@ package transfers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -182,7 +183,7 @@ func Status(transferId uuid.UUID) (TransferStatus, error) {
 
 // Requests that the task with the given UUID be canceled. Clients should check
 // the status of the task separately.
-func Cancel(taskId uuid.UUID) error {
+func Cancel(transferId uuid.UUID) error {
 	return dispatcher.CancelTransfer(transferId)
 }
 
@@ -355,11 +356,50 @@ func destinationEndpoint(destination string) (endpoints.Endpoint, error) {
 	return endpoints.NewEndpoint(config.Databases[destination].Endpoint)
 }
 
-// resolves the folder at the given destination in which transferred files are deposited, with the
-// given subfolder appended
-func destinationFolder(destination, subfolder string) string {
+// resolves the folder at the given destination in which transferred files are deposited
+func destinationFolder(destination string) string {
 	if customSpec, err := endpoints.ParseCustomSpec(destination); err == nil { // custom transfer?
-		return filepath.Join(customSpec.Path, subfolder)
+		return customSpec.Path
 	}
-	return subfolder
+	return ""
+}
+
+// given a set of Frictionless DataResource descriptors, returns a map mapping the name of each
+// distinct endpoint to the descriptors associated with that endpoint; in the case of a single
+// endpoint, all descriptors are assigned to it; in the case of more than one endpoint, the
+// "endpoint" field is read from each descriptor, and an error is returned if a descriptor is
+// encountered without this field
+func descriptorsByEndpoint(spec Specification,
+	descriptors []map[string]any) (map[string][]map[string]any, error) {
+	descriptorsForEndpoint := make(map[string][]map[string]any)
+	if len(config.Databases[spec.Source].Endpoints) > 1 { // more than one endpoint possible!
+		distinctEndpoints := make(map[string]any)
+		for _, descriptor := range descriptors {
+			var endpoint string
+			if key, found := descriptor["endpoint"]; found {
+				endpoint = key.(string)
+			} else {
+				return nil, databases.ResourceEndpointNotFoundError{
+					Database:   spec.Source,
+					ResourceId: descriptor["id"].(string),
+				}
+			}
+			if _, found := distinctEndpoints[endpoint]; !found {
+				distinctEndpoints[endpoint] = struct{}{}
+			}
+		}
+
+		for endpoint := range distinctEndpoints {
+			endpointDescriptors := make([]map[string]any, 0)
+			for _, descriptor := range descriptors {
+				if endpoint == descriptor["endpoint"].(string) {
+					endpointDescriptors = append(endpointDescriptors, descriptor)
+				}
+			}
+			descriptorsForEndpoint[endpoint] = endpointDescriptors
+		}
+	} else { // assign all descriptors to the single endpoint
+		descriptorsForEndpoint[config.Databases[spec.Source].Endpoint] = descriptors
+	}
+	return descriptorsForEndpoint, nil
 }

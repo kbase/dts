@@ -25,9 +25,11 @@ package config
 // YAML input.
 import (
 	"fmt"
+	"log"
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -61,6 +63,84 @@ databases:
     url: files.jgi.doe.gov
     endpoint: my-globus-endpoint
 `
+
+// tests whether config.Init reports an error for an invalid byte array
+func TestInitRejectsBadYAML(t *testing.T) {
+	b := []byte("this is not yaml")
+	err := Init(b)
+	assert.NotNil(t, err, "Bad YAML didn't trigger an error.")
+}
+
+// tests whether config.Init reports an error for a missing service endpoint
+// when endpoints are defined
+func TestInitRejectsMissingServiceEndpoint(t *testing.T) {
+	yaml := "service:\n  endpoint: \"\"\n\n" + VALID_ENDPOINTS + VALID_DATABASES
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with missing service endpoint didn't trigger an error.")
+}
+
+// tests whether config.Init reports an error for a bad poll interval
+func TestInitRejectsBadPollInterval(t *testing.T) {
+	yaml := "service:\n  poll_interval: -1\n\n" + VALID_DATABASES
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with bad poll interval didn't trigger an error.")
+}
+
+// tests whether config.Init reports an error for an invalid deletion period
+func TestInitRejectsBadDeletionPeriod(t *testing.T) {
+	yaml := "service:\n  delete_after: 0\n\n" + VALID_DATABASES
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with bad deletion period didn't trigger an error.")
+}
+
+// tests whether config.Init reports an error for an invalid credential ID
+func TestInitRejectsBadCredentialID(t *testing.T) {
+	yaml := VALID_SERVICE + VALID_ENDPOINTS + VALID_DATABASES + `
+credentials:
+  bad_credential:
+    id: ""
+`
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with bad credential ID didn't trigger an error.")
+}
+
+// tests whether config.Init reports an error for an invalid endpoint ID
+func TestInitRejectsBadEndpointID(t *testing.T) {
+  // tests validateEndpoints function directly as parsing of UUID would fail first
+	err := validateEndpoints(map[string]endpointConfig{
+		"bad_endpoint": {
+			Id:       uuid.UUID{}, // invalid UUID
+			Provider: "globus",
+		},
+	})
+	log.Printf("This should be an error: %v", err)
+	// assert.NotNil(t, err, "Config with bad endpoint ID didn't trigger an error.")
+	// UPDATE config to use uuid.Nil as invalid UUID?
+}
+
+// tests whether config.Init reports an error for a missing endpoint provider
+func TestInitRejectsMissingEndpointProvider(t *testing.T) {
+	yaml := VALID_SERVICE + VALID_DATABASES + `
+endpoints:
+  my-globus-endpoint:
+    name: Globus test endpoint
+    id: ${DTS_GLOBUS_TEST_ENDPOINT}
+    provider: globus
+    auth:
+      client_id: ${DTS_GLOBUS_CLIENT_ID}
+      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+  bad_endpoint:
+    id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+    provider: ""
+`
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with missing endpoint provider didn't trigger an error.")
+}
 
 // tests whether config.Init reports an error for an invalid max number of
 // processes

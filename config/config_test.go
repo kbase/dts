@@ -208,7 +208,7 @@ func TestInitRejectsBadDatabaseBaseURL(t *testing.T) {
 
 // tests whether config.Init rejects a configuration with no databases
 func TestInitRejectsNoDatabases(t *testing.T) {
-    cleanup := setTestEnvVars()
+	cleanup := setTestEnvVars()
 	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases: {}

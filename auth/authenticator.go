@@ -42,10 +42,23 @@ import (
 type Authenticator struct {
 	UserForToken   map[string]User
 	TimeOfLastRead time.Time
+	RereadInterval float64
+    AccessTokenFile string
 }
+
+const (
+	// how often to reread the access token file, in minutes
+	defaultRereadInterval = 1.0
+	// name of the access token file
+	defaultAccessTokenFile = "access.dat"
+)
+
+
 
 func NewAuthenticator() (*Authenticator, error) {
 	var a Authenticator
+	a.RereadInterval = defaultRereadInterval
+	a.AccessTokenFile = defaultAccessTokenFile
 	err := a.readAccessTokenFile()
 	if err != nil {
 		return nil, err
@@ -56,26 +69,23 @@ func NewAuthenticator() (*Authenticator, error) {
 
 // given an access token, returns a User or an error
 func (a *Authenticator) GetUser(accessToken string) (User, error) {
-	if user, found := a.UserForToken[accessToken]; found {
-		return user, nil
-	}
-
 	// if it's been more than a minute since we read the file, reread it
-	if time.Since(a.TimeOfLastRead).Minutes() > 1.0 {
+	if time.Since(a.TimeOfLastRead).Minutes() > a.RereadInterval {
 		err := a.readAccessTokenFile()
 		if err != nil {
 			return User{}, err
 		}
-		if user, found := a.UserForToken[accessToken]; found {
-			return user, nil
-		}
+	}
+	
+	if user, found := a.UserForToken[accessToken]; found {
+		return user, nil
 	}
 
 	return User{}, errors.New("Invalid access token!")
 }
 
 func (a *Authenticator) readAccessTokenFile() error {
-	tokenFilePath := filepath.Join(config.Service.DataDirectory, "access.dat")
+	tokenFilePath := filepath.Join(config.Service.DataDirectory, a.AccessTokenFile)
 	key, err := fernet.DecodeKey(config.Service.Secret)
 	if err != nil {
 		return err

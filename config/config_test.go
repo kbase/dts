@@ -25,11 +25,9 @@ package config
 // YAML input.
 import (
 	"fmt"
-	"log"
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -64,27 +62,29 @@ databases:
     endpoint: my-globus-endpoint
 `
 
-// helper function for temporarily setting expected environment variables
-func setTestEnvVars() func() {
+// helper function replaces embedded environment variables in yaml strings
+// when they don't exist in the environment
+func setTestEnvVars(yaml string) string {
 	testVars := map[string]string{
 		"DTS_GLOBUS_TEST_ENDPOINT":   "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 		"DTS_GLOBUS_CLIENT_ID":       "fake_client_id",
 		"DTS_GLOBUS_CLIENT_SECRET":   "fake_client_secret",
 	}
 
-	// store and replace original environment variables
-	originals := make(map[string]string)
+	// check for existence of each variable. when not present, replace
+	// instances of it in the yaml string with a test value
 	for key, value := range testVars {
-		originals[key] = os.Getenv(key)
-		os.Setenv(key, value)
-	}
-
-	// return function to restore original environment variables
-	return func() {
-		for key, value := range originals {
-			os.Setenv(key, value)
+		if os.Getenv(key) == "" {
+			yaml = os.Expand(yaml, func(yamlVar string) string {
+				if yamlVar == key {
+					return value
+				}
+				return "${" + yamlVar + "}"
+			})
 		}
 	}
+
+	return yaml
 }
 
 // tests whether config.Init reports an error for an invalid byte array
@@ -133,22 +133,28 @@ credentials:
 
 // tests whether config.Init reports an error for an invalid endpoint ID
 func TestInitRejectsBadEndpointID(t *testing.T) {
-  // tests validateEndpoints function directly as parsing of UUID would fail first
-	err := validateEndpoints(map[string]endpointConfig{
-		"bad_endpoint": {
-			Id:       uuid.UUID{}, // invalid UUID
-			Provider: "globus",
-		},
-	})
-	log.Printf("This should be an error: %v", err)
-	// assert.NotNil(t, err, "Config with bad endpoint ID didn't trigger an error.")
-	// UPDATE config to use uuid.Nil as invalid UUID?
+	// omits the endpoint ID so it is initialized to the zero value
+    yaml := VALID_SERVICE + `` + VALID_DATABASES + `
+endpoints:
+  my-globus-endpoint:
+    name: Globus test endpoint
+    id: ${DTS_GLOBUS_TEST_ENDPOINT}
+    provider: globus
+    auth:
+      client_id: ${DTS_GLOBUS_CLIENT_ID}
+      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+  bad_endpoint:
+    name: Bad endpoint
+    id: 00000000-0000-0000-0000-000000000000
+`
+    yaml = setTestEnvVars(yaml)
+	b := []byte(yaml)
+	err := Init(b)
+	assert.NotNil(t, err, "Config with bad endpoint ID didn't trigger an error.")
 }
 
 // tests whether config.Init reports an error for a missing endpoint provider
 func TestInitRejectsMissingEndpointProvider(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_DATABASES + `
 endpoints:
   my-globus-endpoint:
@@ -162,6 +168,7 @@ endpoints:
     id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
     provider: ""
 `
+    yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with missing endpoint provider didn't trigger an error.")
@@ -208,11 +215,10 @@ func TestInitRejectsBadDatabaseBaseURL(t *testing.T) {
 
 // tests whether config.Init rejects a configuration with no databases
 func TestInitRejectsNoDatabases(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases: {}
 `
+    yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with no databases didn't trigger an error.")
@@ -221,8 +227,6 @@ databases: {}
 // tests whether config.Init rejects a configuration with a database that is
 // missing both endpoint and endpoints
 func TestInitRejectsDatabaseMissingEndpoint(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases:
   bad_database:
@@ -230,6 +234,7 @@ databases:
     endpoint: ""
     endpoints: {}
 `
+    yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database missing endpoint didn't trigger an error.")
@@ -238,8 +243,6 @@ databases:
 // tests whether config.Init rejects a configuration with a database that has
 // both endpoint and endpoints defined
 func TestInitRejectsDatabaseWithBothEndpointAndEndpoints(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases:
   bad_database:
@@ -248,6 +251,7 @@ databases:
     endpoints:
       my-globus-endpoint: "my-globus-endpoint"
 `
+    yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database with both endpoint and endpoints didn't trigger an error.")
@@ -256,14 +260,13 @@ databases:
 // tests whether config.Init rejects a configuration with a database that has
 // an endpoints entry that is not present in the endpoints section
 func TestInitRejectsDatabaseWithInvalidEndpointEntry(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases:
   bad_database:
     name: Bad Database
     endpoint: endpoint-that-does-not-exist
 `
+    yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database with invalid endpoint didn't trigger an error.")
@@ -272,8 +275,6 @@ databases:
 // tests whether config.Init rejects a configuration with a database that has
 // an endpoints entry that is not present in the endpoints section
 func TestInitRejectsDatabaseWithInvalidFunctionalEndpointsEntry(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases:
   bad_database:
@@ -282,6 +283,7 @@ databases:
       globus: "my-globus-endpoint"
       bad-endpoint: "endpoint-that-does-not-exist"
 `
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database with invalid endpoint didn't trigger an error.")
@@ -291,9 +293,8 @@ databases:
 // (ostensibly) valid. NOTE: This particular configuration is consistent and
 // contains acceptible values for fields. It won't actually run a service!
 func TestInitAcceptsValidInput(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + VALID_DATABASES
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.Nil(t, err, fmt.Sprintf("Valid YAML input produced an error: %s", err))
@@ -301,9 +302,8 @@ func TestInitAcceptsValidInput(t *testing.T) {
 
 // Tests whether config.Init properly initializes its globals for valid input.
 func TestInitProperlySetsGlobals(t *testing.T) {
-	cleanup := setTestEnvVars()
-	defer cleanup()
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + VALID_DATABASES
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.Nil(t, err, fmt.Sprintf("Valid YAML input produced an error: %s", err))

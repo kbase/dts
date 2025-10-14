@@ -67,9 +67,9 @@ func createMockKBaseServer() *httptest.Server {
 	huma.Register(api, huma.Operation{
 		OperationID: "getMe",
 		Method:      http.MethodGet,
-		Path:       "/services/auth/api/V2/me",
-		Security: []map[string][]string{{"bearerAuth": {}}},
-	}, func(ctx context.Context, input *struct{
+		Path:        "/services/auth/api/V2/me",
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+	}, func(ctx context.Context, input *struct {
 		Authorization string `header:"Authorization"`
 	}) (*KBaseUserResponse, error) {
 

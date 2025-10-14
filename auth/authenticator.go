@@ -40,10 +40,10 @@ import (
 // short-term solution, as the encrypted file is maintained manually, but it
 // provides a method for adding DTS users without Acts of God.
 type Authenticator struct {
-	UserForToken   map[string]User
-	TimeOfLastRead time.Time
-	RereadInterval float64
-    AccessTokenFile string
+	UserForToken    map[string]User
+	TimeOfLastRead  time.Time
+	RereadInterval  float64
+	AccessTokenFile string
 }
 
 const (
@@ -52,8 +52,6 @@ const (
 	// name of the access token file
 	defaultAccessTokenFile = "access.dat"
 )
-
-
 
 func NewAuthenticator() (*Authenticator, error) {
 	var a Authenticator
@@ -76,7 +74,7 @@ func (a *Authenticator) GetUser(accessToken string) (User, error) {
 			return User{}, err
 		}
 	}
-	
+
 	if user, found := a.UserForToken[accessToken]; found {
 		return user, nil
 	}

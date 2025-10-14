@@ -42,7 +42,7 @@ type KBaseAuthServer struct {
 
 // configuration options for a KBaseAuthServer
 type KBaseAuthServerConfig struct {
-    // base URL for the KBase Auth2 server
+	// base URL for the KBase Auth2 server
 	BaseURL string
 	// authentication endpoint (relative to BaseURL)
 	AuthEndpoint string
@@ -59,11 +59,11 @@ type KBaseAuthServerOption func(*KBaseAuthServerConfig)
 // used for testing with a mock server
 func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*KBaseAuthServer, error) {
 
-    // set up default configuration
+	// set up default configuration
 	cfg := KBaseAuthServerConfig{
-		BaseURL: kbaseURL,
+		BaseURL:      kbaseURL,
 		AuthEndpoint: kbaseAuthPath,
-		ApiVersion: kbaseAPIVersion,
+		ApiVersion:   kbaseAPIVersion,
 	}
 
 	// apply any provided options
@@ -122,8 +122,8 @@ func (server KBaseAuthServer) Client() (Client, error) {
 //-----------
 
 const (
-	kbaseURL = "https://kbase.us"
-	kbaseAuthPath = "services/auth"
+	kbaseURL        = "https://kbase.us"
+	kbaseAuthPath   = "services/auth"
 	kbaseAPIVersion = 2
 )
 

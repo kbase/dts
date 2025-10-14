@@ -66,9 +66,9 @@ databases:
 // when they don't exist in the environment
 func setTestEnvVars(yaml string) string {
 	testVars := map[string]string{
-		"DTS_GLOBUS_TEST_ENDPOINT":   "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-		"DTS_GLOBUS_CLIENT_ID":       "fake_client_id",
-		"DTS_GLOBUS_CLIENT_SECRET":   "fake_client_secret",
+		"DTS_GLOBUS_TEST_ENDPOINT": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		"DTS_GLOBUS_CLIENT_ID":     "fake_client_id",
+		"DTS_GLOBUS_CLIENT_SECRET": "fake_client_secret",
 	}
 
 	// check for existence of each variable. when not present, replace
@@ -134,7 +134,7 @@ credentials:
 // tests whether config.Init reports an error for an invalid endpoint ID
 func TestInitRejectsBadEndpointID(t *testing.T) {
 	// omits the endpoint ID so it is initialized to the zero value
-    yaml := VALID_SERVICE + `` + VALID_DATABASES + `
+	yaml := VALID_SERVICE + `` + VALID_DATABASES + `
 endpoints:
   my-globus-endpoint:
     name: Globus test endpoint
@@ -147,7 +147,7 @@ endpoints:
     name: Bad endpoint
     id: 00000000-0000-0000-0000-000000000000
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with bad endpoint ID didn't trigger an error.")
@@ -168,7 +168,7 @@ endpoints:
     id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
     provider: ""
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with missing endpoint provider didn't trigger an error.")
@@ -218,7 +218,7 @@ func TestInitRejectsNoDatabases(t *testing.T) {
 	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
 databases: {}
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with no databases didn't trigger an error.")
@@ -234,7 +234,7 @@ databases:
     endpoint: ""
     endpoints: {}
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database missing endpoint didn't trigger an error.")
@@ -251,7 +251,7 @@ databases:
     endpoints:
       my-globus-endpoint: "my-globus-endpoint"
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database with both endpoint and endpoints didn't trigger an error.")
@@ -266,7 +266,7 @@ databases:
     name: Bad Database
     endpoint: endpoint-that-does-not-exist
 `
-    yaml = setTestEnvVars(yaml)
+	yaml = setTestEnvVars(yaml)
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with database with invalid endpoint didn't trigger an error.")

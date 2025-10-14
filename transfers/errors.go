@@ -75,3 +75,11 @@ func (e PayloadTooLargeError) Error() string {
 	return fmt.Sprintf("Requested transfer payload is too large: %g GB (limit is %g GB).",
 		e.Size, config.Service.MaxPayloadSize)
 }
+
+type TransferNotFoundError struct {
+	Id uuid.UUID
+}
+
+func (e TransferNotFoundError) Error() string {
+	return fmt.Sprintf("Transfer not found: %s.", e.Id.String())
+}

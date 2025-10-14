@@ -48,7 +48,7 @@ type transferTask struct {
 	Canceled          bool              // set if a cancellation request has been made
 	StartTime         time.Time         // time at which the transfer was requested
 	CompletionTime    time.Time         // time at which the transfer completed
-	DataDescriptors   []any             // in-line data descriptors
+	DataDescriptors   []map[string]any  // in-line data descriptors
 	Description       string            // Markdown description of the task
 	Destination       string            // name of destination database (in config) OR custom spec
 	DestinationFolder string            // folder path to which files are transferred
@@ -152,7 +152,7 @@ func (task *transferTask) start() error {
 	for sourceEndpoint := range distinctEndpoints {
 		// pick out the files corresponding to the source endpoint
 		// NOTE: this is slow, but preserves file ID ordering
-		descriptorsForEndpoint := make([]any, 0)
+		descriptorsForEndpoint := make([]map[string]any, 0)
 		for _, descriptor := range fileDescriptors {
 			endpoint := descriptor["endpoint"].(string)
 			if endpoint == sourceEndpoint {
@@ -350,7 +350,7 @@ func (task transferTask) Completed() bool {
 // creates a DataPackage that serves as the transfer manifest
 func (task *transferTask) createManifest() (*datapackage.Package, error) {
 	// gather all file and data descriptors
-	descriptors := make([]any, 0)
+	descriptors := make([]map[string]any, 0)
 	for _, subtask := range task.Subtasks {
 		descriptors = append(descriptors, subtask.Descriptors...)
 	}

@@ -22,89 +22,62 @@
 package transfers
 
 import (
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/endpoints"
 )
 
 //--------
 // Stager
 //--------
 
-// The stager coordinates the staging of files at a source endpoint in preparation for transfer.
+// The stager coordinates the staging of files at a source database in preparation for transfer.
 
 // stager global state
 var stager stagerState
 
 type stagerState struct {
 	Channels  stagerChannels
-	Endpoints map[string]endpoints.Endpoint
+	Databases map[string]databases.Database
 }
 
 type stagerChannels struct {
-	RequestStaging  chan stagingRequest
-	ReturnStagingId chan uuid.UUID
-
-	RequestStatus chan uuid.UUID
-	ReturnStatus  chan TransferStatus
-
-	Error chan error
-	Stop  chan struct{}
-}
-
-type stagingRequest struct {
-	Descriptors []map[string]any
-	Endpoint    string
+	RequestStaging      chan uuid.UUID
+	RequestCancellation chan uuid.UUID
+	Error               chan error
+	Stop                chan struct{}
 }
 
 // starts the stager
 func (s *stagerState) Start() error {
 	s.Channels = stagerChannels{
-		RequestStaging:  make(chan stagingRequest, 32),
-		ReturnStagingId: make(chan uuid.UUID, 32),
-		RequestStatus:   make(chan uuid.UUID, 32),
-		ReturnStatus:    make(chan TransferStatus, 32),
-		Error:           make(chan error, 32),
-		Stop:            make(chan struct{}),
+		RequestStaging: make(chan uuid.UUID, 32),
+		Error:          make(chan error, 32),
+		Stop:           make(chan struct{}),
 	}
-	s.Endpoints = make(map[string]endpoints.Endpoint)
 	go s.process()
 	return nil
 }
 
-// stops the store goroutine
+// stops the stager goroutine
 func (s *stagerState) Stop() error {
 	s.Channels.Stop <- struct{}{}
 	return <-s.Channels.Error
 }
 
-func (s *stagerState) StageFiles(descriptors []map[string]any, endpoint string) (uuid.UUID, error) {
-	s.Channels.RequestStaging <- stagingRequest{
-		Descriptors: descriptors,
-		Endpoint:    endpoint,
-	}
-	select {
-	case id := <-stager.Channels.ReturnStagingId:
-		return id, nil
-	case err := <-stager.Channels.Error:
-		return uuid.UUID{}, err
-	}
+// requests that files be staged for the transfer with the given ID
+func (s *stagerState) StageFiles(id uuid.UUID) error {
+	s.Channels.RequestStaging <- id
+	return <-stager.Channels.Error
 }
 
-func (s *stagerState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
-	s.Channels.RequestStatus <- transferId
-	select {
-	case status := <-stager.Channels.ReturnStatus:
-		return status, nil
-	case err := <-stager.Channels.Error:
-		return TransferStatus{}, err
-	}
+// cancels a file staging operation
+func (s *stagerState) Cancel(transferId uuid.UUID) error {
+	s.Channels.RequestCancellation <- transferId
+	return <-stager.Channels.Error
 }
 
 //----------------------------------------------------
@@ -115,48 +88,88 @@ func (s *stagerState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 func (s *stagerState) process() {
 	running := true
 	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
-	stagings := make(map[uuid.UUID]stagingRequest)
+	stagings := make(map[uuid.UUID]stagingEntry)
 	for running {
 		select {
-		case staging := <-stager.Channels.RequestStaging:
-			id, err := s.start(staging)
+		case transferId := <-stager.Channels.RequestStaging:
+			entry, err := s.start(transferId)
 			if err != nil {
 				stager.Channels.Error <- err
 			}
-			stagings[id] = staging
-			stager.Channels.ReturnStagingId <- id
-		case id := <-stager.Channels.RequestStatus:
-			staging, found := stagings[id]
-			if !found {
-				stager.Channels.Error <- errors.New(fmt.Sprintf("Invalid staging ID: %s", id.String()))
-				break
+			stagings[transferId] = entry
+		case transferId := <-mover.Channels.RequestCancellation:
+			if _, found := stagings[transferId]; found {
+				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
+				stager.Channels.Error <- nil
+			} else {
+				stager.Channels.Error <- NotFoundError{Id: transferId}
 			}
-			source := stager.Endpoints[staging.Endpoint]
-			status, err := source.Status(id)
-			if err != nil {
-				stager.Channels.Error <- err
-				break
-			}
-			stager.Channels.ReturnStatus <- status
 		case <-stager.Channels.Stop:
 			running = false
 		}
 
 		time.Sleep(pollInterval)
+
+		// check the staging status and advance to a transfer if it's finished
+		for transferId, staging := range stagings {
+			if err := s.updateStatus(transferId, staging); err != nil {
+				stager.Channels.Error <- err
+			}
+		}
 	}
 }
 
-func (s *stagerState) start(staging stagingRequest) (uuid.UUID, error) {
-	// assemble file IDs from the descriptors
-	fileIds := make([]string, len(staging.Descriptors))
-	for i, d := range staging.Descriptors {
-		fileIds[i] = d["id"].(string)
+type stagingEntry struct {
+	Id uuid.UUID // staging ID (distinct from transfer ID)
+}
+
+func (s *stagerState) start(transferId uuid.UUID) (stagingEntry, error) {
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	db, err := databases.NewDatabase(spec.Source)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	id, err := db.StageFiles(spec.User.Orcid, spec.FileIds)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	return stagingEntry{Id: id}, nil
+}
+
+func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) error {
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return err
+	}
+	source, err := databases.NewDatabase(spec.Source)
+	if err != nil {
+		return err
 	}
 
-	db, err := databases.NewDatabase(staging.Endpoint)
-	id, err := db.StageFiles(staging.Endpoint, fileIds)
+	status, err := source.StagingStatus(staging.Id)
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
-	return id, nil
+
+	if status == databases.StagingStatusSucceeded {
+		err := mover.MoveFiles(transferId)
+		if err != nil {
+			return err
+		}
+	} else if status == databases.StagingStatusFailed {
+		// FIXME: handle staging failures here!
+	} else { // still staging
+		xferStatus, err := store.GetStatus(transferId)
+		if err != nil {
+			return err
+		}
+		if xferStatus.Code != TransferStatusStaging {
+			xferStatus.Code = TransferStatusStaging
+			store.SetStatus(transferId, xferStatus)
+		}
+	}
+	return nil
 }

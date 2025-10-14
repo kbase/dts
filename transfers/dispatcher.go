@@ -26,6 +26,8 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+
+	"github.com/kbase/dts/endpoints"
 )
 
 //------------
@@ -92,8 +94,16 @@ func (d *dispatcherState) GetTransferStatus(id uuid.UUID) (TransferStatus, error
 	}
 }
 
-// This goroutine handles all client interactions, sending data along channels to internal
-// goroutines as needed.
+func (d *dispatcherState) CancelTransfer(id uuid.UUID) error {
+	d.Channels.CancelTransfer <- id
+	return <-d.Channels.Error
+}
+
+//----------------------------------------------------
+// everything past here runs in the dispatcher's goroutine
+//----------------------------------------------------
+
+// the goroutine itself
 func (d *dispatcherState) process() {
 
 	// client input channels
@@ -112,17 +122,16 @@ func (d *dispatcherState) process() {
 	for running {
 		select {
 		case spec := <-newTransferRequested:
-			transferId, numFiles, err := store.NewTransfer(spec)
+			transferId, numFiles, err := d.create(spec)
 			if err != nil {
 				returnError <- err
-				break
 			}
 			returnTransferId <- transferId
-			slog.Info(fmt.Sprintf("Created new transfer task %s (%d file(s) requested)",
-				transferId.String(), numFiles))
-
+			slog.Info(fmt.Sprintf("Created new transfer %s (%d file(s) requested)", transferId.String(),
+				numFiles))
 		case transferId := <-cancellationRequested:
-			if err := cancelTransfer(transferId); err != nil {
+			slog.Info(fmt.Sprintf("Canceling transfer %s", transferId.String()))
+			if err := d.cancel(transferId); err != nil {
 				slog.Error(fmt.Sprintf("Transfer %s: %s", transferId.String(), err.Error()))
 				returnError <- err
 			}
@@ -136,5 +145,59 @@ func (d *dispatcherState) process() {
 		case <-stopRequested:
 			running = false
 		}
+	}
+}
+
+// creates a transfer from the given specification and starts things moving; returns a UUID for the
+// transfer, the number of files in the payload, and/or an error
+func (d *dispatcherState) create(spec Specification) (uuid.UUID, int, error) {
+	transferId, numFiles, err := store.NewTransfer(spec)
+	if err != nil {
+		return uuid.UUID{}, 0, err
+	}
+	descriptors, err := store.GetDescriptors(transferId)
+	if err != nil {
+		return uuid.UUID{}, 0, err
+	}
+
+	// do we need to stage files for the source database?
+	filesStaged := true
+	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
+	for source, descriptorsForSource := range descriptorsForEndpoint {
+		sourceEndpoint, err := endpoints.NewEndpoint(source)
+		if err != nil {
+			return uuid.UUID{}, 0, err
+		}
+		filesStaged, err = sourceEndpoint.FilesStaged(descriptorsForSource)
+		if err != nil {
+			return uuid.UUID{}, 0, err
+		}
+		if !filesStaged {
+			break
+		}
+	}
+
+	if !filesStaged {
+		stager.StageFiles(transferId)
+	} else {
+		mover.MoveFiles(transferId)
+	}
+
+	return transferId, numFiles, err
+}
+
+func (d *dispatcherState) cancel(transferId uuid.UUID) error {
+	status, err := store.GetStatus(transferId)
+	if err != nil {
+		return err
+	}
+	switch status.Code {
+	case TransferStatusUnknown, TransferStatusSucceeded, TransferStatusFailed:
+	case TransferStatusStaging:
+		return stager.Cancel(transferId)
+	case TransferStatusActive, TransferStatusInactive:
+		return mover.Cancel(transferId)
+	case TransferStatusFinalizing:
+		return manifestor.Cancel(transferId)
 	}
 }

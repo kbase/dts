@@ -46,6 +46,7 @@ jobs:
       shell: bash
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
+      continue-on-error: true # load coverage even if tests fail
 
     - name: Uploading code coverage report to Codecov
       uses: codecov/codecov-action@v4

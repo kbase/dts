@@ -27,6 +27,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -181,7 +182,7 @@ func validateEndpoints(endpoints map[string]endpointConfig) error {
 		}
 	}
 	for name, endpoint := range endpoints {
-		if endpoint.Id.String() == "" { // invalid endpoint UUID
+		if endpoint.Id == uuid.Nil { // invalid endpoint UUID
 			return &InvalidEndpointConfigError{
 				Endpoint: name,
 				Message:  "Invalid UUID",

@@ -159,11 +159,11 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	if p.Has("study_id") { // fetch data objects associated with this study
 		descriptors, err = db.createDataObjectDescriptorsForStudy(p.Get("study_id"))
 	} else {
-		dataObjects, err := db.dataObjects(p)
+		var dataObjects []DataObject
+		dataObjects, err = db.dataObjects(p)
 		if err != nil {
 			return databases.SearchResults{}, err
 		}
-		//lint:ignore SA4006 err is used in return statement
 		descriptors, _, err = db.createDataObjectAndBiosampleDescriptors(dataObjects)
 	}
 	return databases.SearchResults{

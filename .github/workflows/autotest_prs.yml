@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   DTS_KBASE_DEV_TOKEN: ${{ secrets.DTS_KBASE_DEV_TOKEN }}

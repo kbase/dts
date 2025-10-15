@@ -61,6 +61,21 @@ type storeChannels struct {
 	Stop  chan struct{}
 }
 
+func (channels *storeChannels) close() {
+	close(channels.RequestNewTransfer)
+	close(channels.ReturnNewTransfer)
+	close(channels.RequestSpec)
+	close(channels.ReturnSpec)
+	close(channels.RequestDescriptors)
+	close(channels.ReturnDescriptors)
+	close(channels.SetStatus)
+	close(channels.RequestStatus)
+	close(channels.ReturnStatus)
+	close(channels.RequestRemoval)
+	close(channels.Error)
+	close(channels.Stop)
+}
+
 type transferIdAndStatus struct {
 	Id     uuid.UUID
 	Status TransferStatus
@@ -88,7 +103,10 @@ func (s *storeState) Start() error {
 
 // stops the store goroutine
 func (s *storeState) Stop() error {
-	return nil
+	s.Channels.Stop <- struct{}{}
+	err := <-s.Channels.Error
+	s.Channels.close()
+	return err
 }
 
 // creates a new entry for a transfer within the store, populating it with relevant metadata and
@@ -205,6 +223,7 @@ func (s *storeState) process() {
 				store.Channels.Error <- TransferNotFoundError{Id: id}
 			}
 		case <-store.Channels.Stop:
+			store.Channels.Error <- nil
 			running = false
 		}
 	}

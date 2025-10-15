@@ -54,6 +54,16 @@ type dispatcherChannels struct {
 	Stop  chan struct{} // used by client to stop task management
 }
 
+func (channels *dispatcherChannels) close() {
+	close(channels.RequestTransfer)
+	close(channels.ReturnTransferId)
+	close(channels.CancelTransfer)
+	close(channels.RequestStatus)
+	close(channels.ReturnStatus)
+	close(channels.Error)
+	close(channels.Stop)
+}
+
 func (d *dispatcherState) Start() error {
 	d.Channels = dispatcherChannels{
 		RequestTransfer:  make(chan Specification, 32),
@@ -71,7 +81,9 @@ func (d *dispatcherState) Start() error {
 
 func (d *dispatcherState) Stop() error {
 	d.Channels.Stop <- struct{}{}
-	return <-d.Channels.Error
+	err := <-d.Channels.Error
+	d.Channels.close()
+	return err
 }
 
 func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) {
@@ -99,9 +111,9 @@ func (d *dispatcherState) CancelTransfer(id uuid.UUID) error {
 	return <-d.Channels.Error
 }
 
-//----------------------------------------------------
+//---------------------------------------------------------
 // everything past here runs in the dispatcher's goroutine
-//----------------------------------------------------
+//---------------------------------------------------------
 
 // the goroutine itself
 func (d *dispatcherState) process() {
@@ -125,6 +137,7 @@ func (d *dispatcherState) process() {
 			transferId, numFiles, err := d.create(spec)
 			if err != nil {
 				returnError <- err
+				break
 			}
 			returnTransferId <- transferId
 			slog.Info(fmt.Sprintf("Created new transfer %s (%d file(s) requested)", transferId.String(),
@@ -144,6 +157,7 @@ func (d *dispatcherState) process() {
 			returnStatus <- status
 		case <-stopRequested:
 			running = false
+			returnError <- nil
 		}
 	}
 }

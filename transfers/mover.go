@@ -52,10 +52,18 @@ type moverChannels struct {
 	Stop                chan struct{}
 }
 
+func (channels *moverChannels) close() {
+	close(channels.RequestMove)
+	close(channels.RequestCancellation)
+	close(channels.Error)
+	close(channels.Stop)
+}
+
 // starts the mover
 func (m *moverState) Start() error {
 	m.Channels = moverChannels{
 		RequestMove: make(chan uuid.UUID, 32),
+		RequestCancellation: make(chan uuid.UUID, 32),
 		Error:       make(chan error, 32),
 		Stop:        make(chan struct{}),
 	}
@@ -67,7 +75,9 @@ func (m *moverState) Start() error {
 // stops the mover goroutine
 func (m *moverState) Stop() error {
 	m.Channels.Stop <- struct{}{}
-	return <-m.Channels.Error
+	err := <-m.Channels.Error
+	m.Channels.close()
+	return err
 }
 
 // starts moving files associated with the given transfer ID
@@ -111,6 +121,7 @@ func (m *moverState) process() {
 			}
 		case <-mover.Channels.Stop:
 			running = false
+			mover.Channels.Error <- nil
 		}
 
 		time.Sleep(pollInterval)

@@ -1,0 +1,224 @@
+// Copyright (c) 2023 The KBase Project and its Contributors
+// Copyright (c) 2023 Cohere Consulting, LLC
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// These tests must be run serially, since tasks are coordinated by a
+// single instance.
+
+package transfers
+
+import (
+	"log"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	//"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
+	//"github.com/kbase/dts/auth"
+	"github.com/kbase/dts/config"
+	"github.com/kbase/dts/dtstest"
+)
+
+// runs all tests serially
+func TestRunner(t *testing.T) {
+	tester := SerialTests{Test: t}
+	tester.TestStartAndStopTransfers()
+	//tester.TestStopAndRestartTransfers()
+}
+
+// This runs setup, runs all tests, and does breakdown.
+func TestMain(m *testing.M) {
+	var status int
+	setup()
+	status = m.Run()
+	breakdown()
+	os.Exit(status)
+}
+
+// this function gets called at the begіnning of a test session
+func setup() {
+		dtstest.EnableDebugLogging()
+
+		log.Print("Creating testing directory...\n")
+		var err error
+		TESTING_DIR, err = os.MkdirTemp(os.TempDir(), "data-transfer-service-tests-")
+		if err != nil {
+			log.Panicf("Couldn't create testing directory: %s", err)
+		}
+		os.Chdir(TESTING_DIR)
+
+		// read in the config file with SOURCE_ROOT and DESTINATION_ROOT replaced
+		myConfig := strings.ReplaceAll(transfersConfig, "TESTING_DIR", TESTING_DIR)
+		err = config.Init([]byte(myConfig))
+		if err != nil {
+			log.Panicf("Couldn't initialize configuration: %s", err)
+		}
+
+		// create test resources
+		testDescriptors := map[string]map[string]any{
+			"file1": {
+				"id":       "file1",
+				"name":     "file1.dat",
+				"path":     "dir1/file1.dat",
+				"format":   "text",
+				"bytes":    1024,
+				"hash":     "d91f97974d06563cab48d4d43a17e08a",
+				"endpoint": "source-endpoint",
+			},
+			"file2": {
+				"id":       "file2",
+				"name":     "file2.dat",
+				"path":     "dir2/file2.dat",
+				"format":   "text",
+				"bytes":    2048,
+				"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
+				"endpoint": "source-endpoint",
+			},
+			"file3": {
+				"id":       "file3",
+				"name":     "file3.dat",
+				"path":     "dir3/file3.dat",
+				"format":   "text",
+				"bytes":    4096,
+				"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
+				"endpoint": "source-endpoint",
+			},
+		}
+
+		// register test databases/endpoints referred to in config file
+		dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
+
+		// Create the data and manifest directories
+		os.Mkdir(config.Service.DataDirectory, 0755)
+		os.Mkdir(config.Service.ManifestDirectory, 0755)
+}
+
+// this function gets called after all tests have been run
+func breakdown() {
+		if TESTING_DIR != "" {
+			log.Printf("Deleting testing directory %s...\n", TESTING_DIR)
+			os.RemoveAll(TESTING_DIR)
+		}
+}
+
+// To run the tests serially, we attach them to a SerialTests type and
+// have them run by a a single test runner.
+type SerialTests struct{ Test *testing.T }
+
+func (t *SerialTests) TestStartAndStopTransfers() {
+	assert := assert.New(t.Test)
+
+	assert.False(Running())
+	err := Start()
+	assert.Nil(err)
+	assert.True(Running())
+	err = Stop()
+	assert.Nil(err)
+	assert.False(Running())
+}
+
+func (t *SerialTests) TestStopAndRestartTransfers() {
+	/*
+		assert := assert.New(t.Test)
+
+		// start up, add a bunch of tasks, then immediately close
+		err := Start()
+		assert.Nil(err)
+		numTasks := 10
+		taskIds := make([]uuid.UUID, numTasks)
+		for i := 0; i < numTasks; i++ {
+			taskId, _ := Create(Specification{
+				User: auth.User{
+					Name:  "Joe-bob",
+					Orcid: "1234-5678-9012-3456",
+				},
+				Source:      "test-source",
+				Destination: "test-destination",
+				FileIds:     []string{"file1", "file2"},
+			})
+			taskIds[i] = taskId
+		}
+		time.Sleep(100 * time.Millisecond) // let things settle
+		err = Stop()
+		assert.Nil(err)
+
+		// now restart the task manager and make sure all the tasks are there
+		err = Start()
+		assert.Nil(err)
+		for i := 0; i < numTasks; i++ {
+			_, err := Status(taskIds[i])
+			assert.Nil(err)
+		}
+
+		err = Stop()
+		assert.Nil(err)
+	*/
+}
+
+// temporary testing directory
+var TESTING_DIR string
+
+// endpoint testing options
+var endpointOptions = dtstest.EndpointOptions{
+	StagingDuration:  time.Duration(150) * time.Millisecond,
+	TransferDuration: time.Duration(500) * time.Millisecond,
+}
+
+// a pause to give the task manager a bit of time
+var pause time.Duration = time.Duration(25) * time.Millisecond
+
+// configuration
+const transfersConfig string = `
+service:
+  port: 8080
+  max_connections: 100
+  poll_interval: 50  # milliseconds
+  data_dir: TESTING_DIR/data
+  manifest_dir: TESTING_DIR/manifests
+  delete_after: 2    # seconds
+  endpoint: local-endpoint
+databases:
+  test-source:
+    name: Source Test Database
+    organization: The Source Company
+    endpoint: source-endpoint
+  test-destination:
+    name: Destination Test Database
+    organization: Fabulous Destinations, Inc.
+    endpoint: destination-endpoint
+endpoints:
+  local-endpoint:
+    name: Local endpoint
+    id: 8816ec2d-4a48-4ded-b68a-5ab46a4417b6
+    provider: test
+  source-endpoint:
+    name: Endpoint 1
+    id: 26d61236-39f6-4742-a374-8ec709347f2f
+    provider: test
+    root: SOURCE_ROOT
+  destination-endpoint:
+    name: Endpoint 2
+    id: f1865b86-2c64-4b8b-99f3-5aaa945ec3d9
+    provider: test
+    root: DESTINATION_ROOT
+`

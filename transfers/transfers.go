@@ -73,6 +73,7 @@ func Start() error {
 			return err
 		}
 		if err := registerDatabases(); err != nil {
+			print("pooped 'em!\n")
 			return err
 		}
 		global.Started = true
@@ -107,12 +108,10 @@ func Start() error {
 func Stop() error {
 	var err error
 	if global.Running {
-		err := dispatcher.Stop()
-		if err != nil {
+		if err := stopOrchestration(); err != nil {
 			return err
 		}
-		err = journal.Finalize()
-		if err != nil {
+		if err = journal.Finalize(); err != nil {
 			return err
 		}
 		global.Running = false
@@ -216,29 +215,22 @@ func registerEndpointProviders() error {
 
 // registers databases; if at least one database is available, no error is propagated
 func registerDatabases() error {
-	numAvailable := 0
 	if _, found := config.Databases["jdp"]; found {
 		if err := databases.RegisterDatabase("jdp", jdp.NewDatabase); err != nil {
 			slog.Error(err.Error())
-		} else {
-			numAvailable++
 		}
 	}
 	if _, found := config.Databases["kbase"]; found {
 		if err := databases.RegisterDatabase("kbase", kbase.NewDatabase); err != nil {
 			slog.Error(err.Error())
-		} else {
-			numAvailable++
 		}
 	}
 	if _, found := config.Databases["nmdc"]; found {
 		if err := databases.RegisterDatabase("nmdc", nmdc.NewDatabase); err != nil {
 			slog.Error(err.Error())
-		} else {
-			numAvailable++
 		}
 	}
-	if numAvailable == 0 {
+	if len(databases.RegisteredDatabases()) == 0 {
 		return &NoDatabasesAvailable{}
 	}
 	return nil
@@ -327,9 +319,6 @@ func startOrchestration() error {
 }
 
 func stopOrchestration() error {
-	if err := dispatcher.Stop(); err != nil {
-		return err
-	}
 	if err := stager.Stop(); err != nil {
 		return err
 	}
@@ -339,7 +328,10 @@ func stopOrchestration() error {
 	if err := manifestor.Stop(); err != nil {
 		return err
 	}
-	return store.Stop()
+	if err := store.Stop(); err != nil {
+		return err
+	}
+	return dispatcher.Stop()
 }
 
 // resolves the given destination (name) string, accounting for custom transfers

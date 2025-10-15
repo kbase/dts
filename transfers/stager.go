@@ -51,10 +51,18 @@ type stagerChannels struct {
 	Stop                chan struct{}
 }
 
+func (channels *stagerChannels) close() {
+	close(channels.RequestStaging)
+	close(channels.RequestCancellation)
+	close(channels.Error)
+	close(channels.Stop)
+}
+
 // starts the stager
 func (s *stagerState) Start() error {
 	s.Channels = stagerChannels{
 		RequestStaging: make(chan uuid.UUID, 32),
+		RequestCancellation: make(chan uuid.UUID, 32),
 		Error:          make(chan error, 32),
 		Stop:           make(chan struct{}),
 	}
@@ -65,7 +73,9 @@ func (s *stagerState) Start() error {
 // stops the stager goroutine
 func (s *stagerState) Stop() error {
 	s.Channels.Stop <- struct{}{}
-	return <-s.Channels.Error
+	err := <-s.Channels.Error
+	s.Channels.close()
+	return err
 }
 
 // requests that files be staged for the transfer with the given ID
@@ -106,6 +116,7 @@ func (s *stagerState) process() {
 			}
 		case <-stager.Channels.Stop:
 			running = false
+			stager.Channels.Error <- nil
 		}
 
 		time.Sleep(pollInterval)

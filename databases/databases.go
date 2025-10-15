@@ -155,6 +155,15 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 	}
 }
 
+// returns a list of names of registered databases
+func RegisteredDatabases() []string {
+	dbs := make([]string, 0)
+	for name, _ := range createDatabaseFuncs_ {
+		dbs = append(dbs, name)
+	}
+	return dbs
+}
+
 // returns true if a database has been registered with the given name, false if not
 func HaveDatabase(dbName string) bool {
 	_, found := createDatabaseFuncs_[dbName]

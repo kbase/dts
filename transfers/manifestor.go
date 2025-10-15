@@ -57,6 +57,13 @@ type manifestorChannels struct {
 	Stop                chan struct{}
 }
 
+func (channels *manifestorChannels) close() {
+	close(channels.RequestGeneration)
+	close(channels.RequestCancellation)
+	close(channels.Error)
+	close(channels.Stop)
+}
+
 // starts the mover
 func (m *manifestorState) Start() error {
 	m.Channels = manifestorChannels{
@@ -73,7 +80,9 @@ func (m *manifestorState) Start() error {
 // stops the manifestor goroutine
 func (m *manifestorState) Stop() error {
 	m.Channels.Stop <- struct{}{}
-	return <-m.Channels.Error
+	err := <-m.Channels.Error
+	m.Channels.close()
+	return err
 }
 
 // starts generating a manifest for the given transfer, moving it subsequently to that transfer's
@@ -117,8 +126,9 @@ func (m *manifestorState) process() {
 			} else {
 				manifestor.Channels.Error <- NotFoundError{Id: transferId}
 			}
-		case <-mover.Channels.Stop:
+		case <-manifestor.Channels.Stop:
 			running = false
+			manifestor.Channels.Error <- nil
 		}
 
 		time.Sleep(pollInterval)

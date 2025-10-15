@@ -235,6 +235,7 @@ func (t *SerialTests) TestCancelTask() {
 
 	// wait for the task to complete
 	status, err := Status(taskId)
+	assert.Nil(err)
 	for {
 		if status.Code == TransferStatusSucceeded ||
 			status.Code == TransferStatusFailed {
@@ -287,9 +288,6 @@ func (t *SerialTests) TestStopAndRestart() {
 
 // temporary testing directory
 var TESTING_DIR string
-
-// a directory in which the task manager can read/write files
-var dataDirectory string
 
 // endpoint testing options
 var endpointOptions = dtstest.EndpointOptions{

@@ -144,7 +144,7 @@ var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
 // an auth.Client (if authorized via the KBase auth2 server).
 func authorize(authorizationHeader string) (any, error) {
 	if !strings.Contains(authorizationHeader, "Bearer ") {
-		return auth.User{}, fmt.Errorf("Invalid authorization header")
+		return auth.User{}, fmt.Errorf("invalid authorization header")
 	}
 	b64Token := authorizationHeader[len("Bearer "):]
 	accessTokenBytes, err := base64.StdEncoding.DecodeString(b64Token)
@@ -363,7 +363,7 @@ func (service *prototype) getDatabaseSearchParameters(ctx context.Context,
 	// is the database valid?
 	_, ok := config.Databases[input.Database]
 	if !ok {
-		return nil, fmt.Errorf("Database %s not found", input.Database)
+		return nil, fmt.Errorf("database %s not found", input.Database)
 	}
 	db, err := databases.NewDatabase(input.Database)
 	if err != nil {
@@ -442,7 +442,7 @@ func searchDatabase(_ context.Context,
 	case "unstaged", "UNSTAGED":
 		fileStatus = databases.SearchFileStatusUnstaged
 	default:
-		return nil, fmt.Errorf("Invalid status parameter: %s", input.Status)
+		return nil, fmt.Errorf("invalid status parameter: %s", input.Status)
 	}
 
 	// unmarshal database-specific parameters
@@ -468,7 +468,7 @@ func searchDatabase(_ context.Context,
 		case bool:
 			dbSpecific[key] = v
 		default:
-			return nil, fmt.Errorf("Invalid database-specific parameter: %s", key)
+			return nil, fmt.Errorf("invalid database-specific parameter: %s", key)
 		}
 	}
 
@@ -578,7 +578,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	// is the database valid?
 	_, ok := config.Databases[input.Database]
 	if !ok {
-		return nil, fmt.Errorf("Database %s not found", input.Database)
+		return nil, fmt.Errorf("database %s not found", input.Database)
 	}
 
 	// have we been given any IDs?

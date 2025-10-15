@@ -159,9 +159,9 @@ func (t *SerialTests) TestGetUser() {
 // (fictitious ORCID: https://orcid.org/0000-0001-5109-3700)
 func (t *SerialTests) TestGetInvalidUser() {
 	assert := assert.New(t.Test)
-	auth, err := NewAuthenticator()
+	auth, _ := NewAuthenticator()
 	badAccessToken := "c5683570c1412b77eabcb9d6eb0aae2a"
-	_, err = auth.GetUser(badAccessToken)
+	_, err := auth.GetUser(badAccessToken)
 	assert.NotNil(err)
 }
 

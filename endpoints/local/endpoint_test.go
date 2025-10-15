@@ -102,7 +102,7 @@ func setup() {
 	myConfig := strings.ReplaceAll(localConfig, "SOURCE_ROOT", sourceRoot)
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_ROOT", destinationRoot)
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_CANCEL", destinationRootCancel)
-	fmt.Printf(myConfig)
+	fmt.Print(myConfig)
 	err = config.InitSelected([]byte(myConfig), false, false, false, true)
 	if err != nil {
 		panic(err)

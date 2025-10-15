@@ -252,6 +252,9 @@ func createRecord(db *bolt.DB, record Record) error {
 	bucket := tx.Bucket([]byte("transfers"))
 
 	jsonBytes, err := json.Marshal(&record)
+	if err != nil {
+		return err
+	}
 	err = bucket.Put([]byte(startTime), jsonBytes)
 	if err != nil {
 		return err

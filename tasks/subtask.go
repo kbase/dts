@@ -213,6 +213,9 @@ func (subtask *transferSubtask) beginTransfer() error {
 
 	// figure out the destination endpoint
 	destinationEndpoint, err := resolveDestinationEndpoint(subtask.Destination)
+	if err != nil {
+		return err
+	}
 
 	// initiate the transfer
 	transferId, err := sourceEndpoint.Transfer(destinationEndpoint, fileXfers)

@@ -197,18 +197,6 @@ func (t *SerialTests) TestRecordFailedTransfer() {
 // temporary testing directory
 var TESTING_DIR string
 
-// a directory in which the task manager can read/write files
-var dataDirectory string
-
-// endpoint testing options
-var endpointOptions = dtstest.EndpointOptions{
-	StagingDuration:  time.Duration(150) * time.Millisecond,
-	TransferDuration: time.Duration(500) * time.Millisecond,
-}
-
-// a pause to give the task manager a bit of time
-var pause time.Duration = time.Duration(25) * time.Millisecond
-
 // configuration
 const journalConfig string = `
 service:

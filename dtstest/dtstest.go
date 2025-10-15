@@ -55,8 +55,8 @@ func RegisterTestFixturesFromConfig(endpointOptions EndpointOptions,
 	descriptors map[string]map[string]any) error {
 	// has config.Init() been called?
 	if len(config.Endpoints) == 0 && len(config.Databases) == 0 {
-		return fmt.Errorf(`No endpoints or databases were found in the configuration.
-Did you call config.Init()?`)
+		return fmt.Errorf(`no endpoints or databases were found in the configuration.
+Did you call config.Init()? `)
 	}
 
 	// register endpoint fixtures
@@ -136,13 +136,13 @@ func (ep *Endpoint) FilesStaged(files []any) (bool, error) {
 			descriptor := file.(map[string]any)
 			fileId := descriptor["id"].(string)
 			if _, found := ep.Database.descriptors[fileId]; !found {
-				return false, fmt.Errorf("Unrecognized file: %s\n", fileId)
+				return false, fmt.Errorf("unrecognized file: %s", fileId)
 			}
 		}
 		// the source endpoint should report true for the staged files as long
 		// as the source database has had time to stage them
 		for _, req := range ep.Database.Staging {
-			if time.Now().Sub(req.Time) < ep.Options.StagingDuration {
+			if time.Since(req.Time) < ep.Options.StagingDuration {
 				return false, nil
 			}
 		}
@@ -174,13 +174,13 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	if info, found := ep.Xfers[id]; found {
 		if info.Status.Code != endpoints.TransferStatusSucceeded &&
-			time.Now().Sub(info.Time) >= ep.Options.TransferDuration { // update if needed
+			time.Since(info.Time) >= ep.Options.TransferDuration { // update if needed
 			info.Status.Code = endpoints.TransferStatusSucceeded
 			ep.Xfers[id] = info
 		}
 		return info.Status, nil
 	}
-	return endpoints.TransferStatus{}, fmt.Errorf("Invalid transfer ID: %s", id.String())
+	return endpoints.TransferStatus{}, fmt.Errorf("invalid transfer ID: %s", id.String())
 }
 
 func (ep *Endpoint) Cancel(id uuid.UUID) error {
@@ -266,7 +266,7 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
 	if info, found := db.Staging[id]; found {
 		endpoint := db.Endpt.(*Endpoint)
-		if time.Now().Sub(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
+		if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
 			return databases.StagingStatusSucceeded, nil
 		}
 		return databases.StagingStatusActive, nil

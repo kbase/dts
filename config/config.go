@@ -42,7 +42,7 @@ type serviceConfig struct {
 	MaxConnections int `json:"max_connections,omitempty" yaml:"max_connections,omitempty"`
 	// maximum size of requested payload for transfer, past which transfer
 	// requests are rejected (gigabytes)
-	MaxPayloadSize float64 `json:"max_payload_size,omitempy" yaml:"max_payload_size,omitempty"`
+	MaxPayloadSize float64 `json:"max_payload_size,omitempty" yaml:"max_payload_size,omitempty"`
 	// polling interval for checking transfer statuses (milliseconds)
 	// default: 1 minute
 	PollInterval int `json:"poll_interval" yaml:"poll_interval"`

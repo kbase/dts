@@ -125,11 +125,11 @@ func NewEndpointFromConfig(endpointName string) (endpoints.Endpoint, error) {
 	}
 	credential, found := config.Credentials[epConfig.Credential]
 	if !found {
-		return nil, fmt.Errorf("Invalid credential for endpoint '%s': %s", endpointName, epConfig.Credential)
+		return nil, fmt.Errorf("invalid credential for endpoint '%s': %s", endpointName, epConfig.Credential)
 	}
 	clientId, err := uuid.Parse(credential.Id)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid Globus client ID for credential '%s': %s (must be UUID)", epConfig.Credential, credential.Id)
+		return nil, fmt.Errorf("invalid Globus client ID for credential '%s': %s (must be UUID)", epConfig.Credential, credential.Id)
 	}
 	return NewEndpoint(epConfig.Name, epConfig.Id, epConfig.Root, clientId, credential.Secret)
 }
@@ -355,12 +355,6 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 	//
 	// We live with the 10-second wait for now, since our polling interval is
 	// large.
-	type CancellationResponse struct {
-		Code      string `json:"code"` // should be "Canceled"
-		Message   string `json:"message"`
-		RequestId string `json:"request_id"`
-		Resource  string `json:"resource"`
-	}
 	resource := fmt.Sprintf("task/%s/cancel", id.String())
 	_, err := ep.post(resource, nil) // can take up to 10 ѕeconds!
 	// FIXME: if this ^^^ becomes an issue, we can dispatch the POST to a
@@ -420,17 +414,20 @@ func (ep *Endpoint) authenticate(scopes []string) error {
 			URI         string `json:"error_uri"`
 		}
 		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
 		var authError AuthError
 		err = json.Unmarshal(body, &authError)
 		if err != nil {
 			// report the authentication error without details
-			return fmt.Errorf("Couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
+			return fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
 		}
 		if len(authError.Description) > 0 {
-			return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s; %s (%d)",
+			return fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
 				authError.Error, authError.Description, resp.StatusCode)
 		}
-		return fmt.Errorf("Couldn't authenticate via Globus Auth API: %s (%d)",
+		return fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
 			authError.Error, resp.StatusCode)
 	}
 
@@ -627,7 +624,7 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 	// the destination is a Globus endpoint, right?
 	gDestination, ok := destination.(*Endpoint)
 	if !ok {
-		return xferId, fmt.Errorf("The destination is not a Globus endpoint.")
+		return xferId, fmt.Errorf("destination is not a Globus endpoint")
 	}
 
 	// submit the transfer request

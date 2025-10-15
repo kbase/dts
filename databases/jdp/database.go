@@ -68,7 +68,7 @@ func NewDatabase() (databases.Database, error) {
 	// make sure we have a shared secret or an SSO token
 	secret, haveSecret := os.LookupEnv("DTS_JDP_SECRET")
 	if !haveSecret { // check for SSO token
-		return nil, fmt.Errorf("No shared secret was found for JDP authentication")
+		return nil, fmt.Errorf("no shared secret was found for JDP authentication")
 	}
 
 	// make sure we are using only a single endpoint
@@ -290,7 +290,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		if status, ok := statusForString[jdpResult.Status]; ok {
 			return status, nil
 		}
-		return databases.StagingStatusUnknown, fmt.Errorf("Unrecognized staging status string: %s", jdpResult.Status)
+		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized staging status string: %s", jdpResult.Status)
 	} else {
 		return databases.StagingStatusUnknown, nil
 	}
@@ -363,21 +363,6 @@ var suffixToFormat = map[string]string{
 
 // this gets populated automatically with the keys in suffixToFormat
 var supportedSuffixes []string
-
-// a mapping from file format labels to mime types
-// a mapping from the JDP's reported file types to mime types
-// (backup method for determining mime types)
-var fileTypeToMimeType = map[string]string{
-	"text":     "text/plain",
-	"fasta":    "text/plain",
-	"fasta.gz": "application/gzip",
-	"fastq":    "text/plain",
-	"fastq.gz": "application/gzip",
-	"tab":      "text/plain",
-	"tar.gz":   "application/x-tar",
-	"tar.bz":   "application/x-tar",
-	"tar.bz2":  "application/x-tar",
-}
 
 // extracts the file format from the name and type of the file
 func formatFromFileName(fileName string) string {
@@ -593,7 +578,7 @@ func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 			Database: "jdp",
 		}
 	default:
-		return nil, fmt.Errorf("An error occurred with the JDP database (%d)",
+		return nil, fmt.Errorf("an error occurred with the JDP database (%d)",
 			resp.StatusCode)
 	}
 }
@@ -633,7 +618,7 @@ func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error)
 	default:
 		defer resp.Body.Close()
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("An error occurred: %s", string(data))
+		return nil, fmt.Errorf("an error occurred: %s", string(data))
 	}
 }
 

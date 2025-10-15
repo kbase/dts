@@ -163,7 +163,7 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 		if err != nil {
 			return databases.SearchResults{}, err
 		}
-
+		//lint:ignore SA4006 err is used in return statement
 		descriptors, _, err = db.createDataObjectAndBiosampleDescriptors(dataObjects)
 	}
 	return databases.SearchResults{
@@ -278,7 +278,7 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 	data.Set("grant_type", "password")
 	data.Set("username", credential.User)
 	data.Set("password", credential.Password)
-	request, err := http.NewRequest(http.MethodPost, resource, strings.NewReader(data.Encode()))
+	request, _ := http.NewRequest(http.MethodPost, resource, strings.NewReader(data.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 
@@ -385,43 +385,8 @@ func (db Database) get(resource string, values url.Values) ([]byte, error) {
 			Database: "nmdc",
 		}
 	default:
-		return nil, fmt.Errorf("An error occurred with the NMDC database (%d)",
+		return nil, fmt.Errorf("an error occurred with the NMDC database (%d)",
 			resp.StatusCode)
-	}
-}
-
-// performs a POST request on the given resource, returning the resulting
-// response body and/or error
-func (db Database) post(resource string, body io.Reader) ([]byte, error) {
-	res, err := url.Parse(baseApiURL)
-	if err != nil {
-		return nil, err
-	}
-	res.Path += resource
-	slog.Debug(fmt.Sprintf("POST: %s", res.String()))
-	req, err := http.NewRequest(http.MethodPost, res.String(), body)
-	if err != nil {
-		return nil, err
-	}
-	db.addAuthHeader(req)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := db.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	switch resp.StatusCode {
-	case 200, 201, 204:
-		defer resp.Body.Close()
-		return io.ReadAll(resp.Body)
-	case 503:
-		return nil, &databases.UnavailableError{
-			Database: "nmdc",
-		}
-	default:
-		defer resp.Body.Close()
-		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("An error occurred: %s", string(data))
 	}
 }
 
@@ -488,32 +453,6 @@ type WorkflowExecution struct {
 	Name       string  `json:"name"`
 	Studies    []Study `json:"studies"`
 	Biosamples []any   `json:"biosamples"`
-}
-
-// fetches file metadata for data objects associated with the given study
-func (db Database) dataObjectsForStudy(studyId string, params url.Values) ([]DataObject, error) {
-	body, err := db.get(fmt.Sprintf("data_objects/study/%s", studyId), params)
-	if err != nil {
-		return nil, err
-	}
-
-	type DataObjectsByStudyResults struct {
-		BiosampleId string       `json:"biosample_id"`
-		DataObjects []DataObject `json:"data_objects"`
-	}
-	var objectSets []DataObjectsByStudyResults
-	err = json.Unmarshal(body, &objectSets)
-	if err != nil {
-		return nil, err
-	}
-
-	dataObjects := make([]DataObject, 0)
-	for _, objectSet := range objectSets {
-		for _, dataObject := range objectSet.DataObjects {
-			dataObjects = append(dataObjects, dataObject)
-		}
-	}
-	return dataObjects, nil
 }
 
 // fetches metadata for data objects based on the given URL search parameters
@@ -674,7 +613,7 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 	var relatedBiosample map[string]any // pure-JSON representation
 
 	if workflowExecId == "" {
-		return relatedCredit, relatedBiosample, errors.New("No workflow execution ID provided!")
+		return relatedCredit, relatedBiosample, errors.New("no workflow execution ID provided")
 	}
 
 	if strings.Contains(workflowExecId, "nmdc:wf") {
@@ -687,6 +626,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		}
 		var workflowExec WorkflowExecution
 		err = json.Unmarshal(body, &workflowExec)
+		if err != nil {
+			return credit.CreditMetadata{}, nil, err
+		}
 
 		// credit metadata
 		if len(workflowExec.Studies) > 0 {
@@ -761,7 +703,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 		fundingSources = make([]credit.FundingReference, len(study.FundingSources))
 		for i, fundingSource := range study.FundingSources {
 			// FIXME: fundingSource is just a string, so we must make assumptions!
-			if strings.Index(fundingSource, "Department of Energy") != -1 {
+			if strings.Contains(fundingSource, "Department of Energy") {
 				fundingSources[i].Funder = credit.Organization{
 					OrganizationId:   "ROR:01bj3aw27",
 					OrganizationName: "United States Department of Energy",

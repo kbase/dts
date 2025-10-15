@@ -81,7 +81,7 @@ func startUserFederation() error {
 // returns the KBase username associated with the given ORCID
 func usernameForOrcid(orcid string) (string, error) {
 	if !kbaseUserFederationStarted {
-		return "", fmt.Errorf("KBase federated user table not available!")
+		return "", fmt.Errorf("KBase federated user table not available")
 	}
 	kbaseOrcidChan <- orcid
 	username := <-kbaseUserChan
@@ -97,7 +97,7 @@ func reloadUserTable() error {
 // stops the user federation machinery
 func stopUserFederation() error {
 	if !kbaseUserFederationStarted {
-		return fmt.Errorf("KBase user federation not started!")
+		return fmt.Errorf("KBase user federation not started")
 	}
 	kbaseStopChan <- struct{}{}
 	err := <-kbaseErrorChan
@@ -143,7 +143,7 @@ func kbaseUserFederation(started chan struct{}) {
 				kbaseErrorChan <- nil
 			} else {
 				kbaseUserChan <- ""
-				kbaseErrorChan <- fmt.Errorf("KBase user not found for ORCID %s!", orcid)
+				kbaseErrorChan <- fmt.Errorf("KBase user not found for ORCID %s", orcid)
 			}
 		case <-kbaseUpdateChan: // update ORCID/user table
 			var err error
@@ -155,7 +155,7 @@ func kbaseUserFederation(started chan struct{}) {
 		case <-kbaseStopChan: // stop the subsystem
 			kbaseUserFederationStarted = false
 			kbaseErrorChan <- nil
-			break
+			return
 		}
 	}
 }
@@ -248,10 +248,8 @@ func readUserTable() (map[string]string, error) {
 			// is consistent
 			if existingUser, found := usersForOrcids[orcid]; found {
 				if existingUser != username {
-					users, found := multipleUsersForOrcid[orcid]
-					if found {
-						users = append(users, username)
-					} else {
+					_, found := multipleUsersForOrcid[orcid]
+					if !found {
 						multipleUsersForOrcid[orcid] = []string{existingUser, username}
 					}
 				}
@@ -260,10 +258,8 @@ func readUserTable() (map[string]string, error) {
 			}
 			if existingOrcid, found := orcidsForUsers[username]; found {
 				if existingOrcid != orcid {
-					orcids, found := multipleOrcidsForUser[username]
-					if found {
-						orcids = append(orcids, orcid)
-					} else {
+					_, found := multipleOrcidsForUser[username]
+					if !found {
 						multipleOrcidsForUser[username] = []string{existingOrcid, orcid}
 					}
 				}

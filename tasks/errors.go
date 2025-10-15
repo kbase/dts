@@ -42,21 +42,21 @@ func (t NotFoundError) Error() string {
 type AlreadyRunningError struct{}
 
 func (t AlreadyRunningError) Error() string {
-	return fmt.Sprintf("Tasks are already running and cannot be started again.")
+	return "Tasks are already running and cannot be started again."
 }
 
 // indicates that Stop() has been called when tasks are not being processed
 type NotRunningError struct{}
 
 func (t NotRunningError) Error() string {
-	return fmt.Sprintf("Tasks are not currently being processed.")
+	return "Tasks are not currently being processed."
 }
 
 // indicates that a transfer has been requested with no files(!)
 type NoFilesRequestedError struct{}
 
 func (t NoFilesRequestedError) Error() string {
-	return fmt.Sprintf("Requested transfer task includes no file IDs!")
+	return "Requested transfer task includes no file IDs!"
 }
 
 // indicates that a payload has been requested that is too large

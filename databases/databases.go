@@ -203,7 +203,7 @@ func Save() (DatabaseSaveStates, error) {
 func Load(states DatabaseSaveStates) error {
 	for dbName, state := range states.Data {
 		if dbName != state.Name {
-			return fmt.Errorf("Couldn't load saved state for database '%s'", state.Name)
+			return fmt.Errorf("couldn't load saved state for database '%s'", state.Name)
 		}
 		db, err := NewDatabase(state.Name)
 		if err != nil {

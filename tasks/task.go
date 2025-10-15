@@ -95,7 +95,7 @@ func (task *transferTask) start() error {
 			} else if _, found := descriptor["data"]; found { // inline data
 				task.DataDescriptors = append(task.DataDescriptors, descriptor)
 			} else { // neither!
-				return fmt.Errorf("Descriptor '%s' (ID: %s) has no 'path' or 'data' field!",
+				return fmt.Errorf("descriptor '%s' (ID: %s) has no 'path' or 'data' field",
 					descriptor["name"], descriptor["id"])
 			}
 		}
@@ -354,9 +354,7 @@ func (task *transferTask) createManifest() (*datapackage.Package, error) {
 	for _, subtask := range task.Subtasks {
 		descriptors = append(descriptors, subtask.Descriptors...)
 	}
-	for _, dataDescriptor := range task.DataDescriptors {
-		descriptors = append(descriptors, dataDescriptor)
-	}
+	descriptors = append(descriptors, task.DataDescriptors...)
 
 	taskUser := map[string]any{
 		"id":    task.Id.String(),

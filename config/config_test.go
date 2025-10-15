@@ -207,7 +207,7 @@ func TestInitRejectsInvalidEndpointType(t *testing.T) {
 
 // Tests whether config.Init rejects a database with a bad base URL.
 func TestInitRejectsBadDatabaseBaseURL(t *testing.T) {
-	yaml := fmt.Sprintf("databases:\n  ohaicorp:\n    url: hahahahahahaha\n\n")
+	yaml := "databases:\n  ohaicorp:\n    url: hahahahahahaha\n\n"
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with bad database URL didn't trigger an error.")

@@ -501,6 +501,7 @@ func TestCreateTransfer(t *testing.T) {
 		FileIds:     []string{"1", "2", "3"},
 		Destination: "destination1",
 	})
+	assert.Nil(err)
 	resp, err := post(baseUrl+apiPrefix+"transfers", bytes.NewReader(payload))
 	assert.Nil(err)
 	assert.Equal(http.StatusCreated, resp.StatusCode)
@@ -560,6 +561,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 		FileIds:     []string{"1", "2", "3"},
 		Destination: "destination2",
 	})
+	assert.Nil(err)
 	resp, err := post(baseUrl+apiPrefix+"transfers", bytes.NewReader(payload))
 	assert.Nil(err)
 	assert.Equal(http.StatusCreated, resp.StatusCode)
@@ -605,6 +607,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 
 	// cancel the transfer
 	err = cancelTransfer()
+	assert.Nil(err)
 
 	// wait for the transfer to finish or be canceled
 	status, err = queryTransfer()
@@ -615,6 +618,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 		}
 		time.Sleep(600 * time.Millisecond)
 		status, err = queryTransfer()
+		assert.Nil(err)
 	}
 }
 

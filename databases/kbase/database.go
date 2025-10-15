@@ -48,22 +48,22 @@ func (db *Database) SpecificSearchParameters() map[string]any {
 }
 
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
-	err := fmt.Errorf("Search not implemented for kbase database!")
+	err := fmt.Errorf("Search not implemented for kbase database")
 	return databases.SearchResults{}, err
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
-	err := fmt.Errorf("Descriptors not implemented for kbase database!")
+	err := fmt.Errorf("Descriptors not implemented for kbase database")
 	return nil, err
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
-	err := fmt.Errorf("StageFiles not implemented for kbase database!")
+	err := fmt.Errorf("StageFiles not implemented for kbase database")
 	return uuid.UUID{}, err
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
-	err := fmt.Errorf("StagingStatus not implemented for kbase database!")
+	err := fmt.Errorf("StagingStatus not implemented for kbase database")
 	return databases.StagingStatusUnknown, err
 }
 

@@ -42,13 +42,13 @@ import (
 type Authenticator struct {
 	UserForToken    map[string]User
 	TimeOfLastRead  time.Time
-	RereadInterval  float64
+	RereadInterval  time.Duration
 	AccessTokenFile string
 }
 
 const (
 	// how often to reread the access token file, in minutes
-	defaultRereadInterval = 1.0
+	defaultRereadInterval = time.Minute
 	// name of the access token file
 	defaultAccessTokenFile = "access.dat"
 )
@@ -68,7 +68,7 @@ func NewAuthenticator() (*Authenticator, error) {
 // given an access token, returns a User or an error
 func (a *Authenticator) GetUser(accessToken string) (User, error) {
 	// if it's been more than a minute since we read the file, reread it
-	if time.Since(a.TimeOfLastRead).Minutes() > a.RereadInterval {
+	if time.Since(a.TimeOfLastRead) > a.RereadInterval {
 		err := a.readAccessTokenFile()
 		if err != nil {
 			return User{}, err

@@ -278,7 +278,10 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 	data.Set("grant_type", "password")
 	data.Set("username", credential.User)
 	data.Set("password", credential.Password)
-	request, _ := http.NewRequest(http.MethodPost, resource, strings.NewReader(data.Encode()))
+	request, err := http.NewRequest(http.MethodPost, resource, strings.NewReader(data.Encode()))
+	if err != nil {
+		return auth, err
+	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 

@@ -122,13 +122,13 @@ func TestGlobusFilesStaged(t *testing.T) {
 	endpoint, _ := NewEndpointFromConfig("source")
 
 	// provide an empty slice of filenames, which should return true
-	staged, err := endpoint.FilesStaged([]any{})
+	staged, err := endpoint.FilesStaged([]map[string]any{})
 	assert.True(staged)
 	assert.Nil(err)
 
 	// provide a file that's known to be on the source endpoint, which
 	// should return true
-	descriptors := make([]any, 0)
+	descriptors := make([]map[string]any, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
 		d := map[string]any{ // descriptor
@@ -147,7 +147,7 @@ func TestGlobusFilesStaged(t *testing.T) {
 		"path": "yaddayadda/yadda/yaddayadda/yaddayaddayadda.xml",
 	}
 	assert.Nil(err)
-	descriptors = []any{nonexistent}
+	descriptors = []map[string]any{nonexistent}
 	staged, err = endpoint.FilesStaged(descriptors)
 	assert.False(staged)
 	assert.Nil(err)

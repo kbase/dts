@@ -129,11 +129,10 @@ func (ep *Endpoint) Root() string {
 	return ep.RootPath
 }
 
-func (ep *Endpoint) FilesStaged(files []any) (bool, error) {
+func (ep *Endpoint) FilesStaged(files []map[string]any) (bool, error) {
 	if ep.Database != nil {
 		// are there any unrecognized files?
-		for _, file := range files {
-			descriptor := file.(map[string]any)
+		for _, descriptor := range files {
 			fileId := descriptor["id"].(string)
 			if _, found := ep.Database.descriptors[fileId]; !found {
 				return false, fmt.Errorf("unrecognized file: %s", fileId)

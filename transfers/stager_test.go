@@ -27,8 +27,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStartAndStopStager(t *testing.T) {
-	assert := assert.New(t)
+// We attach the tests to this type, which runs them one by one.
+// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
+type StagerTests struct{ Test *testing.T }
+
+func TestStager(t *testing.T) {
+	tester := StagerTests{Test: t}
+	tester.TestStartAndStop()
+}
+
+func (t *StagerTests) TestStartAndStop() {
+	assert := assert.New(t.Test)
 	err := stager.Start()
 	assert.Nil(err)
 	err = stager.Stop()

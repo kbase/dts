@@ -28,22 +28,31 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStartAndStopStore(t *testing.T) {
-	assert := assert.New(t)
+// We attach the tests to this type, which runs them one by one.
+// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
+type StoreTests struct{ Test *testing.T }
+
+func TestStore(t *testing.T) {
+	tester := StoreTests{Test: t}
+	tester.TestStartAndStop()
+	// tester.TestNewTransfer()
+}
+
+func (t *StoreTests) TestStartAndStop() {
+	assert := assert.New(t.Test)
 	err := store.Start()
 	assert.Nil(err)
 	err = store.Stop()
 	assert.Nil(err)
 }
 
-func TestStoreNewTransfer(t *testing.T) {
-	assert := assert.New(t)
+func (t *StoreTests) TestNewTransfer() {
+	assert := assert.New(t.Test)
 
 	err := store.Start()
 	assert.Nil(err)
 
-	spec := Specification{
-	}
+	spec := Specification{}
 	transferId, numFiles, err := store.NewTransfer(spec)
 	assert.Nil(err)
 	assert.NotEqual(uuid.UUID{}, transferId)

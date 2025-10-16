@@ -39,93 +39,16 @@ import (
 	"github.com/kbase/dts/dtstest"
 )
 
-// runs all tests serially
-func TestRunner(t *testing.T) {
-	tester := SerialTests{Test: t}
-	tester.TestStartAndStopTransfers()
+// We attach the tests to this type, which runs them one by one.
+type TransferTests struct{ Test *testing.T }
+
+func TestTransfers(t *testing.T) {
+	tester := TransferTests{Test: t}
+	tester.TestStartAndStop()
 	//tester.TestStopAndRestartTransfers()
 }
 
-// This runs setup, runs all tests, and does breakdown.
-func TestMain(m *testing.M) {
-	var status int
-	setup()
-	status = m.Run()
-	breakdown()
-	os.Exit(status)
-}
-
-// this function gets called at the begіnning of a test session
-func setup() {
-		dtstest.EnableDebugLogging()
-
-		log.Print("Creating testing directory...\n")
-		var err error
-		TESTING_DIR, err = os.MkdirTemp(os.TempDir(), "data-transfer-service-tests-")
-		if err != nil {
-			log.Panicf("Couldn't create testing directory: %s", err)
-		}
-		os.Chdir(TESTING_DIR)
-
-		// read in the config file with SOURCE_ROOT and DESTINATION_ROOT replaced
-		myConfig := strings.ReplaceAll(transfersConfig, "TESTING_DIR", TESTING_DIR)
-		err = config.Init([]byte(myConfig))
-		if err != nil {
-			log.Panicf("Couldn't initialize configuration: %s", err)
-		}
-
-		// create test resources
-		testDescriptors := map[string]map[string]any{
-			"file1": {
-				"id":       "file1",
-				"name":     "file1.dat",
-				"path":     "dir1/file1.dat",
-				"format":   "text",
-				"bytes":    1024,
-				"hash":     "d91f97974d06563cab48d4d43a17e08a",
-				"endpoint": "source-endpoint",
-			},
-			"file2": {
-				"id":       "file2",
-				"name":     "file2.dat",
-				"path":     "dir2/file2.dat",
-				"format":   "text",
-				"bytes":    2048,
-				"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
-				"endpoint": "source-endpoint",
-			},
-			"file3": {
-				"id":       "file3",
-				"name":     "file3.dat",
-				"path":     "dir3/file3.dat",
-				"format":   "text",
-				"bytes":    4096,
-				"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
-				"endpoint": "source-endpoint",
-			},
-		}
-
-		// register test databases/endpoints referred to in config file
-		dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
-
-		// Create the data and manifest directories
-		os.Mkdir(config.Service.DataDirectory, 0755)
-		os.Mkdir(config.Service.ManifestDirectory, 0755)
-}
-
-// this function gets called after all tests have been run
-func breakdown() {
-		if TESTING_DIR != "" {
-			log.Printf("Deleting testing directory %s...\n", TESTING_DIR)
-			os.RemoveAll(TESTING_DIR)
-		}
-}
-
-// To run the tests serially, we attach them to a SerialTests type and
-// have them run by a a single test runner.
-type SerialTests struct{ Test *testing.T }
-
-func (t *SerialTests) TestStartAndStopTransfers() {
+func (t *TransferTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
 
 	assert.False(Running())
@@ -137,7 +60,7 @@ func (t *SerialTests) TestStartAndStopTransfers() {
 	assert.False(Running())
 }
 
-func (t *SerialTests) TestStopAndRestartTransfers() {
+func (t *TransferTests) TestStopAndRestart() {
 	/*
 		assert := assert.New(t.Test)
 
@@ -173,6 +96,81 @@ func (t *SerialTests) TestStopAndRestartTransfers() {
 		err = Stop()
 		assert.Nil(err)
 	*/
+}
+
+// This runs setup, runs all tests, and does breakdown.
+func TestMain(m *testing.M) {
+	var status int
+	setup()
+	status = m.Run()
+	breakdown()
+	os.Exit(status)
+}
+
+// this function gets called at the begіnning of a test session
+func setup() {
+	dtstest.EnableDebugLogging()
+
+	log.Print("Creating testing directory...\n")
+	var err error
+	TESTING_DIR, err = os.MkdirTemp(os.TempDir(), "data-transfer-service-tests-")
+	if err != nil {
+		log.Panicf("Couldn't create testing directory: %s", err)
+	}
+	os.Chdir(TESTING_DIR)
+
+	// read in the config file with SOURCE_ROOT and DESTINATION_ROOT replaced
+	myConfig := strings.ReplaceAll(transfersConfig, "TESTING_DIR", TESTING_DIR)
+	err = config.Init([]byte(myConfig))
+	if err != nil {
+		log.Panicf("Couldn't initialize configuration: %s", err)
+	}
+
+	// create test resources
+	testDescriptors := map[string]map[string]any{
+		"file1": {
+			"id":       "file1",
+			"name":     "file1.dat",
+			"path":     "dir1/file1.dat",
+			"format":   "text",
+			"bytes":    1024,
+			"hash":     "d91f97974d06563cab48d4d43a17e08a",
+			"endpoint": "source-endpoint",
+		},
+		"file2": {
+			"id":       "file2",
+			"name":     "file2.dat",
+			"path":     "dir2/file2.dat",
+			"format":   "text",
+			"bytes":    2048,
+			"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
+			"endpoint": "source-endpoint",
+		},
+		"file3": {
+			"id":       "file3",
+			"name":     "file3.dat",
+			"path":     "dir3/file3.dat",
+			"format":   "text",
+			"bytes":    4096,
+			"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
+			"endpoint": "source-endpoint",
+		},
+	}
+
+	// register test databases/endpoints referred to in config file
+	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
+
+	// Create the data and manifest directories
+	os.Mkdir(config.Service.DataDirectory, 0755)
+	os.Mkdir(config.Service.ManifestDirectory, 0755)
+}
+
+// this function gets called after all tests have been run
+func breakdown() {
+	if TESTING_DIR != "" {
+		log.Printf("Deleting testing directory %s...\n", TESTING_DIR)
+		os.RemoveAll(TESTING_DIR)
+	}
 }
 
 // temporary testing directory

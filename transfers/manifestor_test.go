@@ -27,8 +27,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStartAndStopManifestor(t *testing.T) {
-	assert := assert.New(t)
+// We attach the tests to this type, which runs them one by one.
+// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
+type ManifestorTests struct{ Test *testing.T }
+
+func TestManifestor(t *testing.T) {
+	tester := ManifestorTests{Test: t}
+	tester.TestStartAndStop()
+}
+
+func (t *ManifestorTests) TestStartAndStop() {
+	assert := assert.New(t.Test)
 	err := manifestor.Start()
 	assert.Nil(err)
 	err = manifestor.Stop()

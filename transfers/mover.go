@@ -62,10 +62,10 @@ func (channels *moverChannels) close() {
 // starts the mover
 func (m *moverState) Start() error {
 	m.Channels = moverChannels{
-		RequestMove: make(chan uuid.UUID, 32),
+		RequestMove:         make(chan uuid.UUID, 32),
 		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:       make(chan error, 32),
-		Stop:        make(chan struct{}),
+		Error:               make(chan error, 32),
+		Stop:                make(chan struct{}),
 	}
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process()

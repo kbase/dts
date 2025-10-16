@@ -34,9 +34,9 @@ import (
 	"github.com/kbase/dts/endpoints"
 )
 
-//-------
-// Mover
-//-------
+//------------
+// Manifestor
+//------------
 
 // The manifestor generates a JSON manifest for each successful transfer and sends it to the
 // transfer's destination. The manifest contains a Frictionless DataPackage containing all

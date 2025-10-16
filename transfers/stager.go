@@ -61,10 +61,10 @@ func (channels *stagerChannels) close() {
 // starts the stager
 func (s *stagerState) Start() error {
 	s.Channels = stagerChannels{
-		RequestStaging: make(chan uuid.UUID, 32),
+		RequestStaging:      make(chan uuid.UUID, 32),
 		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:          make(chan error, 32),
-		Stop:           make(chan struct{}),
+		Error:               make(chan error, 32),
+		Stop:                make(chan struct{}),
 	}
 	go s.process()
 	return nil

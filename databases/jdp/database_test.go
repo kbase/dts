@@ -1,9 +1,16 @@
 package jdp
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humamux"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kbase/dts/config"
@@ -30,23 +37,105 @@ endpoints:
       client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
 `
 
-// this function gets called at the begіnning of a test session
+// when valid JDP credentials are not available, use a mock database
+var isMockDatabase bool = false
+
+var mockJDPServer *httptest.Server
+var mockJDPSecret string = "mock_shared_secret"
+
+// Response structure for mock JDP Server
+type SearchResults struct {
+	Descriptors []map[string]any `json:"descriptors"`
+}
+
+// create a mock JDP server for testing
+func createMockJDPServer() *httptest.Server {
+	router := mux.NewRouter()
+	api := humamux.New(router, huma.DefaultConfig("Mock JDP Server", "1.0.0"))
+
+	huma.Register(api, huma.Operation{
+		OperationID: "searchJDP",
+		Method:      http.MethodGet,
+		Path:        "/search",
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+	}, func(ctx context.Context, input *struct {
+		Authorization string `header:"Authorization"`
+	}) (*SearchResults, error) {
+		return &SearchResults{}, nil
+	})
+
+	return httptest.NewServer(router)
+}
+
+// create a mock JDP database for testing
+func NewMockDatabase() (databases.Database, error) {
+	return &Database{
+		Secret:          mockJDPSecret,
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+	}, nil
+}
+
+// helper function replaces embedded environment variables in yaml strings
+// when they don't exist in the environment
+func setTestEnvVars(yaml string) string {
+	testVars := map[string]string{
+		"DTS_GLOBUS_TEST_ENDPOINT": "5e5f7d4e-3f4b-11eb-9ac6-0a58a9feac02",
+		"DTS_GLOBUS_CLIENT_ID":     "test_client_id",
+		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
+	}
+
+	// check for existence of each variable. when not present, replace
+	// instances of it in the yaml string with a test value
+	for key, value := range testVars {
+		if os.Getenv(key) == "" {
+			yaml = os.Expand(yaml, func(yamlVar string) string {
+				if yamlVar == key {
+					isMockDatabase = true
+					return value
+				}
+				return "${" + yamlVar + "}"
+			})
+		}
+	}
+	return yaml
+}
+
+// this function gets called at the beginning of a test session
 func setup() {
 	dtstest.EnableDebugLogging()
-	config.Init([]byte(jdpConfig))
-	databases.RegisterDatabase("jdp", NewDatabase)
+	config.Init([]byte(setTestEnvVars(jdpConfig)))
+	if isMockDatabase {
+		mockJDPServer = createMockJDPServer()
+		err := databases.RegisterDatabase("jdp", NewMockDatabase)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		err := databases.RegisterDatabase("jdp", NewDatabase)
+		if err != nil {
+			panic(err)
+		}
+	}
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
 }
 
 // this function gets called after all tests have been run
 func breakdown() {
+	if mockJDPServer != nil {
+		mockJDPServer.Close()
+	}
 }
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
 	jdpDb, err := NewDatabase()
-	assert.NotNil(jdpDb, "JDP database not created")
-	assert.Nil(err, "JDP database creation encountered an error")
+	if isMockDatabase {
+		assert.Nil(jdpDb, "JDP database created without valid credentials")
+		assert.NotNil(err, "JDP database creation without valid credentials encountered no error")
+	} else {
+		assert.NotNil(jdpDb, "JDP database not created with valid credentials")
+		assert.Nil(err, "JDP database creation with valid credentials encountered an error")
+	}
 }
 
 func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {

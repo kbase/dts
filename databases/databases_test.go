@@ -1,14 +1,14 @@
 package databases
 
 import (
-	"testing"
 	"fmt"
+	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 )
 
-type TestDatabase struct{
+type TestDatabase struct {
 	Name string
 }
 
@@ -61,7 +61,7 @@ func (td *TestDatabase) Save() (DatabaseSaveState, error) {
 	return state, nil
 }
 func (td *TestDatabase) Load(state DatabaseSaveState) error {
-    if td.Name == "badLoader" {
+	if td.Name == "badLoader" {
 		return fmt.Errorf("simulated load error")
 	}
 
@@ -126,7 +126,7 @@ func (t *SerialTests) TestDatabaseRegistration() {
 	})
 	assert.Nil(err, "Registering test database failed")
 
-    found := HaveDatabase("testdb")
+	found := HaveDatabase("testdb")
 	assert.True(found, "Registered database not found")
 
 	found = HaveDatabase("nonexistentdb")
@@ -164,10 +164,18 @@ func (t *SerialTests) TestDatabaseSaveLoad() {
 		return &TestDatabase{Name: "savedb"}, nil
 	})
 	assert.Nil(err, "Registering savedb database failed")
+	err = RegisterDatabase("anotherdb", func() (Database, error) {
+		return &TestDatabase{Name: "anotherdb"}, nil
+	})
+	assert.Nil(err, "Registering anotherdb database failed")
 
 	db, err := NewDatabase("savedb")
 	assert.Nil(err, "Creating savedb database failed")
 	assert.NotNil(db, "Creating savedb database returned nil")
+
+	anotherDb, err := NewDatabase("anotherdb")
+	assert.Nil(err, "Creating anotherdb database failed")
+	assert.NotNil(anotherDb, "Creating anotherdb database returned nil")
 
 	states, err := Save()
 	assert.Nil(err, "Saving databases failed")

@@ -42,7 +42,7 @@ func TestSecureHttpClient(t *testing.T) {
 			Path:   "/",
 		},
 	}
-	
+
 	// test secure to secure redirect
 	err := client.CheckRedirect(secure_redirect_target, []*http.Request{secure_original_request})
 	assert.Equal(t, http.ErrUseLastResponse, err)

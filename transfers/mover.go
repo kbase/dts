@@ -22,10 +22,12 @@
 package transfers
 
 import (
+	"log/slog"
 	"path/filepath"
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -59,6 +61,7 @@ func (channels *moverChannels) close() {
 
 // starts the mover
 func (m *moverState) Start() error {
+	slog.Debug("mover.Start")
 	m.Channels = moverChannels{
 		RequestMove:         make(chan uuid.UUID, 32),
 		RequestCancellation: make(chan uuid.UUID, 32),
@@ -67,11 +70,12 @@ func (m *moverState) Start() error {
 	}
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process()
-	return nil
+	return <-m.Channels.Error
 }
 
 // stops the mover goroutine
 func (m *moverState) Stop() error {
+	slog.Debug("mover.Stop")
 	m.Channels.Stop <- struct{}{}
 	err := <-m.Channels.Error
 	m.Channels.close()
@@ -80,12 +84,14 @@ func (m *moverState) Stop() error {
 
 // starts moving files associated with the given transfer ID
 func (m *moverState) MoveFiles(transferId uuid.UUID) error {
+	slog.Debug("mover.MoveFiles")
 	m.Channels.RequestMove <- transferId
 	return <-mover.Channels.Error
 }
 
 // cancels a file move operation
 func (m *moverState) Cancel(transferId uuid.UUID) error {
+	slog.Debug("mover.Cancel")
 	m.Channels.RequestCancellation <- transferId
 	return <-mover.Channels.Error
 }
@@ -99,15 +105,16 @@ func (m *moverState) process() {
 	running := true
 	moveOperations := make(map[uuid.UUID][]moveOperation) // a single transfer can be several move operations!
 	pulse := clock.Subscribe()
+	mover.Channels.Error <- nil
 
 	for running {
 		select {
 		case transferId := <-mover.Channels.RequestMove:
-			entries, err := m.start(transferId)
-			if err != nil {
-				mover.Channels.Error <- err
+			moves, err := m.moveFiles(transferId)
+			if err == nil {
+				moveOperations[transferId] = moves
 			}
-			moveOperations[transferId] = entries
+			mover.Channels.Error <- err
 		case transferId := <-mover.Channels.RequestCancellation:
 			if moves, found := moveOperations[transferId]; found {
 				err := m.cancel(moves)
@@ -116,18 +123,19 @@ func (m *moverState) process() {
 				}
 				mover.Channels.Error <- err
 			} else {
-				mover.Channels.Error <- NotFoundError{Id: transferId}
+				mover.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
 			// check the move statuses and advance as needed
 			for transferId, moves := range moveOperations {
-				completed, err := m.updateStatus(transferId, moves)
-				if err != nil {
+				if status, err := m.updateStatus(transferId, moves); err != nil {
 					mover.Channels.Error <- err
-					continue
-				}
-				if completed {
+				} else if status.Code >= TransferStatusFinalizing { // finalizing or failed
+					if status.Code == TransferStatusFinalizing {
+						err = manifestor.Generate(transferId)
+					}
 					delete(moveOperations, transferId)
+					mover.Channels.Error <- err
 				}
 			}
 		case <-mover.Channels.Stop:
@@ -146,7 +154,7 @@ type moveOperation struct {
 
 // starts moving files for the transfer with the given ID, returning one or more move operations,
 // depending on the number of relevant source endpoints
-func (m *moverState) start(transferId uuid.UUID) ([]moveOperation, error) {
+func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
 		return nil, err
@@ -174,16 +182,28 @@ func (m *moverState) start(transferId uuid.UUID) ([]moveOperation, error) {
 		if err != nil {
 			return nil, err
 		}
-		destinationEndpoint, err := endpoints.NewEndpoint(spec.Destination)
+		destination := config.Databases[spec.Destination].Endpoint
+		destinationEndpoint, err := endpoints.NewEndpoint(destination)
 		if err != nil {
 			return nil, err
 		}
-		id, err := sourceEndpoint.Transfer(destinationEndpoint, files)
+		moveId, err := sourceEndpoint.Transfer(destinationEndpoint, files)
 		if err != nil {
 			return nil, err
 		}
+
+		// update the transfer status
+		if status, err := store.GetStatus(transferId); err == nil {
+			status.Code = TransferStatusActive
+			if err := store.SetStatus(transferId, status); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
+
 		moves = append(moves, moveOperation{
-			Id:                  id,
+			Id:                  moveId,
 			SourceEndpoint:      source,
 			DestinationEndpoint: spec.Destination,
 		})
@@ -193,44 +213,51 @@ func (m *moverState) start(transferId uuid.UUID) ([]moveOperation, error) {
 
 // update the status of the transfer with the given ID given its distinct file move operations,
 // returning true if the transfer has completed (successfully or unsuccessfully), false otherwise
-func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (bool, error) {
-	var transferStatus TransferStatus
+func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (TransferStatus, error) {
+	oldStatus, err := store.GetStatus(transferId)
+	if err != nil {
+		return oldStatus, err
+	}
+	newStatus := oldStatus
 
 	atLeastOneMoveFailed := false
 	movesAllSucceeded := true
 	for i, move := range moves {
 		source, err := endpoints.NewEndpoint(move.SourceEndpoint)
 		if err != nil {
-			return false, err
+			return oldStatus, err
 		}
-		moveStatus, err := source.Status(transferId)
+		moveStatus, err := source.Status(move.Id)
 		if err != nil {
-			return false, err
+			return oldStatus, err
 		}
-		transferStatus.NumFiles += moveStatus.NumFiles
-		transferStatus.NumFilesTransferred += moveStatus.NumFilesTransferred
-		transferStatus.NumFilesSkipped += moveStatus.NumFilesSkipped
+		newStatus.NumFiles += moveStatus.NumFiles
+		newStatus.NumFilesTransferred += moveStatus.NumFilesTransferred
+		newStatus.NumFilesSkipped += moveStatus.NumFilesSkipped
 
 		if moveStatus.Code == TransferStatusSucceeded {
 			moves[i].Completed = true
 		} else {
 			movesAllSucceeded = false
 			if moveStatus.Code == TransferStatusFailed {
-				transferStatus.Message = moveStatus.Message
+				newStatus.Message = moveStatus.Message
 				atLeastOneMoveFailed = true
 				moves[i].Completed = true
 			}
 		}
 	}
 
-	// take stock and update
+	// take stock and update status as needed
 	if movesAllSucceeded {
-		manifestor.Generate(transferId)
+		newStatus.Code = TransferStatusFinalizing
 	} else if atLeastOneMoveFailed {
-		transferStatus.Code = TransferStatusFailed
+		newStatus.Code = TransferStatusFailed
+	}
+	if newStatus != oldStatus {
+		err = store.SetStatus(transferId, newStatus)
 	}
 
-	return movesAllSucceeded || atLeastOneMoveFailed, store.SetStatus(transferId, transferStatus)
+	return newStatus, err
 }
 
 func (m *moverState) cancel(moves []moveOperation) error {

@@ -22,6 +22,9 @@
 package transfers
 
 import (
+	"fmt"
+	"log/slog"
+
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/databases"
@@ -57,6 +60,7 @@ func (channels *stagerChannels) close() {
 
 // starts the stager
 func (s *stagerState) Start() error {
+	slog.Debug("stager.Start")
 	s.Channels = stagerChannels{
 		RequestStaging:      make(chan uuid.UUID, 32),
 		RequestCancellation: make(chan uuid.UUID, 32),
@@ -64,11 +68,12 @@ func (s *stagerState) Start() error {
 		Stop:                make(chan struct{}),
 	}
 	go s.process()
-	return nil
+	return <-s.Channels.Error
 }
 
 // stops the stager goroutine
 func (s *stagerState) Stop() error {
+	slog.Debug("stager.Stop")
 	s.Channels.Stop <- struct{}{}
 	err := <-s.Channels.Error
 	s.Channels.close()
@@ -77,12 +82,14 @@ func (s *stagerState) Stop() error {
 
 // requests that files be staged for the transfer with the given ID
 func (s *stagerState) StageFiles(id uuid.UUID) error {
+	slog.Debug("stager.StageFiles")
 	s.Channels.RequestStaging <- id
 	return <-s.Channels.Error
 }
 
 // cancels a file staging operation
 func (s *stagerState) Cancel(transferId uuid.UUID) error {
+	slog.Debug("stager.Cancel")
 	s.Channels.RequestCancellation <- transferId
 	return <-s.Channels.Error
 }
@@ -96,6 +103,7 @@ func (s *stagerState) process() {
 	running := true
 	stagings := make(map[uuid.UUID]stagingEntry)
 	pulse := clock.Subscribe()
+	s.Channels.Error <- nil
 
 	for running {
 		select {
@@ -111,7 +119,7 @@ func (s *stagerState) process() {
 				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
 				s.Channels.Error <- nil
 			} else {
-				s.Channels.Error <- NotFoundError{Id: transferId}
+				s.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
 			// check the staging status and advance to a transfer if it's finished
@@ -158,27 +166,35 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) e
 		return err
 	}
 
-	status, err := source.StagingStatus(staging.Id)
+	stagingStatus, err := source.StagingStatus(staging.Id)
 	if err != nil {
 		return err
 	}
 
-	switch status {
+	oldStatus, err := store.GetStatus(transferId)
+	if err == nil {
+		return err
+	}
+	newStatus := oldStatus
+	switch stagingStatus {
 	case databases.StagingStatusSucceeded:
-		err := mover.MoveFiles(transferId)
-		if err != nil {
-			return err
-		}
+		newStatus.Code = TransferStatusActive
 	case databases.StagingStatusFailed:
-		// FIXME: handle staging failures here!
+		newStatus.Code = TransferStatusFailed
+		newStatus.Message = fmt.Sprintf("file staging failed for transfer %s", transferId.String())
 	default: // still staging
-		xferStatus, err := store.GetStatus(transferId)
-		if err != nil {
+		newStatus.Code = TransferStatusStaging
+	}
+
+	if newStatus.Code != oldStatus.Code {
+		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return err
 		}
-		if xferStatus.Code != TransferStatusStaging {
-			xferStatus.Code = TransferStatusStaging
-			store.SetStatus(transferId, xferStatus)
+	}
+
+	if newStatus.Code == TransferStatusActive {
+		if err := mover.MoveFiles(transferId); err != nil {
+			return err
 		}
 	}
 	return nil

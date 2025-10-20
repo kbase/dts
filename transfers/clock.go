@@ -7,44 +7,52 @@ import (
 	"github.com/kbase/dts/config"
 )
 
-// this singleton sends a pulse to transfer-related goroutines at the configured poll interval
-var clock clockType
+// This singleton sends a pulse to transfer-related goroutines at the configured poll interval. It's
+// managed entirely by calls to its Subscribe and Unsubscribe methods. DO NOT ATTEMPT TO ACCESS ANY
+// OTHER DATA.
+var clock clockState
 
-type clockType struct {
-	Initialized    bool
+type clockState struct {
+	Running        bool
 	Mutex          sync.Mutex
 	NumSubscribers int
-	Pulses         []chan struct{}
+	Pulse          chan struct{}
 	Tick           time.Duration
 }
 
-// subscribes the caller to the clock, returning a new channel on which the pulse is sent
-func (c *clockType) Subscribe() chan struct{} {
+// Subscribes the caller to the clock, returning the channel on which the pulse is sent. This
+// channel is closed when all the subscribers have unsubscribed.
+func (c *clockState) Subscribe() chan struct{} {
 	c.Mutex.Lock()
-	c.NumSubscribers++
-	if len(c.Pulses) < c.NumSubscribers {
-		c.Pulses = append(c.Pulses, make(chan struct{}))
-	} else {
-		c.Pulses[c.NumSubscribers-1] = make(chan struct{})
-	}
-	if !c.Initialized {
+	if !c.Running {
 		c.Tick = time.Duration(config.Service.PollInterval) * time.Millisecond
-		c.Initialized = true
 		go c.process()
+		c.Running = true
 	}
+	if c.NumSubscribers == 0 {
+		c.Pulse = make(chan struct{}, 32)
+	}
+	c.NumSubscribers++
 	c.Mutex.Unlock()
-	return c.Pulses[len(c.Pulses)-1]
+	return c.Pulse
 }
 
 // unsubscribes the caller from the clock
-func (c *clockType) Unsubscribe() {
+func (c *clockState) Unsubscribe() {
 	c.Mutex.Lock()
 	c.NumSubscribers--
-	close(c.Pulses[c.NumSubscribers])
+	if c.NumSubscribers == 0 {
+		close(c.Pulse)
+	}
+	c.Running = false
 	c.Mutex.Unlock()
 }
 
-func (c *clockType) process() {
+//----------------------------------------------------
+// everything past here runs in the clock's goroutine
+//----------------------------------------------------
+
+func (c *clockState) process() {
 	c.Mutex.Lock()
 	tick := c.Tick
 	c.Mutex.Unlock()
@@ -57,8 +65,8 @@ func (c *clockType) process() {
 			break
 		}
 		c.Mutex.Unlock()
-		for i := range c.NumSubscribers {
-			c.Pulses[i] <- struct{}{}
+		for range c.NumSubscribers {
+			c.Pulse <- struct{}{}
 		}
 	}
 }

@@ -52,10 +52,9 @@ func (t *StoreTests) TestNewTransfer() {
 		Destination: "test-destination",
 		FileIds:     []string{"file1", "file2", "file3"},
 	}
-	transferId, numFiles, err := store.NewTransfer(spec)
+	transferId, err := store.NewTransfer(spec)
 	assert.Nil(err)
 	assert.NotEqual(uuid.UUID{}, transferId)
-	assert.Equal(len(spec.FileIds), numFiles)
 
 	spec1, err := store.GetSpecification(transferId)
 	assert.Nil(err)
@@ -91,7 +90,7 @@ func (t *StoreTests) TestSetStatus() {
 		Destination: "test-destination",
 		FileIds:     []string{"file1", "file2", "file3"},
 	}
-	transferId, _, err := store.NewTransfer(spec)
+	transferId, err := store.NewTransfer(spec)
 	assert.Nil(err)
 
 	status, _ := store.GetStatus(transferId)
@@ -119,7 +118,7 @@ func (t *StoreTests) TestRemove() {
 		Destination: "test-destination",
 		FileIds:     []string{"file1", "file2", "file3"},
 	}
-	transferId, _, err := store.NewTransfer(spec)
+	transferId, err := store.NewTransfer(spec)
 
 	err = store.Remove(transferId)
 	assert.Nil(err)

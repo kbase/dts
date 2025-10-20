@@ -23,6 +23,7 @@ package transfers
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -66,6 +67,7 @@ func (channels *manifestorChannels) close() {
 
 // starts the mover
 func (m *manifestorState) Start() error {
+	slog.Debug("manifestor.Start")
 	m.Channels = manifestorChannels{
 		RequestGeneration:   make(chan uuid.UUID, 32),
 		RequestCancellation: make(chan uuid.UUID, 32),
@@ -74,11 +76,12 @@ func (m *manifestorState) Start() error {
 	}
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process()
-	return nil
+	return <-m.Channels.Error
 }
 
 // stops the manifestor goroutine
 func (m *manifestorState) Stop() error {
+	slog.Debug("manifestor.Stop")
 	m.Channels.Stop <- struct{}{}
 	err := <-m.Channels.Error
 	m.Channels.close()
@@ -88,6 +91,7 @@ func (m *manifestorState) Stop() error {
 // starts generating a manifest for the given transfer, moving it subsequently to that transfer's
 // destination
 func (m *manifestorState) Generate(transferId uuid.UUID) error {
+	slog.Debug("manifestor.Generate")
 	m.Channels.RequestGeneration <- transferId
 	return <-mover.Channels.Error
 }
@@ -95,6 +99,7 @@ func (m *manifestorState) Generate(transferId uuid.UUID) error {
 // cancels the generation/transfer of a manifest
 // destination
 func (m *manifestorState) Cancel(transferId uuid.UUID) error {
+	slog.Debug("manifestor.Cancel")
 	m.Channels.RequestCancellation <- transferId
 	return <-mover.Channels.Error
 }
@@ -108,6 +113,7 @@ func (m *manifestorState) process() {
 	running := true
 	manifestTransfers := make(map[uuid.UUID]uuid.UUID)
 	pulse := clock.Subscribe()
+	m.Channels.Error <- nil
 
 	for running {
 		select {
@@ -125,7 +131,7 @@ func (m *manifestorState) process() {
 				}
 				manifestor.Channels.Error <- err
 			} else {
-				manifestor.Channels.Error <- NotFoundError{Id: transferId}
+				manifestor.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
 			// check the manifest transfers
@@ -243,16 +249,27 @@ func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specificat
 // update the status of the manifest transfer with the given ID, returning true if the transfer has
 // completed (successfully or unsuccessfully), false otherwise
 func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bool, error) {
+	oldStatus, err := store.GetStatus(transferId)
+	if err != nil {
+		return false, err
+	}
+	newStatus := oldStatus
+
 	source, err := endpoints.NewEndpoint(config.Service.Endpoint)
 	if err != nil {
 		return false, err
 	}
-	status, err := source.Status(manifestXferId)
+	manifestStatus, err := source.Status(manifestXferId)
 	if err != nil {
 		return false, err
 	}
-	store.SetStatus(transferId, status)
-	return status.Code == TransferStatusSucceeded || status.Code == TransferStatusFailed, nil
+	if manifestStatus.Code == TransferStatusSucceeded || manifestStatus.Code == TransferStatusFailed {
+		newStatus.Code = manifestStatus.Code
+		err = store.SetStatus(transferId, newStatus)
+		return true, err
+	} else {
+		return false, nil
+	}
 }
 
 func (m *manifestorState) cancel(manifestXferId uuid.UUID) error {

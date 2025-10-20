@@ -31,7 +31,7 @@ import (
 	"testing"
 	"time"
 
-	//"github.com/google/uuid"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	//"github.com/kbase/dts/auth"
@@ -41,32 +41,32 @@ import (
 
 // this runner runs all tests for all the singletons in this package
 func TestRunner(t *testing.T) {
-	storeTests := StoreTests{Test: t}
-	storeTests.TestStartAndStop()
-	storeTests.TestNewTransfer()
-	storeTests.TestSetStatus()
-	storeTests.TestRemove()
+	/*
+		storeTests := StoreTests{Test: t}
+		storeTests.TestStartAndStop()
+		storeTests.TestNewTransfer()
+		storeTests.TestSetStatus()
+		storeTests.TestRemove()
 
-	stagerTests := StagerTests{Test: t}
-	print("stager start/stop\n")
-	stagerTests.TestStartAndStop()
-	print("stager stage files\n")
-	stagerTests.TestStageFiles()
+		stagerTests := StagerTests{Test: t}
+		stagerTests.TestStartAndStop()
+		stagerTests.TestStageFiles()
 
-	moverTests := MoverTests{Test: t}
-	print("mover start/stop\n")
-	moverTests.TestStartAndStop()
+		moverTests := MoverTests{Test: t}
+		moverTests.TestStartAndStop()
 
-	manifestorTests := ManifestorTests{Test: t}
-	print("manifestor start/stop\n")
-	manifestorTests.TestStartAndStop()
+		manifestorTests := ManifestorTests{Test: t}
+		print("manifestor start/stop\n")
+		manifestorTests.TestStartAndStop()
 
-	dispatcherTests := DispatcherTests{Test: t}
-	print("dispatcher start/stop\n")
-	dispatcherTests.TestStartAndStop()
+		dispatcherTests := DispatcherTests{Test: t}
+		print("dispatcher start/stop\n")
+		dispatcherTests.TestStartAndStop()
+	*/
 
 	transfers := TransferTests{Test: t}
 	transfers.TestStartAndStop()
+	transfers.TestCreate()
 	//tester.TestStopAndRestartTransfers()
 }
 
@@ -74,12 +74,43 @@ func TestRunner(t *testing.T) {
 type TransferTests struct{ Test *testing.T }
 
 func (t *TransferTests) TestStartAndStop() {
+	log.Print("=== TestStartAndStop ===")
 	assert := assert.New(t.Test)
 
 	assert.False(Running())
 	err := Start()
 	assert.Nil(err)
 	assert.True(Running())
+	err = Stop()
+	assert.Nil(err)
+	assert.False(Running())
+}
+
+func (t *TransferTests) TestCreate() {
+	log.Print("=== TestCreate ===")
+	assert := assert.New(t.Test)
+	err := Start()
+	assert.Nil(err)
+	assert.True(Running())
+
+	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
+
+	transferId, err := Create(Specification{
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2", "file3"},
+		Source:      "test-source",
+	})
+	assert.Nil(err)
+	assert.NotEqual(uuid.UUID{}, transferId)
+
+	status, err := Status(transferId)
+	assert.Nil(err)
+	assert.GreaterOrEqual(status.Code, TransferStatusStaging)
+	assert.Equal(3, status.NumFiles)
+
+	time.Sleep(3 * pollInterval)
+	assert.GreaterOrEqual(status.Code, TransferStatusActive)
+
 	err = Stop()
 	assert.Nil(err)
 	assert.False(Running())

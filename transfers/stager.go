@@ -22,11 +22,8 @@
 package transfers
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 )
 
@@ -81,13 +78,13 @@ func (s *stagerState) Stop() error {
 // requests that files be staged for the transfer with the given ID
 func (s *stagerState) StageFiles(id uuid.UUID) error {
 	s.Channels.RequestStaging <- id
-	return <-stager.Channels.Error
+	return <-s.Channels.Error
 }
 
 // cancels a file staging operation
 func (s *stagerState) Cancel(transferId uuid.UUID) error {
 	s.Channels.RequestCancellation <- transferId
-	return <-stager.Channels.Error
+	return <-s.Channels.Error
 }
 
 //----------------------------------------------------
@@ -97,44 +94,45 @@ func (s *stagerState) Cancel(transferId uuid.UUID) error {
 // the goroutine itself
 func (s *stagerState) process() {
 	running := true
-	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
 	stagings := make(map[uuid.UUID]stagingEntry)
+	pulse := clock.Subscribe()
+
 	for running {
 		select {
-		case transferId := <-stager.Channels.RequestStaging:
-			entry, err := s.start(transferId)
+		case transferId := <-s.Channels.RequestStaging:
+			entry, err := s.stageFiles(transferId)
 			if err != nil {
-				stager.Channels.Error <- err
+				s.Channels.Error <- err
 			}
 			stagings[transferId] = entry
+			s.Channels.Error <- nil
 		case transferId := <-mover.Channels.RequestCancellation:
 			if _, found := stagings[transferId]; found {
 				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
-				stager.Channels.Error <- nil
+				s.Channels.Error <- nil
 			} else {
-				stager.Channels.Error <- NotFoundError{Id: transferId}
+				s.Channels.Error <- NotFoundError{Id: transferId}
 			}
-		case <-stager.Channels.Stop:
+		case <-pulse:
+			// check the staging status and advance to a transfer if it's finished
+			for transferId, staging := range stagings {
+				if err := s.updateStatus(transferId, staging); err != nil {
+					s.Channels.Error <- err
+				}
+			}
+		case <-s.Channels.Stop:
 			running = false
-			stager.Channels.Error <- nil
-		}
-
-		time.Sleep(pollInterval)
-
-		// check the staging status and advance to a transfer if it's finished
-		for transferId, staging := range stagings {
-			if err := s.updateStatus(transferId, staging); err != nil {
-				stager.Channels.Error <- err
-			}
+			s.Channels.Error <- nil
 		}
 	}
+	clock.Unsubscribe()
 }
 
 type stagingEntry struct {
 	Id uuid.UUID // staging ID (distinct from transfer ID)
 }
 
-func (s *stagerState) start(transferId uuid.UUID) (stagingEntry, error) {
+func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
 		return stagingEntry{}, err
@@ -165,14 +163,15 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) e
 		return err
 	}
 
-	if status == databases.StagingStatusSucceeded {
+	switch status {
+	case databases.StagingStatusSucceeded:
 		err := mover.MoveFiles(transferId)
 		if err != nil {
 			return err
 		}
-	} else if status == databases.StagingStatusFailed {
+	case databases.StagingStatusFailed:
 		// FIXME: handle staging failures here!
-	} else { // still staging
+	default: // still staging
 		xferStatus, err := store.GetStatus(transferId)
 		if err != nil {
 			return err

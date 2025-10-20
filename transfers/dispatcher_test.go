@@ -28,13 +28,7 @@ import (
 )
 
 // We attach the tests to this type, which runs them one by one.
-// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
 type DispatcherTests struct{ Test *testing.T }
-
-func TestDispatcher(t *testing.T) {
-	tester := DispatcherTests{Test: t}
-	tester.TestStartAndStop()
-}
 
 func (t *DispatcherTests) TestStartAndStop() {
 	assert := assert.New(t.Test)

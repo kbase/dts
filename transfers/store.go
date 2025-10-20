@@ -22,6 +22,9 @@
 package transfers
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/databases"
@@ -175,22 +178,13 @@ func (s *storeState) process() {
 	for running {
 		select {
 		case spec := <-store.Channels.RequestNewTransfer:
-			id := uuid.New()
-			source, err := databases.NewDatabase(spec.Source)
+			id, transfer, err := s.newTransfer(spec)
 			if err != nil {
 				store.Channels.Error <- err
-				break
+			} else {
+				transfers[id] = transfer
+				store.Channels.ReturnNewTransfer <- id
 			}
-			descriptors, err := source.Descriptors(spec.User.Orcid, spec.FileIds)
-			if err != nil {
-				store.Channels.Error <- err
-				break
-			}
-			transfers[id] = transferStoreEntry{
-				Descriptors: descriptors,
-				Spec:        spec,
-			}
-			store.Channels.ReturnNewTransfer <- id
 		case id := <-store.Channels.RequestDescriptors:
 			if transfer, found := transfers[id]; found {
 				store.Channels.ReturnDescriptors <- transfer.Descriptors
@@ -207,6 +201,7 @@ func (s *storeState) process() {
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
 				transfers[idAndStatus.Id] = transfer
+				store.Channels.Error <- nil
 			} else {
 				store.Channels.Error <- TransferNotFoundError{Id: idAndStatus.Id}
 			}
@@ -219,6 +214,7 @@ func (s *storeState) process() {
 		case id := <-store.Channels.RequestRemoval:
 			if _, found := transfers[id]; found {
 				delete(transfers, id)
+				store.Channels.Error <- nil
 			} else {
 				store.Channels.Error <- TransferNotFoundError{Id: id}
 			}
@@ -234,4 +230,23 @@ type transferStoreEntry struct {
 	Descriptors []map[string]any
 	Spec        Specification
 	Status      TransferStatus
+}
+
+func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEntry, error) {
+	id := uuid.New()
+	source, err := databases.NewDatabase(spec.Source)
+	if err != nil {
+		return id, transferStoreEntry{}, err
+	}
+	descriptors, err := source.Descriptors(spec.User.Orcid, spec.FileIds)
+	if err != nil {
+		return id, transferStoreEntry{}, err
+	}
+	slices.SortFunc(descriptors, func(a, b map[string]any) int {
+		return cmp.Compare(a["id"].(string), b["id"].(string))
+	})
+	return id, transferStoreEntry{
+		Descriptors: descriptors,
+		Spec:        spec,
+	}, err
 }

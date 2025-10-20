@@ -130,15 +130,14 @@ func Running() bool {
 type Specification struct {
 	// a Markdown description of the transfer task
 	Description string
-	// the name of destination database to which files are transferred (as
-	// specified in the DTS config file) OR a custom destination spec (<provider>:<id>:<credential>)
+	// the name of destination database to which files are transferred (as specified in the config
+	// file) OR a custom destination spec (<provider>:<id>:<credential>)
 	Destination string
 	// machine-readable instructions for processing the payload at its destination
 	Instructions map[string]any
 	// an array of identifiers for files to be transferred from Source to Destination
 	FileIds []string
-	// the name of source database from which files are transferred (as specified
-	// in the DTS config file)
+	// the name of source database from which files are transferred (as specified in the config file)
 	Source string
 	// information about the user requesting the task
 	User auth.User

@@ -23,11 +23,9 @@ package transfers
 
 import (
 	"path/filepath"
-	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -99,8 +97,9 @@ func (m *moverState) Cancel(transferId uuid.UUID) error {
 // the goroutine itself
 func (m *moverState) process() {
 	running := true
-	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
 	moveOperations := make(map[uuid.UUID][]moveOperation) // a single transfer can be several move operations!
+	pulse := clock.Subscribe()
+
 	for running {
 		select {
 		case transferId := <-mover.Channels.RequestMove:
@@ -119,25 +118,24 @@ func (m *moverState) process() {
 			} else {
 				mover.Channels.Error <- NotFoundError{Id: transferId}
 			}
+		case <-pulse:
+			// check the move statuses and advance as needed
+			for transferId, moves := range moveOperations {
+				completed, err := m.updateStatus(transferId, moves)
+				if err != nil {
+					mover.Channels.Error <- err
+					continue
+				}
+				if completed {
+					delete(moveOperations, transferId)
+				}
+			}
 		case <-mover.Channels.Stop:
 			running = false
 			mover.Channels.Error <- nil
 		}
-
-		time.Sleep(pollInterval)
-
-		// check the move statuses and advance as needed
-		for transferId, moves := range moveOperations {
-			completed, err := m.updateStatus(transferId, moves)
-			if err != nil {
-				mover.Channels.Error <- err
-				continue
-			}
-			if completed {
-				delete(moveOperations, transferId)
-			}
-		}
 	}
+	clock.Unsubscribe()
 }
 
 type moveOperation struct {

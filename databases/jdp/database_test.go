@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
@@ -22,11 +25,17 @@ import (
 )
 
 const jdpConfig string = `
+service:
+  port: 8080
+  max_connections: 100
+  poll_interval: 60
+  endpoint: globus-jdp
 databases:
   jdp:
     name: JGI Data Portal
-    organization: Joint Genome Institue
+    organization: Joint Genome Institute
     endpoint: globus-jdp
+    secret: ${DTS_JDP_SECRET}
 endpoints:
   globus-jdp:
     name: Globus NERSC DTN
@@ -79,6 +88,7 @@ func NewMockDatabase() (databases.Database, error) {
 // when they don't exist in the environment
 func setTestEnvVars(yaml string) string {
 	testVars := map[string]string{
+		"DTS_JDP_SECRET":           mockJDPSecret,
 		"DTS_GLOBUS_TEST_ENDPOINT": "5e5f7d4e-3f4b-11eb-9ac6-0a58a9feac02",
 		"DTS_GLOBUS_CLIENT_ID":     "test_client_id",
 		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
@@ -104,6 +114,10 @@ func setTestEnvVars(yaml string) string {
 func setup() {
 	dtstest.EnableDebugLogging()
 	config.Init([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	if err != nil {
+		panic(err)
+	}
 	if isMockDatabase {
 		mockJDPServer = createMockJDPServer()
 		err := databases.RegisterDatabase("jdp", NewMockDatabase)
@@ -111,7 +125,7 @@ func setup() {
 			panic(err)
 		}
 	} else {
-		err := databases.RegisterDatabase("jdp", NewDatabase)
+		err := databases.RegisterDatabase("jdp", NewDatabaseFunc(configData))
 		if err != nil {
 			panic(err)
 		}
@@ -128,93 +142,229 @@ func breakdown() {
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	jdpDb, err := NewDatabase()
-	if isMockDatabase {
-		assert.Nil(jdpDb, "JDP database created without valid credentials")
-		assert.NotNil(err, "JDP database creation without valid credentials encountered no error")
-	} else {
-		assert.NotNil(jdpDb, "JDP database not created with valid credentials")
-		assert.Nil(err, "JDP database creation with valid credentials encountered an error")
-	}
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Failed to get config data for JDP database")
+	jdpDb, err := NewDatabase(configData)
+	assert.NotNil(jdpDb, "JDP database not created")
+	assert.Nil(err, "JDP database creation encountered an error")
 }
 
 func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {
 	assert := assert.New(t)
-	jdpSecret := os.Getenv("DTS_JDP_SECRET")
-	os.Unsetenv("DTS_JDP_SECRET")
-	jdpDb, err := NewDatabase()
-	os.Setenv("DTS_JDP_SECRET", jdpSecret)
+	const jdpConfigNoSecret string = `
+service:
+  port: 8080
+  max_connections: 100
+  poll_interval: 60
+  endpoint: globus-jdp
+databases:
+  jdp:
+    name: JGI Data Portal
+    organization: Joint Genome Institute
+    endpoint: globus-jdp
+endpoints:
+  globus-jdp:
+    name: Globus NERSC DTN
+    id: ${DTS_GLOBUS_TEST_ENDPOINT}
+    provider: globus
+    auth:
+      client_id: ${DTS_GLOBUS_CLIENT_ID}
+      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+`
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfigNoSecret)))
+	assert.Nil(err, "Failed to get config data for JDP database without shared secret")
+	jdpDb, err := NewDatabase(configData)
 	assert.Nil(jdpDb, "JDP database somehow created without shared secret available")
 	assert.NotNil(err, "JDP database creation without shared secret encountered no error")
 }
 
+func TestNewDatabaseWithMissingEndpoint(t *testing.T) {
+	assert := assert.New(t)
+	const jdpConfigMissingEndpoint string = `
+service:
+  port: 8080
+  max_connections: 100
+  poll_interval: 60
+  endpoint: globus-jdp
+databases:
+  jdp:
+    name: JGI Data Portal
+    organization: Joint Genome Institute
+    secret: ${DTS_JDP_SECRET}
+endpoints:
+  globus-jdp:
+    name: Globus NERSC DTN
+    id: ${DTS_GLOBUS_TEST_ENDPOINT}
+    provider: globus
+    auth:
+      client_id: ${DTS_GLOBUS_CLIENT_ID}
+      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+`
+	// manually parse the config string to avoid validation errors because of the
+	// missing endpoint
+	bytes := []byte(setTestEnvVars(jdpConfigMissingEndpoint))
+	bytes = []byte(os.ExpandEnv(string(bytes)))
+	var configData config.ConfigData
+	err := yaml.Unmarshal(bytes, &configData)
+	assert.Nil(err, "Failed to unmarshal config data for JDP database with missing endpoint")
+	jdpDb, err := NewDatabase(configData)
+	assert.Nil(jdpDb, "JDP database somehow created with missing endpoint")
+	assert.NotNil(err, "JDP database creation with missing endpoint encountered no error")
+}
+
+func TestNewDatabaseFunc(t *testing.T) {
+	assert := assert.New(t)
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Failed to get config data for JDP database")
+	createFunc := NewDatabaseFunc(configData)
+	jdpDb, err := createFunc()
+	assert.NotNil(jdpDb, "JDP database not created by factory function")
+	assert.Nil(err, "JDP database creation by factory function encountered an error")
+}
+
+func TestSpecificSearchParameters(t *testing.T) {
+	assert := assert.New(t)
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Failed to get config data for JDP database")
+	db, err := NewDatabase(configData)
+	assert.NotNil(db, "JDP database not created")
+	assert.Nil(err, "JDP database creation encountered an error")
+
+	params := db.SpecificSearchParameters()
+	// check a few values
+	extraString, ok := params["extra"].([]string)
+	assert.True(ok, "Specific search parameters 'extra' is not a string slice")
+	expectedExtra := []string{"img_taxon_oid", "project_id"}
+	assert.True(slices.Equal(expectedExtra, extraString),
+		"Specific search parameters 'extra' has incorrect values")
+}
+
 func TestSearch(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
-	params := databases.SearchParameters{
-		Query: "prochlorococcus",
-		Pagination: struct {
-			Offset, MaxNum int
-		}{
-			Offset: 1,
-			MaxNum: 50,
-		},
+	if !isMockDatabase {
+		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		assert.Nil(err, "Failed to get config data for JDP database")
+		db, _ := NewDatabase(configData)
+		params := databases.SearchParameters{
+			Query: "prochlorococcus",
+			Pagination: struct {
+				Offset, MaxNum int
+			}{
+				Offset: 1,
+				MaxNum: 50,
+			},
+		}
+		results, err := db.Search(orcid, params)
+		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
+		assert.Nil(err, "JDP search query encountered an error")
 	}
-	results, err := db.Search(orcid, params)
-	assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
-	assert.Nil(err, "JDP search query encountered an error")
+}
+
+func TestSaveLoad(t *testing.T) {
+	assert := assert.New(t)
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Failed to get config data for JDP database")
+	db, _ := NewDatabase(configData)
+
+	// save the database state
+	state, err := db.Save()
+	assert.Nil(err, "JDP database save encountered an error")
+	assert.Equal("jdp", state.Name,
+		"JDP database save returned incorrect database name")
+	assert.True(len(state.Data) > 0, "JDP database save returned empty data")
+
+	// load the saved state into a new database instance
+	newDb, _ := NewDatabase(configData)
+	err = newDb.Load(state)
+	assert.Nil(err, "JDP database load encountered an error")
 }
 
 func TestSearchByIMGTaxonOID(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
-	params := databases.SearchParameters{
-		Query: "2582580701",
-		Pagination: struct {
-			Offset, MaxNum int
-		}{
-			Offset: 1,
-			MaxNum: 50,
-		},
-		Specific: map[string]any{
-			"f":     "img_taxon_oid",
-			"extra": "img_taxon_oid",
-		},
+	if !isMockDatabase {
+		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		assert.Nil(err, "Failed to get config data for JDP database")
+		db, _ := NewDatabase(configData)
+		params := databases.SearchParameters{
+			Query: "2582580701",
+			Pagination: struct {
+				Offset, MaxNum int
+			}{
+				Offset: 1,
+				MaxNum: 50,
+			},
+			Specific: map[string]any{
+				"f":     "img_taxon_oid",
+				"extra": "img_taxon_oid",
+			},
+		}
+		results, err := db.Search(orcid, params)
+		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
+		assert.Nil(err, "JDP search query encountered an error")
 	}
-	results, err := db.Search(orcid, params)
-	assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
-	assert.Nil(err, "JDP search query encountered an error")
 }
 
 func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
-	params := databases.SearchParameters{
-		Query: "prochlorococcus",
+	if !isMockDatabase {
+		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		assert.Nil(err, "Failed to get config data for JDP database")
+		db, _ := NewDatabase(configData)
+		params := databases.SearchParameters{
+			Query: "prochlorococcus",
+		}
+		results, _ := db.Search(orcid, params)
+		fileIds := make([]string, len(results.Descriptors))
+		for i, descriptor := range results.Descriptors {
+			fileIds[i] = descriptor["id"].(string)
+		}
+		descriptors, err := db.Descriptors(orcid, fileIds[:10])
+		assert.Nil(err, "JDP resource query encountered an error")
+		assert.Equal(10, len(descriptors),
+			"JDP resource query didn't return requested number of results")
+		for i, desc := range descriptors {
+			jdpSearchResult := results.Descriptors[i]
+			assert.Equal(jdpSearchResult["id"], desc["id"], "Resource ID mismatch")
+			assert.Equal(jdpSearchResult["name"], desc["name"], "Resource name mismatch")
+			assert.Equal(jdpSearchResult["path"], desc["path"], "Resource path mismatch")
+			assert.Equal(jdpSearchResult["format"], desc["format"], "Resource format mismatch")
+			assert.Equal(jdpSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
+			assert.Equal(jdpSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
+			assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
+			assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
+		}
 	}
-	results, _ := db.Search(orcid, params)
-	fileIds := make([]string, len(results.Descriptors))
-	for i, descriptor := range results.Descriptors {
-		fileIds[i] = descriptor["id"].(string)
+}
+
+func TestAddSpecificSearchParameters(t *testing.T) {
+	assert := assert.New(t)
+	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Failed to get config data for JDP database")
+	db, err := NewDatabase(configData)
+	assert.NotNil(db, "JDP database not created")
+	assert.Nil(err, "JDP database creation encountered an error")
+
+	params := map[string]any{
+		"extra": "project_id",
 	}
-	descriptors, err := db.Descriptors(orcid, fileIds[:10])
-	assert.Nil(err, "JDP resource query encountered an error")
-	assert.Equal(10, len(descriptors),
-		"JDP resource query didn't return requested number of results")
-	for i, desc := range descriptors {
-		jdpSearchResult := results.Descriptors[i]
-		assert.Equal(jdpSearchResult["id"], desc["id"], "Resource ID mismatch")
-		assert.Equal(jdpSearchResult["name"], desc["name"], "Resource name mismatch")
-		assert.Equal(jdpSearchResult["path"], desc["path"], "Resource path mismatch")
-		assert.Equal(jdpSearchResult["format"], desc["format"], "Resource format mismatch")
-		assert.Equal(jdpSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
-		assert.Equal(jdpSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
-		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
-		assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
-	}
+	urlValues := url.Values{}
+	urlValues.Add("foo", "bar")
+	urlValues.Add("baz", "qux")
+	jdpDB, ok := db.(*Database)
+	assert.NotNil(jdpDB, "Failed to cast db to *Database")
+	assert.True(ok, "Database cast encountered an error")
+
+	err = jdpDB.addSpecificSearchParameters(params, &urlValues)
+	assert.Nil(err, "Adding specific search parameters encountered an error")
+	assert.Equal("bar", urlValues.Get("foo"), "Existing URL parameter 'foo' was modified")
+	assert.Equal("qux", urlValues.Get("baz"), "Existing URL parameter 'baz' was modified")
+	extraParams := urlValues["extra"]
+	expectedExtra := []string{"project_id"}
+	assert.True(slices.Equal(expectedExtra, extraParams),
+		"Specific search parameters 'extra' has incorrect values")
 }
 
 // this runs setup, runs all tests, and does breakdown

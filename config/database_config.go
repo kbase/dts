@@ -33,4 +33,6 @@ type databaseConfig struct {
 	// if set, a set of endpoints assigned functional names, available to thi
 	// database (only one of Endpoint and Endpoints may be set)
 	Endpoints map[string]string `yaml:"endpoints,omitempty"`
+	// if set, a secret used to authenticate with the database
+	Secret string `yaml:"secret,omitempty"`
 }

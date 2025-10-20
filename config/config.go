@@ -72,7 +72,9 @@ var Databases map[string]databaseConfig
 
 // This struct performs the unmarshalling from the YAML config file and then
 // copies its fields to the globals above.
-type configFile struct {
+// NOTE: once the globals are removed, an instance of this struct will be used
+// to hold the configuration.
+type ConfigData struct {
 	Service     serviceConfig               `yaml:"service"`
 	Credentials map[string]credentialConfig `yaml:"credentials"`
 	Databases   map[string]databaseConfig   `yaml:"databases"`
@@ -82,11 +84,11 @@ type configFile struct {
 // This helper locates and reads the selected sections in a configuration file,
 // returning an error indicating success or failure. All environment variables
 // of the form ${ENV_VAR} are expanded.
-func readConfig(bytes []byte, service, credentials, databases, endpoints bool) error {
+func readConfig(bytes []byte, service, credentials, databases, endpoints bool) (ConfigData, error) {
 	// before we do anything else, expand any provided environment variables
 	bytes = []byte(os.ExpandEnv(string(bytes)))
 
-	var conf configFile
+	var conf ConfigData
 	conf.Service.Port = 8080
 	conf.Service.MaxConnections = 100
 	conf.Service.MaxPayloadSize = 100.0 // gigabytes
@@ -96,7 +98,7 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) e
 	err := yaml.Unmarshal(bytes, &conf)
 	if err != nil {
 		log.Printf("Couldn't parse configuration data: %s\n", err)
-		return err
+		return ConfigData{}, err
 	}
 
 	if service {
@@ -122,7 +124,7 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) e
 		Databases = conf.Databases
 	}
 
-	return err
+	return conf, err
 }
 
 func validateServiceParameters(params serviceConfig) error {
@@ -240,47 +242,53 @@ func validateDatabases(databases map[string]databaseConfig) error {
 
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
-func validateConfig(service, credentials, databases, endpoints bool) error {
+func validateConfig(conf ConfigData, service, credentials, databases, endpoints bool) error {
 	var err error
 	if service {
-		err = validateServiceParameters(Service)
+		err = validateServiceParameters(conf.Service)
 		if err != nil {
 			return err
 		}
 	}
 
 	if credentials {
-		err = validateCredentials(Credentials)
+		err = validateCredentials(conf.Credentials)
 		if err != nil {
 			return err
 		}
 	}
 
 	if endpoints {
-		err = validateEndpoints(Endpoints)
+		err = validateEndpoints(conf.Endpoints)
 		if err != nil {
 			return err
 		}
 	}
 
 	if databases {
-		err = validateDatabases(Databases)
+		err = validateDatabases(conf.Databases)
 	}
 	return err
 }
 
 // Initializes the entire service configuration using the given YAML byte data.
 func Init(yamlData []byte) error {
+	_, err := InitSelected(yamlData, true, true, true, true)
+	return err
+}
+
+// Returns an instance of the configuration data without modifying global variables.
+func GetConfigData(yamlData []byte) (ConfigData, error) {
 	return InitSelected(yamlData, true, true, true, true)
 }
 
 // Initializes the selected sections in the service configuration using the
 // given YAML byte data.
-func InitSelected(yamlData []byte, service, credentials, databases, endpoints bool) error {
-	err := readConfig(yamlData, service, credentials, databases, endpoints)
+func InitSelected(yamlData []byte, service, credentials, databases, endpoints bool) (ConfigData, error) {
+	conf, err := readConfig(yamlData, service, credentials, databases, endpoints)
 	if err != nil {
-		return err
+		return ConfigData{}, err
 	}
-	err = validateConfig(service, credentials, databases, endpoints)
-	return err
+	err = validateConfig(conf, service, credentials, databases, endpoints)
+	return conf, err
 }

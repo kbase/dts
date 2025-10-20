@@ -65,7 +65,7 @@ const (
 
 // starts processing tasks according to the given configuration, returning an
 // informative error if anything prevents this
-func Start() error {
+func Start(configData config.ConfigData) error {
 	if running {
 		return &AlreadyRunningError{}
 	}
@@ -88,19 +88,19 @@ func Start() error {
 
 		// register databases
 		// NOTE: if a registration fails, we log it and continue, and the database is not available
-		if _, found := config.Databases["jdp"]; found {
-			err = databases.RegisterDatabase("jdp", jdp.NewDatabase)
+		if _, found := configData.Databases["jdp"]; found {
+			err = databases.RegisterDatabase("jdp", jdp.NewDatabaseFunc(configData))
 		}
 		if err != nil {
 			slog.Error(err.Error())
 		}
-		if _, found := config.Databases["kbase"]; found {
+		if _, found := configData.Databases["kbase"]; found {
 			err = databases.RegisterDatabase("kbase", kbase.NewDatabase)
 		}
 		if err != nil {
 			slog.Error(err.Error())
 		}
-		if _, found := config.Databases["nmdc"]; found {
+		if _, found := configData.Databases["nmdc"]; found {
 			err = databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
 		}
 		if err != nil {

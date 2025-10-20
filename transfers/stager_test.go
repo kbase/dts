@@ -23,23 +23,45 @@ package transfers
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// We attach the tests to this type, which runs them one by one.
-// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
+// We attach the tests to this type, which runs them one by one using logic in transfers_test.go.
 type StagerTests struct{ Test *testing.T }
-
-func TestStager(t *testing.T) {
-	tester := StagerTests{Test: t}
-	tester.TestStartAndStop()
-}
 
 func (t *StagerTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
 	err := stager.Start()
 	assert.Nil(err)
 	err = stager.Stop()
+	assert.Nil(err)
+}
+
+func (t *StagerTests) TestStageFiles() {
+	assert := assert.New(t.Test)
+	err := stager.Start()
+	assert.Nil(err)
+	err = store.Start() // need one of these too
+	assert.Nil(err)
+
+	// add a transfer to the store and begin staging the files
+	spec := Specification{
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2", "file3"},
+	}
+	transferId, _, err := store.NewTransfer(spec)
+	assert.Nil(err)
+
+	err = stager.StageFiles(transferId)
+	assert.Nil(err)
+
+	time.Sleep(time.Second)
+
+	err = stager.Stop()
+	assert.Nil(err)
+	err = store.Stop()
 	assert.Nil(err)
 }

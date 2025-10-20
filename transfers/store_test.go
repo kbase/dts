@@ -22,6 +22,8 @@
 package transfers
 
 import (
+	"cmp"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,14 +31,7 @@ import (
 )
 
 // We attach the tests to this type, which runs them one by one.
-// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
 type StoreTests struct{ Test *testing.T }
-
-func TestStore(t *testing.T) {
-	tester := StoreTests{Test: t}
-	tester.TestStartAndStop()
-	// tester.TestNewTransfer()
-}
 
 func (t *StoreTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
@@ -52,29 +47,82 @@ func (t *StoreTests) TestNewTransfer() {
 	err := store.Start()
 	assert.Nil(err)
 
-	spec := Specification{}
+	spec := Specification{
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2", "file3"},
+	}
 	transferId, numFiles, err := store.NewTransfer(spec)
 	assert.Nil(err)
 	assert.NotEqual(uuid.UUID{}, transferId)
-	assert.Greater(0, numFiles)
+	assert.Equal(len(spec.FileIds), numFiles)
 
 	spec1, err := store.GetSpecification(transferId)
 	assert.Nil(err)
 	assert.Equal(spec, spec1)
 
-	desc1 := make([]map[string]any, 0)
+	var desc1 []map[string]any
+	for _, d := range testDescriptors {
+		desc1 = append(desc1, d)
+	}
+	slices.SortFunc(desc1, func(a, b map[string]any) int {
+		return cmp.Compare(a["id"].(string), b["id"].(string))
+	})
 	descriptors, err := store.GetDescriptors(transferId)
 	assert.Nil(err)
 	assert.Equal(desc1, descriptors)
 
 	status, err := store.GetStatus(transferId)
 	assert.Nil(err)
-	status.Code = TransferStatusStaging
+	assert.Equal(TransferStatusUnknown, status.Code)
+
+	err = store.Stop()
+	assert.Nil(err)
+}
+
+func (t *StoreTests) TestSetStatus() {
+	assert := assert.New(t.Test)
+
+	err := store.Start()
+	assert.Nil(err)
+
+	spec := Specification{
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2", "file3"},
+	}
+	transferId, _, err := store.NewTransfer(spec)
+	assert.Nil(err)
+
+	status, _ := store.GetStatus(transferId)
 	err = store.SetStatus(transferId, status)
 	assert.Nil(err)
 	status1, err := store.GetStatus(transferId)
 	assert.Nil(err)
 	assert.Equal(status1, status)
+
+	status, err = store.GetStatus(uuid.New())
+	assert.NotNil(err)
+
+	err = store.Stop()
+	assert.Nil(err)
+}
+
+func (t *StoreTests) TestRemove() {
+	assert := assert.New(t.Test)
+
+	err := store.Start()
+	assert.Nil(err)
+
+	spec := Specification{
+		Source:      "test-source",
+		Destination: "test-destination",
+		FileIds:     []string{"file1", "file2", "file3"},
+	}
+	transferId, _, err := store.NewTransfer(spec)
+
+	err = store.Remove(transferId)
+	assert.Nil(err)
 
 	err = store.Stop()
 	assert.Nil(err)

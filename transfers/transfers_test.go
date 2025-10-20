@@ -39,14 +39,39 @@ import (
 	"github.com/kbase/dts/dtstest"
 )
 
-// We attach the tests to this type, which runs them one by one.
-type TransferTests struct{ Test *testing.T }
+// this runner runs all tests for all the singletons in this package
+func TestRunner(t *testing.T) {
+	storeTests := StoreTests{Test: t}
+	storeTests.TestStartAndStop()
+	storeTests.TestNewTransfer()
+	storeTests.TestSetStatus()
+	storeTests.TestRemove()
 
-func TestTransfers(t *testing.T) {
-	tester := TransferTests{Test: t}
-	tester.TestStartAndStop()
+	stagerTests := StagerTests{Test: t}
+	print("stager start/stop\n")
+	stagerTests.TestStartAndStop()
+	print("stager stage files\n")
+	stagerTests.TestStageFiles()
+
+	moverTests := MoverTests{Test: t}
+	print("mover start/stop\n")
+	moverTests.TestStartAndStop()
+
+	manifestorTests := ManifestorTests{Test: t}
+	print("manifestor start/stop\n")
+	manifestorTests.TestStartAndStop()
+
+	dispatcherTests := DispatcherTests{Test: t}
+	print("dispatcher start/stop\n")
+	dispatcherTests.TestStartAndStop()
+
+	transfers := TransferTests{Test: t}
+	transfers.TestStartAndStop()
 	//tester.TestStopAndRestartTransfers()
 }
+
+// We attach the tests to this type, which runs them one by one.
+type TransferTests struct{ Test *testing.T }
 
 func (t *TransferTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
@@ -126,37 +151,6 @@ func setup() {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
 
-	// create test resources
-	testDescriptors := map[string]map[string]any{
-		"file1": {
-			"id":       "file1",
-			"name":     "file1.dat",
-			"path":     "dir1/file1.dat",
-			"format":   "text",
-			"bytes":    1024,
-			"hash":     "d91f97974d06563cab48d4d43a17e08a",
-			"endpoint": "source-endpoint",
-		},
-		"file2": {
-			"id":       "file2",
-			"name":     "file2.dat",
-			"path":     "dir2/file2.dat",
-			"format":   "text",
-			"bytes":    2048,
-			"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
-			"endpoint": "source-endpoint",
-		},
-		"file3": {
-			"id":       "file3",
-			"name":     "file3.dat",
-			"path":     "dir3/file3.dat",
-			"format":   "text",
-			"bytes":    4096,
-			"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
-			"endpoint": "source-endpoint",
-		},
-	}
-
 	// register test databases/endpoints referred to in config file
 	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
 
@@ -220,3 +214,33 @@ endpoints:
     provider: test
     root: DESTINATION_ROOT
 `
+
+var testDescriptors map[string]map[string]any = map[string]map[string]any{
+	"file1": {
+		"id":       "file1",
+		"name":     "file1.dat",
+		"path":     "dir1/file1.dat",
+		"format":   "text",
+		"bytes":    1024,
+		"hash":     "d91f97974d06563cab48d4d43a17e08a",
+		"endpoint": "source-endpoint",
+	},
+	"file2": {
+		"id":       "file2",
+		"name":     "file2.dat",
+		"path":     "dir2/file2.dat",
+		"format":   "text",
+		"bytes":    2048,
+		"hash":     "d91f9e974d0e563cab48d4d43a17e08a",
+		"endpoint": "source-endpoint",
+	},
+	"file3": {
+		"id":       "file3",
+		"name":     "file3.dat",
+		"path":     "dir3/file3.dat",
+		"format":   "text",
+		"bytes":    4096,
+		"hash":     "e91f9e974d0e563cab48d4d43a17e08e",
+		"endpoint": "source-endpoint",
+	},
+}

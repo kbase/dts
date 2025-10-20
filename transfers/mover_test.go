@@ -28,12 +28,6 @@ import (
 )
 
 // We attach the tests to this type, which runs them one by one.
-// NOTE: All tests are bookended by calls to the setup and breakdown functions in transfer_test.go
-func TestMover(t *testing.T) {
-	tester := MoverTests{Test: t}
-	tester.TestStartAndStop()
-}
-
 type MoverTests struct{ Test *testing.T }
 
 func (t *MoverTests) TestStartAndStop() {

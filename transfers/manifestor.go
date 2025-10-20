@@ -106,8 +106,9 @@ func (m *manifestorState) Cancel(transferId uuid.UUID) error {
 // the goroutine itself
 func (m *manifestorState) process() {
 	running := true
-	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
 	manifestTransfers := make(map[uuid.UUID]uuid.UUID)
+	pulse := clock.Subscribe()
+
 	for running {
 		select {
 		case transferId := <-manifestor.Channels.RequestGeneration:
@@ -126,25 +127,24 @@ func (m *manifestorState) process() {
 			} else {
 				manifestor.Channels.Error <- NotFoundError{Id: transferId}
 			}
+		case <-pulse:
+			// check the manifest transfers
+			for transferId, manifestXferId := range manifestTransfers {
+				completed, err := m.updateStatus(transferId, manifestXferId)
+				if err != nil {
+					mover.Channels.Error <- err
+					continue
+				}
+				if completed {
+					delete(manifestTransfers, transferId)
+				}
+			}
 		case <-manifestor.Channels.Stop:
 			running = false
 			manifestor.Channels.Error <- nil
 		}
-
-		time.Sleep(pollInterval)
-
-		// monitor the manifest transfers
-		for transferId, manifestXferId := range manifestTransfers {
-			completed, err := m.updateStatus(transferId, manifestXferId)
-			if err != nil {
-				mover.Channels.Error <- err
-				continue
-			}
-			if completed {
-				delete(manifestTransfers, transferId)
-			}
-		}
 	}
+	clock.Unsubscribe()
 }
 
 func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (uuid.UUID, error) {

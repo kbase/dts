@@ -23,6 +23,8 @@ package transfers
 
 import (
 	"cmp"
+	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/google/uuid"
@@ -86,6 +88,7 @@ type transferIdAndStatus struct {
 
 // starts the store goroutine
 func (s *storeState) Start() error {
+	slog.Debug("store.Start")
 	s.Channels = storeChannels{
 		RequestNewTransfer: make(chan Specification, 32),
 		ReturnNewTransfer:  make(chan uuid.UUID, 32),
@@ -101,11 +104,12 @@ func (s *storeState) Start() error {
 		Stop:               make(chan struct{}),
 	}
 	go s.process()
-	return nil
+	return <-s.Channels.Error
 }
 
 // stops the store goroutine
 func (s *storeState) Stop() error {
+	slog.Debug("store.Stop")
 	s.Channels.Stop <- struct{}{}
 	err := <-s.Channels.Error
 	s.Channels.close()
@@ -114,17 +118,19 @@ func (s *storeState) Stop() error {
 
 // creates a new entry for a transfer within the store, populating it with relevant metadata and
 // returning a UUID, number of files, and/or error condition for the request
-func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, int, error) {
+func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, error) {
+	slog.Debug("store.NewTransfer")
 	s.Channels.RequestNewTransfer <- spec
 	select {
 	case id := <-store.Channels.ReturnNewTransfer:
-		return id, len(spec.FileIds), nil
+		return id, nil
 	case err := <-store.Channels.Error:
-		return uuid.UUID{}, 0, err
+		return uuid.UUID{}, err
 	}
 }
 
 func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, error) {
+	slog.Debug(fmt.Sprintf("store.GetSpecification (%s)", transferId.String()))
 	store.Channels.RequestSpec <- transferId
 	select {
 	case spec := <-store.Channels.ReturnSpec:
@@ -135,6 +141,7 @@ func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, erro
 }
 
 func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, error) {
+	slog.Debug(fmt.Sprintf("store.GetDescriptors (%s)", transferId.String()))
 	store.Channels.RequestDescriptors <- transferId
 	select {
 	case descriptors := <-store.Channels.ReturnDescriptors:
@@ -145,6 +152,7 @@ func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, err
 }
 
 func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) error {
+	slog.Debug(fmt.Sprintf("store.SetStatus (%s, %d)", transferId.String(), status.Code))
 	s.Channels.SetStatus <- transferIdAndStatus{
 		Id:     transferId,
 		Status: status,
@@ -153,6 +161,7 @@ func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) erro
 }
 
 func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
+	slog.Debug(fmt.Sprintf("store.GetStatus (%s)", transferId.String()))
 	s.Channels.RequestStatus <- transferId
 	select {
 	case status := <-store.Channels.ReturnStatus:
@@ -163,6 +172,7 @@ func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 }
 
 func (s *storeState) Remove(transferId uuid.UUID) error {
+	slog.Debug(fmt.Sprintf("store.Remove (%s)", transferId.String()))
 	s.Channels.RequestRemoval <- transferId
 	return <-store.Channels.Error
 }
@@ -175,6 +185,8 @@ func (s *storeState) Remove(transferId uuid.UUID) error {
 func (s *storeState) process() {
 	running := true
 	transfers := make(map[uuid.UUID]transferStoreEntry)
+	s.Channels.Error <- nil
+
 	for running {
 		select {
 		case spec := <-store.Channels.RequestNewTransfer:
@@ -248,5 +260,8 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 	return id, transferStoreEntry{
 		Descriptors: descriptors,
 		Spec:        spec,
+		Status: TransferStatus{
+			NumFiles: len(spec.FileIds),
+		},
 	}, err
 }

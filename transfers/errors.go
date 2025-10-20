@@ -29,15 +29,6 @@ import (
 	"github.com/kbase/dts/config"
 )
 
-// indicates that a transfer is sought but not found
-type NotFoundError struct {
-	Id uuid.UUID
-}
-
-func (t NotFoundError) Error() string {
-	return fmt.Sprintf("The transfer %s was not found.", t.Id.String())
-}
-
 // indicates that Start() has been called when tasks are being processed
 type AlreadyRunningError struct{}
 
@@ -76,6 +67,7 @@ func (e PayloadTooLargeError) Error() string {
 		e.Size, config.Service.MaxPayloadSize)
 }
 
+// indicates that the transfer with a given ID is not found
 type TransferNotFoundError struct {
 	Id uuid.UUID
 }

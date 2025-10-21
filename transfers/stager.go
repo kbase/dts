@@ -109,12 +109,11 @@ func (s *stagerState) process() {
 		select {
 		case transferId := <-s.Channels.RequestStaging:
 			entry, err := s.stageFiles(transferId)
-			if err != nil {
-				s.Channels.Error <- err
+			if err == nil {
+				stagings[transferId] = entry
 			}
-			stagings[transferId] = entry
 			s.Channels.Error <- nil
-		case transferId := <-mover.Channels.RequestCancellation:
+		case transferId := <-s.Channels.RequestCancellation:
 			if _, found := stagings[transferId]; found {
 				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
 				s.Channels.Error <- nil
@@ -125,7 +124,7 @@ func (s *stagerState) process() {
 			// check the staging status and advance to a transfer if it's finished
 			for transferId, staging := range stagings {
 				if err := s.updateStatus(transferId, staging); err != nil {
-					s.Channels.Error <- err
+					slog.Error(err.Error())
 				}
 			}
 		case <-s.Channels.Stop:

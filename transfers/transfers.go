@@ -73,7 +73,6 @@ func Start() error {
 			return err
 		}
 		if err := registerDatabases(); err != nil {
-			print("pooped 'em!\n")
 			return err
 		}
 		global.Started = true

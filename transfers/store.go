@@ -86,7 +86,6 @@ type transferIdAndStatus struct {
 	Status TransferStatus
 }
 
-// starts the store goroutine
 func (s *storeState) Start() error {
 	slog.Debug("store.Start")
 	s.Channels = storeChannels{
@@ -107,7 +106,6 @@ func (s *storeState) Start() error {
 	return <-s.Channels.Error
 }
 
-// stops the store goroutine
 func (s *storeState) Stop() error {
 	slog.Debug("store.Stop")
 	s.Channels.Stop <- struct{}{}
@@ -122,31 +120,31 @@ func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, error) {
 	slog.Debug("store.NewTransfer")
 	s.Channels.RequestNewTransfer <- spec
 	select {
-	case id := <-store.Channels.ReturnNewTransfer:
+	case id := <-s.Channels.ReturnNewTransfer:
 		return id, nil
-	case err := <-store.Channels.Error:
+	case err := <-s.Channels.Error:
 		return uuid.UUID{}, err
 	}
 }
 
 func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, error) {
 	slog.Debug(fmt.Sprintf("store.GetSpecification (%s)", transferId.String()))
-	store.Channels.RequestSpec <- transferId
+	s.Channels.RequestSpec <- transferId
 	select {
-	case spec := <-store.Channels.ReturnSpec:
+	case spec := <-s.Channels.ReturnSpec:
 		return spec, nil
-	case err := <-store.Channels.Error:
+	case err := <-s.Channels.Error:
 		return Specification{}, err
 	}
 }
 
 func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, error) {
 	slog.Debug(fmt.Sprintf("store.GetDescriptors (%s)", transferId.String()))
-	store.Channels.RequestDescriptors <- transferId
+	s.Channels.RequestDescriptors <- transferId
 	select {
-	case descriptors := <-store.Channels.ReturnDescriptors:
+	case descriptors := <-s.Channels.ReturnDescriptors:
 		return descriptors, nil
-	case err := <-store.Channels.Error:
+	case err := <-s.Channels.Error:
 		return nil, err
 	}
 }
@@ -157,16 +155,16 @@ func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) erro
 		Id:     transferId,
 		Status: status,
 	}
-	return <-store.Channels.Error
+	return <-s.Channels.Error
 }
 
 func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 	slog.Debug(fmt.Sprintf("store.GetStatus (%s)", transferId.String()))
 	s.Channels.RequestStatus <- transferId
 	select {
-	case status := <-store.Channels.ReturnStatus:
+	case status := <-s.Channels.ReturnStatus:
 		return status, nil
-	case err := <-store.Channels.Error:
+	case err := <-s.Channels.Error:
 		return TransferStatus{}, err
 	}
 }
@@ -174,7 +172,7 @@ func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 func (s *storeState) Remove(transferId uuid.UUID) error {
 	slog.Debug(fmt.Sprintf("store.Remove (%s)", transferId.String()))
 	s.Channels.RequestRemoval <- transferId
-	return <-store.Channels.Error
+	return <-s.Channels.Error
 }
 
 //----------------------------------------------------
@@ -189,49 +187,49 @@ func (s *storeState) process() {
 
 	for running {
 		select {
-		case spec := <-store.Channels.RequestNewTransfer:
+		case spec := <-s.Channels.RequestNewTransfer:
 			id, transfer, err := s.newTransfer(spec)
 			if err != nil {
-				store.Channels.Error <- err
+				s.Channels.Error <- err
 			} else {
 				transfers[id] = transfer
-				store.Channels.ReturnNewTransfer <- id
+				s.Channels.ReturnNewTransfer <- id
 			}
-		case id := <-store.Channels.RequestDescriptors:
+		case id := <-s.Channels.RequestDescriptors:
 			if transfer, found := transfers[id]; found {
-				store.Channels.ReturnDescriptors <- transfer.Descriptors
+				s.Channels.ReturnDescriptors <- transfer.Descriptors
 			} else {
-				store.Channels.Error <- TransferNotFoundError{Id: id}
+				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
-		case id := <-store.Channels.RequestSpec:
+		case id := <-s.Channels.RequestSpec:
 			if transfer, found := transfers[id]; found {
-				store.Channels.ReturnSpec <- transfer.Spec
+				s.Channels.ReturnSpec <- transfer.Spec
 			} else {
-				store.Channels.Error <- TransferNotFoundError{Id: id}
+				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
-		case idAndStatus := <-store.Channels.SetStatus:
+		case idAndStatus := <-s.Channels.SetStatus:
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
 				transfers[idAndStatus.Id] = transfer
-				store.Channels.Error <- nil
+				s.Channels.Error <- nil
 			} else {
-				store.Channels.Error <- TransferNotFoundError{Id: idAndStatus.Id}
+				s.Channels.Error <- TransferNotFoundError{Id: idAndStatus.Id}
 			}
-		case id := <-store.Channels.RequestStatus:
+		case id := <-s.Channels.RequestStatus:
 			if transfer, found := transfers[id]; found {
-				store.Channels.ReturnStatus <- transfer.Status
+				s.Channels.ReturnStatus <- transfer.Status
 			} else {
-				store.Channels.Error <- TransferNotFoundError{Id: id}
+				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
-		case id := <-store.Channels.RequestRemoval:
+		case id := <-s.Channels.RequestRemoval:
 			if _, found := transfers[id]; found {
 				delete(transfers, id)
-				store.Channels.Error <- nil
+				s.Channels.Error <- nil
 			} else {
-				store.Channels.Error <- TransferNotFoundError{Id: id}
+				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
-		case <-store.Channels.Stop:
-			store.Channels.Error <- nil
+		case <-s.Channels.Stop:
+			s.Channels.Error <- nil
 			running = false
 		}
 	}

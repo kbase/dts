@@ -86,14 +86,14 @@ func (m *moverState) Stop() error {
 func (m *moverState) MoveFiles(transferId uuid.UUID) error {
 	slog.Debug("mover.MoveFiles")
 	m.Channels.RequestMove <- transferId
-	return <-mover.Channels.Error
+	return <-m.Channels.Error
 }
 
 // cancels a file move operation
 func (m *moverState) Cancel(transferId uuid.UUID) error {
 	slog.Debug("mover.Cancel")
 	m.Channels.RequestCancellation <- transferId
-	return <-mover.Channels.Error
+	return <-m.Channels.Error
 }
 
 //----------------------------------------------------
@@ -105,42 +105,44 @@ func (m *moverState) process() {
 	running := true
 	moveOperations := make(map[uuid.UUID][]moveOperation) // a single transfer can be several move operations!
 	pulse := clock.Subscribe()
-	mover.Channels.Error <- nil
+	m.Channels.Error <- nil
 
 	for running {
 		select {
-		case transferId := <-mover.Channels.RequestMove:
+		case transferId := <-m.Channels.RequestMove:
 			moves, err := m.moveFiles(transferId)
 			if err == nil {
 				moveOperations[transferId] = moves
 			}
-			mover.Channels.Error <- err
-		case transferId := <-mover.Channels.RequestCancellation:
+			m.Channels.Error <- err
+		case transferId := <-m.Channels.RequestCancellation:
 			if moves, found := moveOperations[transferId]; found {
 				err := m.cancel(moves)
 				if err == nil {
 					delete(moveOperations, transferId)
 				}
-				mover.Channels.Error <- err
+				m.Channels.Error <- err
 			} else {
-				mover.Channels.Error <- TransferNotFoundError{Id: transferId}
+				m.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
 			// check the move statuses and advance as needed
 			for transferId, moves := range moveOperations {
 				if status, err := m.updateStatus(transferId, moves); err != nil {
-					mover.Channels.Error <- err
+					slog.Error(err.Error())
 				} else if status.Code >= TransferStatusFinalizing { // finalizing or failed
 					if status.Code == TransferStatusFinalizing {
 						err = manifestor.Generate(transferId)
+						if err != nil {
+							slog.Error(err.Error())
+						}
 					}
 					delete(moveOperations, transferId)
-					mover.Channels.Error <- err
 				}
 			}
-		case <-mover.Channels.Stop:
+		case <-m.Channels.Stop:
 			running = false
-			mover.Channels.Error <- nil
+			m.Channels.Error <- nil
 		}
 	}
 	clock.Unsubscribe()

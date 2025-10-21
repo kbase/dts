@@ -65,7 +65,6 @@ func (channels *manifestorChannels) close() {
 	close(channels.Stop)
 }
 
-// starts the mover
 func (m *manifestorState) Start() error {
 	slog.Debug("manifestor.Start")
 	m.Channels = manifestorChannels{
@@ -93,7 +92,7 @@ func (m *manifestorState) Stop() error {
 func (m *manifestorState) Generate(transferId uuid.UUID) error {
 	slog.Debug("manifestor.Generate")
 	m.Channels.RequestGeneration <- transferId
-	return <-mover.Channels.Error
+	return <-m.Channels.Error
 }
 
 // cancels the generation/transfer of a manifest
@@ -101,11 +100,11 @@ func (m *manifestorState) Generate(transferId uuid.UUID) error {
 func (m *manifestorState) Cancel(transferId uuid.UUID) error {
 	slog.Debug("manifestor.Cancel")
 	m.Channels.RequestCancellation <- transferId
-	return <-mover.Channels.Error
+	return <-m.Channels.Error
 }
 
 //----------------------------------------------------
-// everything past here runs in the mover's goroutine
+// everything past here runs in the manifestor's goroutine
 //----------------------------------------------------
 
 // the goroutine itself
@@ -117,37 +116,37 @@ func (m *manifestorState) process() {
 
 	for running {
 		select {
-		case transferId := <-manifestor.Channels.RequestGeneration:
+		case transferId := <-m.Channels.RequestGeneration:
 			manifestXferId, err := m.generateAndSendManifest(transferId)
-			if err != nil {
-				manifestor.Channels.Error <- err
+			if err == nil {
+				manifestTransfers[transferId] = manifestXferId
 			}
-			manifestTransfers[transferId] = manifestXferId
-		case transferId := <-manifestor.Channels.RequestCancellation:
+			m.Channels.Error <- err
+		case transferId := <-m.Channels.RequestCancellation:
 			if manifestXferId, found := manifestTransfers[transferId]; found {
 				err := m.cancel(manifestXferId)
 				if err == nil {
 					delete(manifestTransfers, transferId)
 				}
-				manifestor.Channels.Error <- err
+				m.Channels.Error <- err
 			} else {
-				manifestor.Channels.Error <- TransferNotFoundError{Id: transferId}
+				m.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
 			// check the manifest transfers
 			for transferId, manifestXferId := range manifestTransfers {
 				completed, err := m.updateStatus(transferId, manifestXferId)
 				if err != nil {
-					mover.Channels.Error <- err
+					slog.Error(err.Error())
 					continue
 				}
 				if completed {
 					delete(manifestTransfers, transferId)
 				}
 			}
-		case <-manifestor.Channels.Stop:
+		case <-m.Channels.Stop:
 			running = false
-			manifestor.Channels.Error <- nil
+			m.Channels.Error <- nil
 		}
 	}
 	clock.Unsubscribe()
@@ -229,9 +228,14 @@ func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specificat
 		}
 	}
 
+	jsonDescriptors := make([]any, len(descriptors))
+	for i, descriptor := range descriptors {
+		jsonDescriptors[i] = descriptor
+	}
+
 	packageDescriptor := map[string]any{
 		"name":      "manifest",
-		"resources": descriptors,
+		"resources": jsonDescriptors,
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
 		"keywords":  []any{"dts", "manifest"},

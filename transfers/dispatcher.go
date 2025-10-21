@@ -133,27 +133,27 @@ func (d *dispatcherState) process() {
 
 	for running {
 		select {
-		case spec := <-dispatcher.Channels.RequestTransfer:
+		case spec := <-d.Channels.RequestTransfer:
 			transferId, err := d.create(spec)
 			if err != nil {
-				dispatcher.Channels.Error <- err
+				d.Channels.Error <- err
 			} else {
-				dispatcher.Channels.ReturnTransferId <- transferId
+				d.Channels.ReturnTransferId <- transferId
 			}
-		case transferId := <-dispatcher.Channels.CancelTransfer:
+		case transferId := <-d.Channels.CancelTransfer:
 			if err := d.cancel(transferId); err != nil {
-				dispatcher.Channels.Error <- err
+				d.Channels.Error <- err
 			}
-		case transferId := <-dispatcher.Channels.RequestStatus:
+		case transferId := <-d.Channels.RequestStatus:
 			status, err := store.GetStatus(transferId)
 			if err != nil {
-				dispatcher.Channels.Error <- err
+				d.Channels.Error <- err
 			} else {
-				dispatcher.Channels.ReturnStatus <- status
+				d.Channels.ReturnStatus <- status
 			}
-		case <-dispatcher.Channels.Stop:
+		case <-d.Channels.Stop:
 			running = false
-			dispatcher.Channels.Error <- nil
+			d.Channels.Error <- nil
 		}
 	}
 }

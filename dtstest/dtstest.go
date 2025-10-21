@@ -179,7 +179,7 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 		}
 		return info.Status, nil
 	}
-	return endpoints.TransferStatus{}, fmt.Errorf("invalid transfer ID: %s", id.String())
+	return endpoints.TransferStatus{}, fmt.Errorf("invalid endpoint transfer ID: %s", id.String())
 }
 
 func (ep *Endpoint) Cancel(id uuid.UUID) error {

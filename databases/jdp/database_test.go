@@ -399,6 +399,46 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	}
 }
 
+func TestDescriptorFromOrganismAndFile(t *testing.T) {
+	assert := assert.New(t)
+	file := File {
+		Id:        "file123",
+		Name:      "testfile.txt",
+		Path:	  "/data/",
+		Size:	  2048.0,
+		Owner:	 "jdoe",
+		AddedDate: "01022020",
+		ModifiedDate: "02022020",
+		PurgeDate: "03022020",
+		Date:    "04022020",
+		Status: "active",
+		Type: "txt",
+		MD5Sum: "abc123def456ghi789jkl012mno345pq",
+		User: "jdoe",
+		Group: "users",
+		Permissions: "rw-r--r--",
+		DataGroup: "data",
+	}
+	organism := Organism {
+		Id: "org456",
+		Name: "Test Organism",
+		Title: "His Royal Testness",
+		Files: []File{file},
+	}
+	descriptor := descriptorFromOrganismAndFile(organism, file)
+	assert.NotNil(descriptor, "Descriptor creation returned nil")
+	assert.Equal("JDP:file123", descriptor["id"], "Descriptor ID is incorrect")
+	assert.Equal("testfile", descriptor["name"], "Descriptor name is incorrect")
+	assert.Equal("/data/testfile.txt", descriptor["path"], "Descriptor path is incorrect")
+	assert.Equal("text", descriptor["format"], "Descriptor format is incorrect")
+	ok := strings.Contains(descriptor["mediatype"].(string), "text/plain")
+	assert.True(ok, "Descriptor media type is incorrect")
+	assert.Equal(int(2048), descriptor["bytes"], "Descriptor size is incorrect")
+	assert.Equal("JDP:file123", descriptor["credit"].(credit.CreditMetadata).Identifier, "Descriptor credit ID is incorrect")
+	assert.Equal("dataset", descriptor["credit"].(credit.CreditMetadata).ResourceType, "Descriptor credit resource type is incorrect")
+
+}
+
 func TestPageNumberAndSize(t *testing.T) {
 	assert := assert.New(t)
 	num, size := pageNumberAndSize(0, 0)

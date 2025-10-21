@@ -753,6 +753,13 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 					Message:  "Invalid flag given for include_private_data (must be 0 or 1)",
 				}
 			}
+			acceptedValues := paramSpec["include_private_data"].([]int)
+			if !slices.Contains(acceptedValues, value) {
+				return &databases.InvalidSearchParameter{
+					Database: "JDP",
+					Message:  fmt.Sprintf("Invalid flag for include_private_data: %d", value),
+				}
+			}
 			p.Add(name, fmt.Sprintf("%d", value))
 		case "extra": // comma-separated additional fields requested
 			var value string

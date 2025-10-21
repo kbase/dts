@@ -2,6 +2,7 @@ package jdp
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -347,8 +348,12 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.NotNil(db, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
 
-	params := map[string]any{
+	validParams := map[string]any{
 		"extra": "project_id",
+		"d":     "asc",
+		"f":     "library",
+		"include_private_data": 1,
+		"s":     "title",
 	}
 	urlValues := url.Values{}
 	urlValues.Add("foo", "bar")
@@ -357,7 +362,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.NotNil(jdpDB, "Failed to cast db to *Database")
 	assert.True(ok, "Database cast encountered an error")
 
-	err = jdpDB.addSpecificSearchParameters(params, &urlValues)
+	err = jdpDB.addSpecificSearchParameters(validParams, &urlValues)
 	assert.Nil(err, "Adding specific search parameters encountered an error")
 	assert.Equal("bar", urlValues.Get("foo"), "Existing URL parameter 'foo' was modified")
 	assert.Equal("qux", urlValues.Get("baz"), "Existing URL parameter 'baz' was modified")
@@ -365,6 +370,28 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	expectedExtra := []string{"project_id"}
 	assert.True(slices.Equal(expectedExtra, extraParams),
 		"Specific search parameters 'extra' has incorrect values")
+
+    invalidValues := []map[string]any{
+		{"extra": "invlalid_extra"}, // not an allowed value
+		{"extra": 123}, // should be a string
+		{"d": "invalid_direction"}, // should be 'asc' or 'desc'
+		{"d": 789}, // should be a string
+		{"f": "invalid_field"}, // not an allowed value
+		{"f": []int{1, 2, 3}}, // should be a string
+		{"include_private_data": 5}, // should be 0 or 1
+		{"include_private_data": "yes"}, // should be an integer
+		{"s": "invalid_sort"}, // not an allowed value
+		{"s": 456}, // should be a string
+		{"unknown_param": "some_value"}, // unknown parameter
+	}
+
+	for _, invalidParams := range invalidValues {
+		urlValues = url.Values{}
+		err = jdpDB.addSpecificSearchParameters(invalidParams, &urlValues)
+		assert.NotNil(err, "Adding invalid specific search parameters did not return an error for params: %v", invalidParams)
+		var invalidParamErr *databases.InvalidSearchParameter
+		assert.True(errors.As(err, &invalidParamErr), "Expected InvalidSearchParameter error type for params: %v", invalidParams)
+	}
 }
 
 // this runs setup, runs all tests, and does breakdown

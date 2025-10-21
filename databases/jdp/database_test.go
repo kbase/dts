@@ -3,12 +3,15 @@ package jdp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
@@ -386,11 +389,78 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	}
 
 	for _, invalidParams := range invalidValues {
-		urlValues = url.Values{}
-		err = jdpDB.addSpecificSearchParameters(invalidParams, &urlValues)
-		assert.NotNil(err, "Adding invalid specific search parameters did not return an error for params: %v", invalidParams)
-		var invalidParamErr *databases.InvalidSearchParameter
-		assert.True(errors.As(err, &invalidParamErr), "Expected InvalidSearchParameter error type for params: %v", invalidParams)
+		t.Run(fmt.Sprintf("%v", invalidParams), func(t *testing.T) {
+			urlValues = url.Values{}
+			err = jdpDB.addSpecificSearchParameters(invalidParams, &urlValues)
+			assert.NotNil(err, "Adding invalid specific search parameters did not return an error")
+			var invalidParamErr *databases.InvalidSearchParameter
+			assert.True(errors.As(err, &invalidParamErr), "Expected InvalidSearchParameter error type")
+		})
+	}
+}
+
+func TestPageNumberAndSize(t *testing.T) {
+	assert := assert.New(t)
+	num, size := pageNumberAndSize(0, 0)
+	assert.Equal(1, num, "Page number for offset 0 and size 0 is incorrect")
+	assert.Equal(100, size, "Page size for offset 0 and size 0 is incorrect")
+
+	num, size = pageNumberAndSize(0, 10)
+	assert.Equal(1, num, "Page number for offset 0 and size 10 is incorrect")
+	assert.Equal(10, size, "Page size for offset 0 and size 10 is incorrect")
+
+	num, size = pageNumberAndSize(25, 25)
+	assert.Equal(2, num, "Page number for offset 25 and size 25 is incorrect")
+	assert.Equal(25, size, "Page size for offset 25 and size 25 is incorrect")
+
+	num, size = pageNumberAndSize(50, -1)
+	assert.Equal(2, num, "Page number for offset 50 and size -1 is incorrect")
+	assert.Equal(50, size, "Page size for offset 50 and size -1 is incorrect")
+}
+
+func TestPruneStagingRequests(t *testing.T) {
+	assert := assert.New(t)
+	db := &Database{
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+		DeleteAfter:     time.Minute * 30,
+	}
+	newUuid := uuid.New()
+	db.StagingRequests[newUuid] = StagingRequest{
+		Id:     1,
+		Time:   time.Now(),
+	}
+	oldUuid := uuid.New()
+	db.StagingRequests[oldUuid] = StagingRequest{
+		Id:     2,
+		Time:   time.Now().Add(-time.Hour),
+	}
+	db.pruneStagingRequests()
+	_, existsNew := db.StagingRequests[newUuid]
+	_, existsOld := db.StagingRequests[oldUuid]
+	assert.True(existsNew, "New staging request was incorrectly pruned")
+	assert.False(existsOld, "Old staging request was not pruned")
+}
+
+func TestMimeTypeForFile(t *testing.T) {
+	assert := assert.New(t)
+	tests := []struct {
+		FileName    string
+		ExpectedMIME string
+	}{
+		{"test.txt", "text/plain"},
+		{"test.html", "text/html"},
+		{"test.json", "application/json"},
+		{"test.xml", "application/xml"},
+		{"test.mp4", "video/mp4"},
+		{"test.mp3", "audio/mpeg"},
+		{"test.unknown", "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.FileName, func(t *testing.T) {
+			mime := mimetypeForFile(tt.FileName)
+			ok := strings.Contains(mime, tt.ExpectedMIME)
+			assert.True(ok, "MIME type for %q is incorrect", tt.FileName)
+		})
 	}
 }
 

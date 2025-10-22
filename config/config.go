@@ -72,7 +72,11 @@ var Databases map[string]databaseConfig
 
 // This struct performs the unmarshalling from the YAML config file and then
 // copies its fields to the globals above.
-type configFile struct {
+//
+// NOTE: Instances of this struct are beginning to be used to pass configuration
+// data around internally, but this is not yet complete. Once that is done, the
+// global variables above can be removed.
+type Config struct {
 	Service     serviceConfig               `yaml:"service"`
 	Credentials map[string]credentialConfig `yaml:"credentials"`
 	Databases   map[string]databaseConfig   `yaml:"databases"`
@@ -82,11 +86,11 @@ type configFile struct {
 // This helper locates and reads the selected sections in a configuration file,
 // returning an error indicating success or failure. All environment variables
 // of the form ${ENV_VAR} are expanded.
-func readConfig(bytes []byte, service, credentials, databases, endpoints bool) error {
+func readConfig(bytes []byte, service, credentials, databases, endpoints bool) (Config, error) {
 	// before we do anything else, expand any provided environment variables
 	bytes = []byte(os.ExpandEnv(string(bytes)))
 
-	var conf configFile
+	var conf Config
 	conf.Service.Port = 8080
 	conf.Service.MaxConnections = 100
 	conf.Service.MaxPayloadSize = 100.0 // gigabytes
@@ -96,7 +100,7 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) e
 	err := yaml.Unmarshal(bytes, &conf)
 	if err != nil {
 		log.Printf("Couldn't parse configuration data: %s\n", err)
-		return err
+		return Config{}, err
 	}
 
 	if service {
@@ -122,10 +126,10 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) e
 		Databases = conf.Databases
 	}
 
-	return err
+	return conf, err
 }
 
-func validateServiceParameters(params serviceConfig) error {
+func (params serviceConfig) Validate() error {
 	if params.Port < 0 || params.Port > 65535 {
 		return &InvalidServiceConfigError{
 			Message: fmt.Sprintf("Invalid port: %d (must be 0-65535)", params.Port),
@@ -163,74 +167,58 @@ func validateServiceParameters(params serviceConfig) error {
 	return nil
 }
 
-func validateCredentials(credentials map[string]credentialConfig) error {
-	for name, credential := range credentials {
-		if credential.Id == "" {
-			return &InvalidCredentialConfigError{
-				Credential: name,
-				Message:    "Invalid credential ID",
-			}
+func (credential credentialConfig) Validate(name string) error {
+	if credential.Id == "" {
+		return &InvalidCredentialConfigError{
+			Credential: name,
+			Message:    "Invalid credential ID",
 		}
 	}
 	return nil
 }
 
-func validateEndpoints(endpoints map[string]endpointConfig) error {
-	if len(endpoints) == 0 {
-		return &InvalidServiceConfigError{
-			Message: "No endpoints configured",
+func (endpoint endpointConfig) Validate(name string) error {
+	if endpoint.Id == uuid.Nil { // invalid endpoint UUID
+		return &InvalidEndpointConfigError{
+			Endpoint: name,
+			Message:  "Invalid UUID",
 		}
 	}
-	for name, endpoint := range endpoints {
-		if endpoint.Id == uuid.Nil { // invalid endpoint UUID
-			return &InvalidEndpointConfigError{
-				Endpoint: name,
-				Message:  "Invalid UUID",
-			}
-		}
-		if endpoint.Provider == "" { // no provider given
-			return &InvalidEndpointConfigError{
-				Endpoint: name,
-				Message:  "No provider specified",
-			}
+	if endpoint.Provider == "" { // no provider given
+		return &InvalidEndpointConfigError{
+			Endpoint: name,
+			Message:  "No provider specified",
 		}
 	}
 	return nil
 }
 
-func validateDatabases(databases map[string]databaseConfig) error {
-	if len(databases) == 0 {
-		return &InvalidServiceConfigError{
-			Message: "No databases configured",
+func (db databaseConfig) Validate(name string) error {
+	if db.Endpoint == "" && len(db.Endpoints) == 0 {
+		return &InvalidDatabaseConfigError{
+			Database: name,
+			Message:  "No endpoints specified",
 		}
-	}
-	for name, db := range databases {
-		if db.Endpoint == "" && len(db.Endpoints) == 0 {
+	} else if db.Endpoint != "" && len(db.Endpoints) > 0 {
+		return &InvalidDatabaseConfigError{
+			Database: name,
+			Message:  "EITHER endpoint OR endpoints may be specified, but not both",
+		}
+	} else if db.Endpoint != "" {
+		// does the endpoint exist in our configuration?
+		if _, found := Endpoints[db.Endpoint]; !found {
 			return &InvalidDatabaseConfigError{
 				Database: name,
-				Message:  "No endpoints specified",
+				Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", name, db.Endpoint),
 			}
-		} else if db.Endpoint != "" && len(db.Endpoints) > 0 {
-			return &InvalidDatabaseConfigError{
-				Database: name,
-				Message:  "EITHER endpoint OR endpoints may be specified, but not both",
-			}
-		} else if db.Endpoint != "" {
-			// does the endpoint exist in our configuration?
-			if _, found := Endpoints[db.Endpoint]; !found {
+		}
+	} else {
+		// do all functional endpoints exist in our configuration?
+		for functionalName, endpointName := range db.Endpoints {
+			if _, found := Endpoints[endpointName]; !found {
 				return &InvalidDatabaseConfigError{
 					Database: name,
-					Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", name, db.Endpoint),
-				}
-			}
-		} else {
-			// do all functional endpoints exist in our configuration?
-			for functionalName, endpointName := range db.Endpoints {
-				if _, found := Endpoints[endpointName]; !found {
-					return &InvalidDatabaseConfigError{
-						Database: name,
-						Message:  fmt.Sprintf("Invalid %s endpoint for database %s: %s", functionalName, name, endpointName),
-					}
+					Message:  fmt.Sprintf("Invalid %s endpoint for database %s: %s", functionalName, name, endpointName),
 				}
 			}
 		}
@@ -240,47 +228,71 @@ func validateDatabases(databases map[string]databaseConfig) error {
 
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
-func validateConfig(service, credentials, databases, endpoints bool) error {
+func (c Config) Validate(service, credentials, databases, endpoints bool) error {
 	var err error
 	if service {
-		err = validateServiceParameters(Service)
-		if err != nil {
+		if err = c.Service.Validate(); err != nil {
 			return err
 		}
 	}
 
 	if credentials {
-		err = validateCredentials(Credentials)
-		if err != nil {
-			return err
+		for name, credential := range c.Credentials {
+			err = credential.Validate(name)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	if endpoints {
-		err = validateEndpoints(Endpoints)
-		if err != nil {
-			return err
+		if len(c.Endpoints) == 0 {
+			return &InvalidServiceConfigError{
+				Message: "No endpoints configured",
+			}
+		}
+		for name, endpoint := range c.Endpoints {
+			err = endpoint.Validate(name)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	if databases {
-		err = validateDatabases(Databases)
+		if len(c.Databases) == 0 {
+			return &InvalidServiceConfigError{
+				Message: "No databases configured",
+			}
+		}
+		for name, database := range c.Databases {
+			err = database.Validate(name)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return err
 }
 
 // Initializes the entire service configuration using the given YAML byte data.
 func Init(yamlData []byte) error {
+	_, err := InitSelected(yamlData, true, true, true, true)
+	return err
+}
+
+// Returns a Config struct initialized from the given YAML byte data.
+func NewConfig(yamlData []byte) (Config, error) {
 	return InitSelected(yamlData, true, true, true, true)
 }
 
 // Initializes the selected sections in the service configuration using the
 // given YAML byte data.
-func InitSelected(yamlData []byte, service, credentials, databases, endpoints bool) error {
-	err := readConfig(yamlData, service, credentials, databases, endpoints)
+func InitSelected(yamlData []byte, service, credentials, databases, endpoints bool) (Config, error) {
+	conf, err := readConfig(yamlData, service, credentials, databases, endpoints)
 	if err != nil {
-		return err
+		return Config{}, err
 	}
-	err = validateConfig(service, credentials, databases, endpoints)
-	return err
+	err = conf.Validate(service, credentials, databases, endpoints)
+	return conf, err
 }

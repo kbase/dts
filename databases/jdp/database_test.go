@@ -1,6 +1,7 @@
 package jdp
 
 import (
+	"log"
 	"os"
 	"testing"
 
@@ -34,7 +35,11 @@ endpoints:
 func setup() {
 	dtstest.EnableDebugLogging()
 	config.Init([]byte(jdpConfig))
-	databases.RegisterDatabase("jdp", NewDatabase)
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	if err != nil {
+		log.Panicf("Couldn't create config instance: %s", err)
+	}
+	databases.RegisterDatabase("jdp", DatabaseConstructor(conf))
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
 }
 
@@ -44,7 +49,9 @@ func breakdown() {
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	jdpDb, err := NewDatabase()
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	assert.Nil(err, "Couldn't create config in setup")
+	jdpDb, err := NewDatabase(conf)
 	assert.NotNil(jdpDb, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
 }
@@ -53,7 +60,9 @@ func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {
 	assert := assert.New(t)
 	jdpSecret := os.Getenv("DTS_JDP_SECRET")
 	os.Unsetenv("DTS_JDP_SECRET")
-	jdpDb, err := NewDatabase()
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	assert.Nil(err, "Couldn't create config in setup")
+	jdpDb, err := NewDatabase(conf)
 	os.Setenv("DTS_JDP_SECRET", jdpSecret)
 	assert.Nil(jdpDb, "JDP database somehow created without shared secret available")
 	assert.NotNil(err, "JDP database creation without shared secret encountered no error")
@@ -62,7 +71,10 @@ func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {
 func TestSearch(t *testing.T) {
 	assert := assert.New(t)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	assert.Nil(err, "Couldn't create config in setup")
+	db, err := NewDatabase(conf)
+	assert.Nil(err, "Couldn't create database in setup")
 	params := databases.SearchParameters{
 		Query: "prochlorococcus",
 		Pagination: struct {
@@ -80,7 +92,10 @@ func TestSearch(t *testing.T) {
 func TestSearchByIMGTaxonOID(t *testing.T) {
 	assert := assert.New(t)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	assert.Nil(err, "Couldn't create config in setup")
+	db, err := NewDatabase(conf)
+	assert.Nil(err, "Couldn't create database in setup")
 	params := databases.SearchParameters{
 		Query: "2582580701",
 		Pagination: struct {
@@ -102,7 +117,10 @@ func TestSearchByIMGTaxonOID(t *testing.T) {
 func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
+	conf, err := config.NewConfig([]byte(jdpConfig))
+	assert.Nil(err, "Couldn't create config in setup")
+	db, err := NewDatabase(conf)
+	assert.Nil(err, "Couldn't create database in setup")
 	params := databases.SearchParameters{
 		Query: "prochlorococcus",
 	}

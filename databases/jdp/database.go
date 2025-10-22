@@ -54,7 +54,7 @@ type Database struct {
 	Secret string
 	// mapping from staging UUIDs to JDP restoration request ID
 	StagingRequests map[uuid.UUID]StagingRequest
-	// Time after which staging requests are deleted
+	// time after which staging requests are pruned
 	DeleteAfter time.Duration
 }
 
@@ -65,15 +65,15 @@ type StagingRequest struct {
 	Time time.Time
 }
 
-func NewDatabase(configData config.ConfigData) (databases.Database, error) {
+func NewDatabase(conf config.Config) (databases.Database, error) {
 	// make sure we have a shared secret or an SSO token
-	secret := configData.Databases["jdp"].Secret
+	secret := conf.Databases["jdp"].Secret
 	if secret == "" { // check for SSO token
 		return nil, fmt.Errorf("no shared secret was found for JDP authentication")
 	}
 
 	// make sure we are using only a single endpoint
-	if configData.Databases["jdp"].Endpoint == "" {
+	if conf.Databases["jdp"].Endpoint == "" {
 		return nil, &databases.InvalidEndpointsError{
 			Database: "jdp",
 			Message:  "The JGI data portal should only have a single endpoint configured.",
@@ -87,13 +87,13 @@ func NewDatabase(configData config.ConfigData) (databases.Database, error) {
 		//Client:          databases.SecureHttpClient(),
 		Secret:          secret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
-		DeleteAfter:     time.Duration(configData.Service.DeleteAfter) * time.Second,
+		DeleteAfter:     time.Duration(conf.Service.DeleteAfter) * time.Second,
 	}, nil
 }
 
-func NewDatabaseFunc(configData config.ConfigData) func() (databases.Database, error) {
+func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
-		return NewDatabase(configData)
+		return NewDatabase(conf)
 	}
 }
 

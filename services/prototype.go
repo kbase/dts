@@ -76,10 +76,10 @@ func NewDTSPrototype() (TransferService, error) {
 }
 
 // starts the prototype data transfer service
-func (service *prototype) Start(configData config.ConfigData) error {
-	port := configData.Service.Port
+func (service *prototype) Start(conf config.Config) error {
+	port := conf.Service.Port
 	slog.Info(fmt.Sprintf("Starting %s v%s on port %d...", service.Name, version, port))
-	slog.Info(fmt.Sprintf("(Accepting up to %d connections)", configData.Service.MaxConnections))
+	slog.Info(fmt.Sprintf("(Accepting up to %d connections)", conf.Service.MaxConnections))
 
 	service.StartTime = time.Now()
 
@@ -90,10 +90,10 @@ func (service *prototype) Start(configData config.ConfigData) error {
 		return err
 	}
 	defer listener.Close()
-	listener = netutil.LimitListener(listener, configData.Service.MaxConnections)
+	listener = netutil.LimitListener(listener, conf.Service.MaxConnections)
 
 	// start tasks processing
-	err = tasks.Start(configData)
+	err = tasks.Start(conf)
 	if err != nil {
 		return err
 	}

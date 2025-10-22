@@ -118,7 +118,7 @@ func setTestEnvVars(yaml string) string {
 func setup() {
 	dtstest.EnableDebugLogging()
 	config.Init([]byte(setTestEnvVars(jdpConfig)))
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 	if err != nil {
 		panic(err)
 	}
@@ -129,7 +129,7 @@ func setup() {
 			panic(err)
 		}
 	} else {
-		err := databases.RegisterDatabase("jdp", NewDatabaseFunc(configData))
+		err := databases.RegisterDatabase("jdp", DatabaseConstructor(configData))
 		if err != nil {
 			panic(err)
 		}
@@ -146,9 +146,9 @@ func breakdown() {
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
-	assert.Nil(err, "Failed to get config data for JDP database")
-	jdpDb, err := NewDatabase(configData)
+	conf, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+	assert.Nil(err, "Couldn't create config in setup")
+	jdpDb, err := NewDatabase(conf)
 	assert.NotNil(jdpDb, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
 }
@@ -175,7 +175,7 @@ endpoints:
       client_id: ${DTS_GLOBUS_CLIENT_ID}
       client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
 `
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfigNoSecret)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfigNoSecret)))
 	assert.Nil(err, "Failed to get config data for JDP database without shared secret")
 	jdpDb, err := NewDatabase(configData)
 	assert.Nil(jdpDb, "JDP database somehow created without shared secret available")
@@ -208,7 +208,7 @@ endpoints:
 	// missing endpoint
 	bytes := []byte(setTestEnvVars(jdpConfigMissingEndpoint))
 	bytes = []byte(os.ExpandEnv(string(bytes)))
-	var configData config.ConfigData
+	var configData config.Config
 	err := yaml.Unmarshal(bytes, &configData)
 	assert.Nil(err, "Failed to unmarshal config data for JDP database with missing endpoint")
 	jdpDb, err := NewDatabase(configData)
@@ -218,9 +218,9 @@ endpoints:
 
 func TestNewDatabaseFunc(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 	assert.Nil(err, "Failed to get config data for JDP database")
-	createFunc := NewDatabaseFunc(configData)
+	createFunc := DatabaseConstructor(configData)
 	jdpDb, err := createFunc()
 	assert.NotNil(jdpDb, "JDP database not created by factory function")
 	assert.Nil(err, "JDP database creation by factory function encountered an error")
@@ -228,7 +228,7 @@ func TestNewDatabaseFunc(t *testing.T) {
 
 func TestSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 	assert.Nil(err, "Failed to get config data for JDP database")
 	db, err := NewDatabase(configData)
 	assert.NotNil(db, "JDP database not created")
@@ -247,7 +247,7 @@ func TestSearch(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -267,7 +267,7 @@ func TestSearch(t *testing.T) {
 
 func TestSaveLoad(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 	assert.Nil(err, "Failed to get config data for JDP database")
 	db, _ := NewDatabase(configData)
 
@@ -288,7 +288,7 @@ func TestSearchByIMGTaxonOID(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -314,7 +314,7 @@ func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -345,7 +345,7 @@ func TestDescriptors(t *testing.T) {
 
 func TestAddSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.GetConfigData([]byte(setTestEnvVars(jdpConfig)))
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
 	assert.Nil(err, "Failed to get config data for JDP database")
 	db, err := NewDatabase(configData)
 	assert.NotNil(db, "JDP database not created")

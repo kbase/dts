@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
 	"github.com/kbase/dts/config"
 )
 
@@ -79,8 +80,8 @@ type TransferStatusResponse struct {
 
 // TransferService defines the interface for our data transfer service.
 type TransferService interface {
-	// Starts the service, returning an error that indicates success or failure.
-	Start(configData config.ConfigData) error
+	// Configures and starts the service, returning an error that indicates success or failure.
+	Start(conf config.Config) error
 	// Gracefully shuts down the service without interrupting active connections.
 	Shutdown(ctx context.Context) error
 	// Closes down the service, freeing all resources.

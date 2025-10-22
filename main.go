@@ -91,10 +91,10 @@ func main() {
 	}
 
 	// get an instance of the configuration data. Once global config variables
-	// are removed, the config.Init() can be skipped.
-	configData, err := config.GetConfigData(b)
+	// are removed, the config.Init() call above can be removed.
+	conf, err := config.NewConfig(b)
 	if err != nil {
-		log.Panicf("Couldn't get configuration data: %s\n", err.Error())
+		log.Panicf("Couldn't create configuration: %s\n", err.Error())
 	}
 
 	enableLogging()
@@ -115,7 +115,7 @@ func main() {
 
 	// start the service in a goroutine so it doesn't block
 	go func() {
-		err = service.Start(configData)
+		err = service.Start(conf)
 		if err != nil { // on error, log the error message and issue a SIGINT
 			log.Println(err.Error())
 			thisProcess, _ := os.FindProcess(os.Getpid())

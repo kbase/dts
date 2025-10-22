@@ -439,6 +439,61 @@ func TestDescriptorFromOrganismAndFile(t *testing.T) {
 
 }
 
+func TestDescriptorsFromResponseBody(t *testing.T) {
+	assert := assert.New(t)
+	responseBody := `{
+		"organisms": [
+			{
+				"id": "org456",
+				"name": "Test Organism",
+				"title": "His Royal Testness",
+				"files": [
+					{
+						"_id": "file123",
+						"file_name": "testfile.txt",
+						"file_path": "/data",
+						"type": "text/plain",
+						"file_size": 2048,
+						"metadata": {
+							"analysis_project_id": 7890,
+							"img": {
+								"taxon_oid": "A321"
+							}
+						}
+					}
+				]
+			}
+		]
+	}`
+	descriptors, err := descriptorsFromResponseBody([]byte(responseBody), nil)
+	assert.Nil(err, "Parsing descriptors from response body encountered an error")
+	assert.Equal(1, len(descriptors), "Incorrect number of descriptors parsed from response body")
+	descriptor := descriptors[0]
+	assert.Equal("JDP:file123", descriptor["id"], "Parsed descriptor ID is incorrect")
+	assert.Equal("testfile", descriptor["name"], "Parsed descriptor name is incorrect")
+	assert.Equal("/data/testfile.txt", descriptor["path"], "Parsed descriptor path is incorrect")
+	assert.Equal("text", descriptor["format"], "Parsed descriptor format is incorrect")
+	ok := strings.Contains(descriptor["mediatype"].(string), "text/plain")
+	assert.True(ok, "Parsed descriptor media type is incorrect")
+	assert.Equal(int(2048), descriptor["bytes"], "Parsed descriptor size is incorrect")
+	assert.Equal("JDP:file123", descriptor["credit"].(credit.CreditMetadata).Identifier, "Parsed descriptor credit ID is incorrect")
+	assert.Equal("dataset", descriptor["credit"].(credit.CreditMetadata).ResourceType, "Parsed descriptor credit resource type is incorrect")
+
+	// response with extra fields
+	extraFields := []string{"img_taxon_oid", "project_id"}
+	descriptors, err = descriptorsFromResponseBody([]byte(responseBody), extraFields)
+	assert.Nil(err, "Parsing descriptors with extra fields from response body encountered an error")
+	assert.Equal(1, len(descriptors), "Incorrect number of descriptors parsed from response body with extra fields")
+	descriptor = descriptors[0]
+	extraValue, exists := descriptor["extra"].(map[string]any)["img_taxon_oid"]
+	assert.True(exists, "Extra field 'img_taxon_oid' not found in parsed descriptor")
+	assert.Equal("A321", extraValue, "Extra field 'img_taxon_oid' has incorrect value in parsed descriptor")
+	extraValue, exists = descriptor["extra"].(map[string]any)["project_id"]
+	assert.True(exists, "Extra field 'project_id' not found in parsed descriptor")
+	assert.Equal("org456", extraValue, "Extra field 'project_id' has incorrect value in parsed descriptor")
+
+}
+
 func TestPageNumberAndSize(t *testing.T) {
 	assert := assert.New(t)
 	num, size := pageNumberAndSize(0, 0)

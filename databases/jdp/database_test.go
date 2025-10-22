@@ -1,7 +1,8 @@
 package jdp
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,10 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 
@@ -55,6 +53,7 @@ var isMockDatabase bool = false
 
 var mockJDPServer *httptest.Server
 var mockJDPSecret string = "mock_shared_secret"
+var mockOrcId string = "0000-0000-9876-0000"
 
 // Response structure for mock JDP Server
 type SearchResults struct {
@@ -63,21 +62,63 @@ type SearchResults struct {
 
 // create a mock JDP server for testing
 func createMockJDPServer() *httptest.Server {
-	router := mux.NewRouter()
-	api := humamux.New(router, huma.DefaultConfig("Mock JDP Server", "1.0.0"))
+    return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        
+        switch r.URL.Path {
+        case "/mock_get":
+            message := r.URL.Query().Get("message")
+			// Check for orcid parameter and validate against auth header if present
+			orcid := r.URL.Query().Get("orcid")
+			if orcid != "" {
+				authHeader := r.Header.Get("Authorization")
+				if authHeader == "" || !strings.Contains(authHeader, orcid) {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{"error": "ORCID mismatch with authorization"})
+					return
+				}
+			}
+            if message == "" {
+                message = "This is a mock GET response from the JDP server."
+            }
+            response := struct {
+                Message string `json:"message"`
+            }{Message: message}
+            
+            w.WriteHeader(http.StatusOK)
+            json.NewEncoder(w).Encode(response)
 
-	huma.Register(api, huma.Operation{
-		OperationID: "searchJDP",
-		Method:      http.MethodGet,
-		Path:        "/search",
-		Security:    []map[string][]string{{"bearerAuth": {}}},
-	}, func(ctx context.Context, input *struct {
-		Authorization string `header:"Authorization"`
-	}) (*SearchResults, error) {
-		return &SearchResults{}, nil
-	})
+		case "/mock_post":
+			var requestData struct {
+				Message string `json:"message"`
+			}
+			err := json.NewDecoder(r.Body).Decode(&requestData)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+				return
+			}
+			response := struct {
+				Message string `json:"message"`
+			}{Message: requestData.Message}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(response)
 
-	return httptest.NewServer(router)
+        case "/search":
+            // Return empty search results
+            response := SearchResults{
+                Descriptors: []map[string]any{},
+            }
+            w.WriteHeader(http.StatusOK)
+            json.NewEncoder(w).Encode(response)
+            
+        default:
+            w.WriteHeader(http.StatusNotFound)
+            json.NewEncoder(w).Encode(map[string]string{
+                "error": "Not found",
+            })
+        }
+    }))
 }
 
 // create a mock JDP database for testing
@@ -308,6 +349,64 @@ func TestSearchByIMGTaxonOID(t *testing.T) {
 		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
 		assert.Nil(err, "JDP search query encountered an error")
 	}
+}
+
+func TestGet(t *testing.T) {
+	assert := assert.New(t)
+
+	// set up a database instance pointing to the mock JDP server
+	db := &Database{
+		BaseURL:        mockJDPServer.URL,
+		Secret:         mockJDPSecret,
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+	}
+
+	// perform a GET request to the mock endpoint without arguments
+	responseBody, err := db.get("/mock_get", url.Values{})
+	assert.Nil(err, "JDP database GET request encountered an error")
+	var responseData struct {
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(responseBody, &responseData)
+	assert.Nil(err, "JDP database GET response unmarshalling encountered an error")
+	expectedMessage := "This is a mock GET response from the JDP server."
+	assert.Equal(expectedMessage, responseData.Message,
+		"JDP database GET response message is incorrect")
+
+	// perform a GET request to the mock endpoint with a message argument
+	values := url.Values{}
+	values.Add("message", "Hello, JDP!")
+	values.Add("orcid", mockOrcId)
+	responseBody, err = db.get("/mock_get", values)
+	assert.Nil(err, "JDP database GET request with argument encountered an error")
+	err = json.Unmarshal(responseBody, &responseData)
+	assert.Nil(err, "JDP database GET response with argument unmarshalling encountered an error")
+	expectedMessage = "Hello, JDP!"
+	assert.Equal(expectedMessage, responseData.Message,
+		"JDP database GET response message with argument is incorrect")
+}
+
+func TestPost(t *testing.T) {
+	assert := assert.New(t)
+
+	// set up a database instance pointing to the mock JDP server
+	db := &Database{
+		BaseURL:        mockJDPServer.URL,
+		Secret:         mockJDPSecret,
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+	}
+
+	// perform a POST request to the mock endpoint
+	responseBody, err := db.post("/mock_post", "", bytes.NewBuffer([]byte(`{"message": "Hello, JDP!"}`)))
+	assert.Nil(err, "JDP database POST request encountered an error")
+	var responseData struct {
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(responseBody, &responseData)
+	assert.Nil(err, "JDP database POST response unmarshalling encountered an error")
+	expectedMessage := "Hello, JDP!"
+	assert.Equal(expectedMessage, responseData.Message,
+		"JDP database POST response message with argument is incorrect")
 }
 
 func TestDescriptors(t *testing.T) {

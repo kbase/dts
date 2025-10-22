@@ -48,6 +48,8 @@ import (
 // file database appropriate for handling JDP searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// Base URL for JDP API
+	BaseURL string
 	// HTTP client that caches queries
 	Client http.Client
 	// shared secret used for authentication
@@ -84,6 +86,7 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	// NOTE: server doesn't seem to support it. Maybe raise this issue with the
 	// NOTE: team?
 	return &Database{
+		BaseURL:         defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),
 		Secret:          secret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
@@ -336,8 +339,8 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 //--------------------
 
 const (
-	jdpBaseURL     = "https://files.jgi.doe.gov/"
-	filePathPrefix = "/global/dna/dm_archive/" // directory containing JDP files
+	defaultBaseURL        = "https://files.jgi.doe.gov/"
+	filePathPrefix        = "/global/dna/dm_archive/" // directory containing JDP files
 )
 
 // a mapping from file suffixes to format labels
@@ -558,7 +561,7 @@ func (db Database) addAuthHeader(orcid string, request *http.Request) {
 // response body and/or error
 func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 	var u *url.URL
-	u, err := url.ParseRequestURI(jdpBaseURL)
+	u, err := url.ParseRequestURI(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +597,7 @@ func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 // performs a POST request on the given resource on behalf of the user with the
 // given ORCID, returning the body of the resulting response (or an error)
 func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error) {
-	u, err := url.ParseRequestURI(jdpBaseURL)
+	u, err := url.ParseRequestURI(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}

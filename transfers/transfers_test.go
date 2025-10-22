@@ -66,7 +66,7 @@ func TestRunner(t *testing.T) {
 
 	transfers := TransferTests{Test: t}
 	transfers.TestStartAndStop()
-	transfers.TestCreate()
+	transfers.TestCreateWithoutStaging()
 	//tester.TestStopAndRestartTransfers()
 }
 
@@ -86,14 +86,37 @@ func (t *TransferTests) TestStartAndStop() {
 	assert.False(Running())
 }
 
-func (t *TransferTests) TestCreate() {
+func (t *TransferTests) TestCreateWithoutStaging() {
 	log.Print("=== TestCreate ===")
 	assert := assert.New(t.Test)
-	err := Start()
+
+	// record the task's journey through the aether
+	var journey struct {
+		Unknown, Staging, Active, Failed, Finalizing, Inactive, Succeeded bool
+	}
+	err := RegisterStatusCallback(func(id uuid.UUID, status TransferStatus) {
+		switch status.Code {
+		case TransferStatusUnknown:
+			journey.Unknown = true
+		case TransferStatusStaging:
+			journey.Staging = true
+		case TransferStatusActive:
+			journey.Active = true
+		case TransferStatusFailed:
+			journey.Failed = true
+		case TransferStatusFinalizing:
+			journey.Finalizing = true
+		case TransferStatusInactive:
+			journey.Inactive = true
+		case TransferStatusSucceeded:
+			journey.Succeeded = true
+		}
+	})
+	assert.Nil(err)
+
+	err = Start()
 	assert.Nil(err)
 	assert.True(Running())
-
-	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
 
 	transferId, err := Create(Specification{
 		Destination: "test-destination",
@@ -108,8 +131,16 @@ func (t *TransferTests) TestCreate() {
 	assert.GreaterOrEqual(status.Code, TransferStatusStaging)
 	assert.Equal(3, status.NumFiles)
 
-	time.Sleep(3 * pollInterval)
-	assert.GreaterOrEqual(status.Code, TransferStatusActive)
+	time.Sleep(2 * time.Second)
+
+	// how'd our journey go, friend?
+	assert.True(journey.Unknown)
+	assert.False(journey.Staging)
+	assert.True(journey.Active)
+	assert.False(journey.Failed)
+	assert.True(journey.Finalizing)
+	assert.False(journey.Inactive)
+	assert.True(journey.Succeeded)
 
 	err = Stop()
 	assert.Nil(err)

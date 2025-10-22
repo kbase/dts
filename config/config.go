@@ -231,8 +231,7 @@ func (db databaseConfig) Validate(name string) error {
 func (c Config) Validate(service, credentials, databases, endpoints bool) error {
 	var err error
 	if service {
-		err = c.Service.Validate()
-		if err != nil {
+		if err = c.Service.Validate(); err != nil {
 			return err
 		}
 	}

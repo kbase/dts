@@ -166,6 +166,10 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
+	conf, err := config.NewConfig([]byte(myConfig))
+	if err != nil {
+		log.Panicf("Couldn't create config instance: %s", err)
+	}
 
 	// register test databases referred to in config file
 	err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
@@ -196,7 +200,7 @@ func setup() {
 		if err != nil {
 			log.Panicf("Couldn't construct the service: %s", err.Error())
 		}
-		err = service.Start(config.Service.Port)
+		err = service.Start(conf)
 		if err != nil {
 			log.Panicf("Couldn't start search service: %s", err.Error())
 		}

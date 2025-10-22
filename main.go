@@ -90,6 +90,13 @@ func main() {
 		log.Panicf("Couldn't initialize the configuration: %s\n", err.Error())
 	}
 
+	// get an instance of the configuration data. Once global config variables
+	// are removed, the config.Init() call above can be removed.
+	conf, err := config.NewConfig(b)
+	if err != nil {
+		log.Panicf("Couldn't create configuration: %s\n", err.Error())
+	}
+
 	enableLogging()
 
 	service, err := services.NewDTSPrototype()
@@ -108,7 +115,7 @@ func main() {
 
 	// start the service in a goroutine so it doesn't block
 	go func() {
-		err = service.Start(config.Service.Port)
+		err = service.Start(conf)
 		if err != nil { // on error, log the error message and issue a SIGINT
 			log.Println(err.Error())
 			thisProcess, _ := os.FindProcess(os.Getpid())

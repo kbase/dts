@@ -75,6 +75,10 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
+	configInstance, err = config.NewConfig([]byte(myConfig))
+	if err != nil {
+		log.Panicf("Couldn't create config instance: %s", err)
+	}
 
 	// create test resources
 	testDescriptors := map[string]map[string]any{
@@ -131,7 +135,7 @@ func (t *SerialTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
 
 	assert.False(Running())
-	err := Start()
+	err := Start(configInstance)
 	assert.Nil(err)
 	assert.True(Running())
 	err = Stop()
@@ -142,7 +146,7 @@ func (t *SerialTests) TestStartAndStop() {
 func (t *SerialTests) TestCreateTask() {
 	assert := assert.New(t.Test)
 
-	err := Start()
+	err := Start(configInstance)
 	assert.Nil(err)
 
 	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
@@ -206,7 +210,7 @@ func (t *SerialTests) TestCreateTask() {
 func (t *SerialTests) TestCancelTask() {
 	assert := assert.New(t.Test)
 
-	err := Start()
+	err := Start(configInstance)
 	assert.Nil(err)
 
 	pollInterval := time.Duration(config.Service.PollInterval) * time.Millisecond
@@ -254,7 +258,7 @@ func (t *SerialTests) TestStopAndRestart() {
 	assert := assert.New(t.Test)
 
 	// start up, add a bunch of tasks, then immediately close
-	err := Start()
+	err := Start(configInstance)
 	assert.Nil(err)
 	numTasks := 10
 	taskIds := make([]uuid.UUID, numTasks)
@@ -275,7 +279,7 @@ func (t *SerialTests) TestStopAndRestart() {
 	assert.Nil(err)
 
 	// now restart the task manager and make sure all the tasks are there
-	err = Start()
+	err = Start(configInstance)
 	assert.Nil(err)
 	for i := 0; i < numTasks; i++ {
 		_, err := Status(taskIds[i])
@@ -333,3 +337,5 @@ endpoints:
     provider: test
     root: DESTINATION_ROOT
 `
+// configuration instance
+var configInstance config.Config

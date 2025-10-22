@@ -71,7 +71,7 @@ func setup() {
 
 	// read in the config file with SOURCE_ROOT and DESTINATION_ROOT replaced
 	myConfig := strings.ReplaceAll(journalConfig, "TESTING_DIR", TESTING_DIR)
-	err = config.InitSelected([]byte(myConfig), true, false, false, false)
+	_, err = config.InitSelected([]byte(myConfig), true, false, false, false)
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}

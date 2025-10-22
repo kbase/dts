@@ -210,6 +210,9 @@ func (s *storeState) process() {
 		case idAndStatus := <-s.Channels.SetStatus:
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
+				for _, callback := range global.Callbacks {
+					callback(idAndStatus.Id, idAndStatus.Status)
+				}
 				transfers[idAndStatus.Id] = transfer
 				s.Channels.Error <- nil
 			} else {
@@ -255,11 +258,15 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 	slices.SortFunc(descriptors, func(a, b map[string]any) int {
 		return cmp.Compare(a["id"].(string), b["id"].(string))
 	})
-	return id, transferStoreEntry{
+	entry := transferStoreEntry{
 		Descriptors: descriptors,
 		Spec:        spec,
 		Status: TransferStatus{
 			NumFiles: len(spec.FileIds),
 		},
-	}, err
+	}
+	for _, callback := range global.Callbacks { // new transfers have TransferStatusUnknown
+		callback(id, entry.Status)
+	}
+	return id, entry, err
 }

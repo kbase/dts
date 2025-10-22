@@ -60,6 +60,27 @@ const (
 	TransferStatusSucceeded  = endpoints.TransferStatusSucceeded
 )
 
+// A StatusCallback function is called when a transfer a given ID is created or has its status
+// updated. Every new transfer gets created with status TransferStatusUnknown. Callbacks of this
+// sort can be registered before Start() is called, and can be useful for testing.
+type StatusCallback = func(transferId uuid.UUID, transferStatus TransferStatus)
+
+// Registers a status callback function with the transfer orchestrator. If this function is called
+// while Running() returns true, it returns AlreadyRunningError. Callbacks remain registered after
+// Stop() has been called.
+func RegisterStatusCallback(callback StatusCallback) error {
+	if global.Running {
+		return &AlreadyRunningError{}
+	}
+	global.Callbacks = append(global.Callbacks, callback)
+	return nil
+}
+
+// unregisters all status callback functions
+func ClearStatusCallbacks() {
+	clear(global.Callbacks)
+}
+
 // starts processing transfers according to the given configuration, returning an
 // informative error if anything prevents this
 func Start() error {
@@ -93,7 +114,19 @@ func Start() error {
 		return err
 	}
 
-	if err := startOrchestration(); err != nil {
+	if err := store.Start(); err != nil {
+		return err
+	}
+	if err := dispatcher.Start(); err != nil {
+		return err
+	}
+	if err := stager.Start(); err != nil {
+		return err
+	}
+	if err := mover.Start(); err != nil {
+		return err
+	}
+	if err := manifestor.Start(); err != nil {
 		return err
 	}
 
@@ -107,7 +140,19 @@ func Start() error {
 func Stop() error {
 	var err error
 	if global.Running {
-		if err := stopOrchestration(); err != nil {
+		if err := stager.Stop(); err != nil {
+			return err
+		}
+		if err := mover.Stop(); err != nil {
+			return err
+		}
+		if err := manifestor.Stop(); err != nil {
+			return err
+		}
+		if err := store.Stop(); err != nil {
+			return err
+		}
+		if err := dispatcher.Stop(); err != nil {
 			return err
 		}
 		if err = journal.Finalize(); err != nil {
@@ -190,6 +235,7 @@ func Cancel(transferId uuid.UUID) error {
 // globals
 var global struct {
 	Running, Started bool
+	Callbacks        []StatusCallback
 }
 
 //-----------------------------------------------
@@ -299,38 +345,6 @@ func validateDirectory(dirType, dir string) error {
 // * manifestor: generates a transfer manifest after each transfer has completed and sends it to
 //              the correct destination
 // * store: maintains metadata records and status info for ongoing and completed transfers
-
-func startOrchestration() error {
-	if err := dispatcher.Start(); err != nil {
-		return err
-	}
-	if err := stager.Start(); err != nil {
-		return err
-	}
-	if err := mover.Start(); err != nil {
-		return err
-	}
-	if err := manifestor.Start(); err != nil {
-		return err
-	}
-	return store.Start()
-}
-
-func stopOrchestration() error {
-	if err := stager.Stop(); err != nil {
-		return err
-	}
-	if err := mover.Stop(); err != nil {
-		return err
-	}
-	if err := manifestor.Stop(); err != nil {
-		return err
-	}
-	if err := store.Stop(); err != nil {
-		return err
-	}
-	return dispatcher.Stop()
-}
 
 // resolves the given destination (name) string, accounting for custom transfers
 func destinationEndpoint(destination string) (endpoints.Endpoint, error) {

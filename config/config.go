@@ -126,7 +126,7 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) (
 		Databases = conf.Databases
 	}
 
-	return Config{}, err
+	return conf, err
 }
 
 func validateServiceParameters(params serviceConfig) error {

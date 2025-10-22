@@ -351,6 +351,56 @@ func TestSearchByIMGTaxonOID(t *testing.T) {
 	}
 }
 
+func TestSourcesFromMetadata(t *testing.T) {
+	assert := assert.New(t)
+	metadataJson := `{
+		"proposal": {
+			"pi": {
+				"last_name": "Doe",
+				"first_name": "Jane",
+				"middle_name": "Any",
+				"email_address": "jane.doe@example.com",
+				"institution": "University of Testing",
+				"country": "USA"
+			},
+			"award_doi": "10.1234/test.award.doi"
+		}
+	}`
+	var metadata Metadata
+	err := json.Unmarshal([]byte(metadataJson), &metadata)
+	assert.Nil(err, "Failed to unmarshal metadata JSON")
+	sources := sourcesFromMetadata(metadata)
+    assert.Equal(1, len(sources), "Incorrect number of sources extracted from metadata")
+	sourceMap, ok := sources[0].(map[string]any)
+	assert.True(ok, "Source extracted from metadata is not a map[string]any")
+	assert.Equal(3, len(sourceMap), "Incorrect number of source fields extracted from metadata")
+	title, ok := sourceMap["title"].(string)
+	assert.True(ok, "PI name extracted from metadata is not a string")
+	assert.Equal("Doe, Jane Any (University of Testing, USA)", title, "Incorrect PI name extracted from metadata")
+	path, ok := sourceMap["path"].(string)
+	assert.True(ok, "Institution extracted from metadata is not a string")
+	assert.Equal("https://doi.org/10.1234/test.award.doi", path, "Incorrect award DOI extracted from metadata")
+	email, ok := sourceMap["email"].(string)
+	assert.True(ok, "Email extracted from metadata is not a string")
+	assert.Equal("jane.doe@example.com", email, "Incorrect email extracted from metadata")
+}
+
+func TestDataResourceName(t *testing.T) {
+	assert := assert.New(t)
+	inputOutputPairs := map[string]string{
+		"name-with.valid_chars.txt": "name-with.valid_chars",
+		"name with!invalid*%($chars).html":    "name_with_invalid_chars_",
+		"": "",
+		"^.*$&%": "_",
+	}
+	for input, expectedOutput := range inputOutputPairs {
+		t.Run(input, func(t *testing.T) {
+			assert.Equal(expectedOutput, dataResourceName(input),
+				"Data resource name mapping is incorrect")
+		})
+	}
+}
+
 func TestGet(t *testing.T) {
 	assert := assert.New(t)
 

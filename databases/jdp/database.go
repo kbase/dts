@@ -436,7 +436,7 @@ func sourcesFromMetadata(md Metadata) []any {
 // creates a Frictionless DataResource-savvy name for a file:
 // * the name consists of lower case characters plus '.', '-', and '_'
 // * all forbidden characters encountered in the filename are removed
-// * a number suffix is added if needed to make the name unique
+// * multiple forbidden characters in a row are replaced with a single '_'
 func dataResourceName(filename string) string {
 	name := strings.ToLower(filename)
 
@@ -459,7 +459,7 @@ func dataResourceName(filename string) string {
 				end++
 			}
 			if end < len(name) {
-				name = name[:start] + string('_') + name[end+1:]
+				name = name[:start] + string('_') + name[end:]
 			} else {
 				name = name[:start] + string('_')
 			}

@@ -86,7 +86,7 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	// NOTE: server doesn't seem to support it. Maybe raise this issue with the
 	// NOTE: team?
 	return &Database{
-		BaseURL:         defaultBaseURL,
+		BaseURL: defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),
 		Secret:          secret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
@@ -339,8 +339,8 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 //--------------------
 
 const (
-	defaultBaseURL        = "https://files.jgi.doe.gov/"
-	filePathPrefix        = "/global/dna/dm_archive/" // directory containing JDP files
+	defaultBaseURL = "https://files.jgi.doe.gov/"
+	filePathPrefix = "/global/dna/dm_archive/" // directory containing JDP files
 )
 
 // a mapping from file suffixes to format labels

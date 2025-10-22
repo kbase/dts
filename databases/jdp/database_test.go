@@ -54,6 +54,7 @@ var isMockDatabase bool = false
 var mockJDPServer *httptest.Server
 var mockJDPSecret string = "mock_shared_secret"
 var mockOrcId string = "0000-0000-9876-0000"
+var mockStagedFileId = 12345
 
 // Response structure for mock JDP Server
 type SearchResults struct {
@@ -62,12 +63,12 @@ type SearchResults struct {
 
 // create a mock JDP server for testing
 func createMockJDPServer() *httptest.Server {
-    return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        
-        switch r.URL.Path {
-        case "/mock_get":
-            message := r.URL.Query().Get("message")
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/mock_get":
+			message := r.URL.Query().Get("message")
 			// Check for orcid parameter and validate against auth header if present
 			orcid := r.URL.Query().Get("orcid")
 			if orcid != "" {
@@ -78,15 +79,15 @@ func createMockJDPServer() *httptest.Server {
 					return
 				}
 			}
-            if message == "" {
-                message = "This is a mock GET response from the JDP server."
-            }
-            response := struct {
-                Message string `json:"message"`
-            }{Message: message}
-            
-            w.WriteHeader(http.StatusOK)
-            json.NewEncoder(w).Encode(response)
+			if message == "" {
+				message = "This is a mock GET response from the JDP server."
+			}
+			response := struct {
+				Message string `json:"message"`
+			}{Message: message}
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(response)
 
 		case "/mock_post":
 			var requestData struct {
@@ -104,21 +105,64 @@ func createMockJDPServer() *httptest.Server {
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(response)
 
-        case "/search":
-            // Return empty search results
-            response := SearchResults{
-                Descriptors: []map[string]any{},
-            }
-            w.WriteHeader(http.StatusOK)
-            json.NewEncoder(w).Encode(response)
-            
-        default:
-            w.WriteHeader(http.StatusNotFound)
-            json.NewEncoder(w).Encode(map[string]string{
-                "error": "Not found",
-            })
-        }
-    }))
+		case "/search":
+			// Return empty search results
+			response := SearchResults{
+				Descriptors: []map[string]any{},
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(response)
+
+		default:
+			// Handle paths like "/request_archived_files/requests/12345"
+			if strings.HasPrefix(r.URL.Path, "/request_archived_files/requests/") {
+				// Extract the ID from the path
+				id := strings.TrimPrefix(r.URL.Path, "/request_archived_files/requests/")
+				response := struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+				}{
+					ID:     id,
+					Status: "pending",
+				}
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(response)
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/request_archived_files/") {
+				// Handle POST requests to "/request_archived_files/"
+				authHeader := r.Header.Get("Authorization")
+				if authHeader != fmt.Sprintf("Token %s_%s", mockOrcId, mockJDPSecret) {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
+					return
+				}
+				if r.Method == http.MethodPost {
+					var requestData struct {
+						ID string `json:"id"`
+					}
+					err := json.NewDecoder(r.Body).Decode(&requestData)
+					if err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+						return
+					}
+					response := struct {
+						RequestId int `json:"request_id"`
+					}{
+						RequestId: mockStagedFileId,
+					}
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(response)
+					return
+				}
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "Not found",
+				})
+			}
+		}
+	}))
 }
 
 // create a mock JDP database for testing
@@ -306,6 +350,66 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestStageFiles(t *testing.T) {
+	assert := assert.New(t)
+	mockServer := createMockJDPServer()
+	defer mockServer.Close()
+	db := Database{
+		BaseURL:         mockServer.URL,
+		Secret:          mockJDPSecret,
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+		DeleteAfter:     time.Duration(1) * time.Hour,
+	}
+	fileIds := []string{"file1", "file2"}
+	id, err := db.StageFiles(mockOrcId, fileIds)
+	assert.Nil(err, "Database StageFiles encountered an error")
+	assert.NotNil(id, "Database StageFiles returned nil ID")
+	assert.Equal(mockStagedFileId, db.StagingRequests[id].Id, "Database StageFiles returned incorrect ID")
+}
+
+func TestStagingStatus(t *testing.T) {
+	assert := assert.New(t)
+	mockServer := createMockJDPServer()
+	defer mockServer.Close()
+	db := Database{
+		BaseURL:         mockServer.URL,
+		Secret:          mockJDPSecret,
+		StagingRequests: make(map[uuid.UUID]StagingRequest),
+		DeleteAfter:     time.Duration(1) * time.Hour,
+	}
+	req1 := StagingRequest{
+		Id:   789,
+		Time: time.Now(),
+	}
+	req2 := StagingRequest{
+		Id:   4,
+		Time: time.Now(),
+	}
+	uuid1 := uuid.New()
+	uuid2 := uuid.New()
+	db.StagingRequests[uuid1] = req1
+	db.StagingRequests[uuid2] = req2
+	status, err := db.StagingStatus(uuid2)
+	assert.Nil(err, "Database StagingStatus encountered an error")
+	assert.NotNil(status, "Database StagingStatus returned nil status")
+	assert.Equal(databases.StagingStatusActive, status, "Database StagingStatus returned incorrect status")
+}
+
+func TestFinalize(t *testing.T) {
+	assert := assert.New(t)
+	db := Database{}
+	err := db.Finalize("", uuid.UUID{})
+	assert.Nil(err, "Database Finalize encountered an error")
+}
+
+func TestLocalUser(t *testing.T) {
+	assert := assert.New(t)
+	db := Database{}
+	localUser, err := db.LocalUser("test-orcid")
+	assert.Nil(err, "Database LocalUser encountered an error")
+	assert.Equal("localuser", localUser, "Database LocalUser returned incorrect value")
+}
+
 func TestSaveLoad(t *testing.T) {
 	assert := assert.New(t)
 	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
@@ -370,7 +474,7 @@ func TestSourcesFromMetadata(t *testing.T) {
 	err := json.Unmarshal([]byte(metadataJson), &metadata)
 	assert.Nil(err, "Failed to unmarshal metadata JSON")
 	sources := sourcesFromMetadata(metadata)
-    assert.Equal(1, len(sources), "Incorrect number of sources extracted from metadata")
+	assert.Equal(1, len(sources), "Incorrect number of sources extracted from metadata")
 	sourceMap, ok := sources[0].(map[string]any)
 	assert.True(ok, "Source extracted from metadata is not a map[string]any")
 	assert.Equal(3, len(sourceMap), "Incorrect number of source fields extracted from metadata")
@@ -388,10 +492,10 @@ func TestSourcesFromMetadata(t *testing.T) {
 func TestDataResourceName(t *testing.T) {
 	assert := assert.New(t)
 	inputOutputPairs := map[string]string{
-		"name-with.valid_chars.txt": "name-with.valid_chars",
-		"name with!invalid*%($chars).html":    "name_with_invalid_chars_",
-		"": "",
-		"^.*$&%": "_",
+		"name-with.valid_chars.txt":        "name-with.valid_chars",
+		"name with!invalid*%($chars).html": "name_with_invalid_chars_",
+		"":                                 "",
+		"^.*$&%":                           "_",
 	}
 	for input, expectedOutput := range inputOutputPairs {
 		t.Run(input, func(t *testing.T) {
@@ -406,8 +510,8 @@ func TestGet(t *testing.T) {
 
 	// set up a database instance pointing to the mock JDP server
 	db := &Database{
-		BaseURL:        mockJDPServer.URL,
-		Secret:         mockJDPSecret,
+		BaseURL:         mockJDPServer.URL,
+		Secret:          mockJDPSecret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
 	}
 
@@ -441,8 +545,8 @@ func TestPost(t *testing.T) {
 
 	// set up a database instance pointing to the mock JDP server
 	db := &Database{
-		BaseURL:        mockJDPServer.URL,
-		Secret:         mockJDPSecret,
+		BaseURL:         mockJDPServer.URL,
+		Secret:          mockJDPSecret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
 	}
 
@@ -501,11 +605,11 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.Nil(err, "JDP database creation encountered an error")
 
 	validParams := map[string]any{
-		"extra": "project_id",
-		"d":     "asc",
-		"f":     "library",
+		"extra":                "project_id",
+		"d":                    "asc",
+		"f":                    "library",
 		"include_private_data": 1,
-		"s":     "title",
+		"s":                    "title",
 	}
 	urlValues := url.Values{}
 	urlValues.Add("foo", "bar")
@@ -523,17 +627,17 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.True(slices.Equal(expectedExtra, extraParams),
 		"Specific search parameters 'extra' has incorrect values")
 
-    invalidValues := []map[string]any{
-		{"extra": "invlalid_extra"}, // not an allowed value
-		{"extra": 123}, // should be a string
-		{"d": "invalid_direction"}, // should be 'asc' or 'desc'
-		{"d": 789}, // should be a string
-		{"f": "invalid_field"}, // not an allowed value
-		{"f": []int{1, 2, 3}}, // should be a string
-		{"include_private_data": 5}, // should be 0 or 1
+	invalidValues := []map[string]any{
+		{"extra": "invlalid_extra"},     // not an allowed value
+		{"extra": 123},                  // should be a string
+		{"d": "invalid_direction"},      // should be 'asc' or 'desc'
+		{"d": 789},                      // should be a string
+		{"f": "invalid_field"},          // not an allowed value
+		{"f": []int{1, 2, 3}},           // should be a string
+		{"include_private_data": 5},     // should be 0 or 1
 		{"include_private_data": "yes"}, // should be an integer
-		{"s": "invalid_sort"}, // not an allowed value
-		{"s": 456}, // should be a string
+		{"s": "invalid_sort"},           // not an allowed value
+		{"s": 456},                      // should be a string
 		{"unknown_param": "some_value"}, // unknown parameter
 	}
 
@@ -550,27 +654,27 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 
 func TestDescriptorFromOrganismAndFile(t *testing.T) {
 	assert := assert.New(t)
-	file := File {
-		Id:        "file123",
-		Name:      "testfile.txt",
-		Path:	  "/data/",
-		Size:	  2048.0,
-		Owner:	 "jdoe",
-		AddedDate: "01022020",
+	file := File{
+		Id:           "file123",
+		Name:         "testfile.txt",
+		Path:         "/data/",
+		Size:         2048.0,
+		Owner:        "jdoe",
+		AddedDate:    "01022020",
 		ModifiedDate: "02022020",
-		PurgeDate: "03022020",
-		Date:    "04022020",
-		Status: "active",
-		Type: "txt",
-		MD5Sum: "abc123def456ghi789jkl012mno345pq",
-		User: "jdoe",
-		Group: "users",
-		Permissions: "rw-r--r--",
-		DataGroup: "data",
+		PurgeDate:    "03022020",
+		Date:         "04022020",
+		Status:       "active",
+		Type:         "txt",
+		MD5Sum:       "abc123def456ghi789jkl012mno345pq",
+		User:         "jdoe",
+		Group:        "users",
+		Permissions:  "rw-r--r--",
+		DataGroup:    "data",
 	}
-	organism := Organism {
-		Id: "org456",
-		Name: "Test Organism",
+	organism := Organism{
+		Id:    "org456",
+		Name:  "Test Organism",
 		Title: "His Royal Testness",
 		Files: []File{file},
 	}
@@ -670,13 +774,13 @@ func TestPruneStagingRequests(t *testing.T) {
 	}
 	newUuid := uuid.New()
 	db.StagingRequests[newUuid] = StagingRequest{
-		Id:     1,
-		Time:   time.Now(),
+		Id:   1,
+		Time: time.Now(),
 	}
 	oldUuid := uuid.New()
 	db.StagingRequests[oldUuid] = StagingRequest{
-		Id:     2,
-		Time:   time.Now().Add(-time.Hour),
+		Id:   2,
+		Time: time.Now().Add(-time.Hour),
 	}
 	db.pruneStagingRequests()
 	_, existsNew := db.StagingRequests[newUuid]
@@ -688,7 +792,7 @@ func TestPruneStagingRequests(t *testing.T) {
 func TestMimeTypeForFile(t *testing.T) {
 	assert := assert.New(t)
 	tests := []struct {
-		FileName    string
+		FileName     string
 		ExpectedMIME string
 	}{
 		{"test.txt", "text/plain"},

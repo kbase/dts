@@ -383,9 +383,14 @@ func (task *transferTask) createManifest() (*datapackage.Package, error) {
 		}
 	}
 
+	jsonDescriptors := make([]any, len(descriptors))
+	for i, descriptor := range descriptors {
+		jsonDescriptors[i] = descriptor
+	}
+
 	descriptor := map[string]any{
 		"name":      "manifest",
-		"resources": descriptors,
+		"resources": jsonDescriptors,
 		"created":   time.Now().Format(time.RFC3339),
 		"profile":   "data-package",
 		"keywords":  []any{"dts", "manifest"},

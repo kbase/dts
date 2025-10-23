@@ -155,6 +155,63 @@ func createMockJDPServer() *httptest.Server {
 					json.NewEncoder(w).Encode(response)
 					return
 				}
+			} else if strings.HasPrefix(r.URL.Path, "/search/by_file_ids/") {
+				// Return file descriptors for given file IDs
+				authHeader := r.Header.Get("Authorization")
+				if authHeader == "" || !strings.Contains(authHeader, mockOrcId) {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{"error": "ORCID mismatch with authorization"})
+					return
+				}
+				var requestData struct {
+					Ids                []string `json:"ids"`
+					Aggregations       bool     `json:"aggregations"`
+					IncludePrivateData int      `json:"include_private_data"`
+				}
+				err := json.NewDecoder(r.Body).Decode(&requestData)
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+					return
+				}
+				var found bool = false
+				for _, id := range requestData.Ids {
+					if id == "file123" {
+						found = true
+					}
+				}
+				responseBody := `{
+					"organisms": []
+				}`
+				if found {
+					responseBody = `{
+						"organisms": [
+							{
+								"id": "org456",
+								"name": "Test Organism",
+								"title": "His Royal Testness",
+								"files": [
+									{
+										"_id": "file123",
+										"file_name": "testfile.txt",
+										"file_path": "/data",
+										"type": "text/plain",
+										"file_size": 2048,
+										"metadata": {
+											"analysis_project_id": 7890,
+											"img": {
+												"taxon_oid": "A321"
+											}
+										}
+									}
+								]
+							}
+						]
+					}`
+				}
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(responseBody))
+				return
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 				json.NewEncoder(w).Encode(map[string]string{
@@ -166,11 +223,14 @@ func createMockJDPServer() *httptest.Server {
 }
 
 // create a mock JDP database for testing
-func NewMockDatabase() (databases.Database, error) {
-	return &Database{
-		Secret:          mockJDPSecret,
-		StagingRequests: make(map[uuid.UUID]StagingRequest),
-	}, nil
+func NewMockDatabase(baseUrl string) func() (databases.Database, error) {
+	return func() (databases.Database, error) {
+		return &Database{
+			BaseURL:         baseUrl,
+			Secret:          mockJDPSecret,
+			StagingRequests: make(map[uuid.UUID]StagingRequest),
+		}, nil
+	}
 }
 
 // helper function replaces embedded environment variables in yaml strings
@@ -209,7 +269,7 @@ func setup() {
 	}
 	if isMockDatabase {
 		mockJDPServer = createMockJDPServer()
-		err := databases.RegisterDatabase("jdp", NewMockDatabase)
+		err := databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))
 		if err != nil {
 			panic(err)
 		}
@@ -593,6 +653,18 @@ func TestDescriptors(t *testing.T) {
 			assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
 			assert.Equal(jdpSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 		}
+	} else {
+		orcid := mockOrcId
+		db := Database{
+			BaseURL:         mockJDPServer.URL,
+			Secret:          mockJDPSecret,
+			StagingRequests: make(map[uuid.UUID]StagingRequest),
+			DeleteAfter:     time.Duration(1) * time.Hour,
+		}
+		descriptors, err := db.Descriptors(orcid, []string{"JDP:file123"})
+		assert.Nil(err, "JDP database Descriptors request encountered an error")
+		assert.Equal(1, len(descriptors), "JDP database Descriptors request returned incorrect number of results")
+		assert.Equal("JDP:file123", descriptors[0]["id"], "JDP database Descriptors request returned incorrect file ID")
 	}
 }
 

@@ -94,27 +94,41 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	var journey struct {
 		Unknown, Staging, Active, Failed, Finalizing, Inactive, Succeeded bool
 	}
-	err := RegisterStatusCallback(func(id uuid.UUID, status TransferStatus) {
-		switch status.Code {
-		case TransferStatusUnknown:
-			journey.Unknown = true
-		case TransferStatusStaging:
-			journey.Staging = true
-		case TransferStatusActive:
-			journey.Active = true
-		case TransferStatusFailed:
-			journey.Failed = true
-		case TransferStatusFinalizing:
-			journey.Finalizing = true
-		case TransferStatusInactive:
-			journey.Inactive = true
-		case TransferStatusSucceeded:
-			journey.Succeeded = true
+	subscription := Subscribe(32)
+	go func() {
+		var finished bool
+		for !finished {
+			message := <-subscription.Channel
+			switch message.TransferStatus.Code {
+			case TransferStatusUnknown:
+				assert.False(journey.Staging || journey.Active || journey.Failed || journey.Finalizing ||
+					journey.Inactive || journey.Succeeded)
+				journey.Unknown = true
+			case TransferStatusStaging:
+				assert.False(journey.Active || journey.Failed || journey.Finalizing ||
+					journey.Inactive || journey.Succeeded)
+				journey.Staging = true
+			case TransferStatusActive:
+				assert.False(journey.Failed || journey.Finalizing || journey.Inactive || journey.Succeeded)
+				journey.Active = true
+			case TransferStatusFailed:
+				assert.False(journey.Finalizing || journey.Inactive || journey.Succeeded)
+				journey.Failed = true
+			case TransferStatusFinalizing:
+				assert.False(journey.Failed || journey.Inactive || journey.Succeeded)
+				journey.Finalizing = true
+			case TransferStatusInactive:
+				assert.False(journey.Failed || journey.Succeeded)
+				journey.Inactive = true
+			case TransferStatusSucceeded:
+				assert.False(journey.Failed)
+				journey.Succeeded = true
+				finished = true
+			}
 		}
-	})
-	assert.Nil(err)
+	}()
 
-	err = Start()
+	err := Start()
 	assert.Nil(err)
 	assert.True(Running())
 

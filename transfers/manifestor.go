@@ -269,8 +269,16 @@ func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bo
 	}
 	if manifestStatus.Code == TransferStatusSucceeded || manifestStatus.Code == TransferStatusFailed {
 		newStatus.Code = manifestStatus.Code
-		err = store.SetStatus(transferId, newStatus)
-		return true, err
+		if err := store.SetStatus(transferId, newStatus); err != nil {
+			return true, err
+		}
+		publish(Message{
+			Description:    newStatus.Message,
+			TransferId:     transferId,
+			TransferStatus: newStatus,
+			Time:           time.Now(),
+		})
+		return true, nil
 	} else {
 		return false, nil
 	}

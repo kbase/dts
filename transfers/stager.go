@@ -24,6 +24,7 @@ package transfers
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -62,9 +63,9 @@ func (channels *stagerChannels) close() {
 func (s *stagerState) Start() error {
 	slog.Debug("stager.Start")
 	s.Channels = stagerChannels{
-		RequestStaging:      make(chan uuid.UUID, 32),
-		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:               make(chan error, 32),
+		RequestStaging:      make(chan uuid.UUID, 31),
+		RequestCancellation: make(chan uuid.UUID, 31),
+		Error:               make(chan error, 31),
 		Stop:                make(chan struct{}),
 	}
 	go s.process()
@@ -177,6 +178,7 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) e
 	newStatus := oldStatus
 	switch stagingStatus {
 	case databases.StagingStatusSucceeded:
+		newStatus.Message = fmt.Sprintf("file staging succeeded for transfer %s", transferId.String())
 		newStatus.Code = TransferStatusActive
 	case databases.StagingStatusFailed:
 		newStatus.Code = TransferStatusFailed
@@ -189,6 +191,12 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) e
 		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return err
 		}
+		publish(Message{
+			Description:    newStatus.Message,
+			TransferId:     transferId,
+			TransferStatus: newStatus,
+			Time:           time.Now(),
+		})
 	}
 
 	if newStatus.Code == TransferStatusActive {

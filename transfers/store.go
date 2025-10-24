@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -210,9 +211,6 @@ func (s *storeState) process() {
 		case idAndStatus := <-s.Channels.SetStatus:
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
-				for _, callback := range global.Callbacks {
-					callback(idAndStatus.Id, idAndStatus.Status)
-				}
 				transfers[idAndStatus.Id] = transfer
 				s.Channels.Error <- nil
 			} else {
@@ -265,8 +263,13 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 			NumFiles: len(spec.FileIds),
 		},
 	}
-	for _, callback := range global.Callbacks { // new transfers have TransferStatusUnknown
-		callback(id, entry.Status)
-	}
+
+	publish(Message{
+		Description:    "New transfer created.",
+		TransferId:     id,
+		TransferStatus: entry.Status,
+		Time:           time.Now(),
+	})
+
 	return id, entry, err
 }

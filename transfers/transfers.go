@@ -60,27 +60,6 @@ const (
 	TransferStatusSucceeded  = endpoints.TransferStatusSucceeded
 )
 
-// A StatusCallback function is called when a transfer a given ID is created or has its status
-// updated. Every new transfer gets created with status TransferStatusUnknown. Callbacks of this
-// sort can be registered before Start() is called, and can be useful for testing.
-type StatusCallback = func(transferId uuid.UUID, transferStatus TransferStatus)
-
-// Registers a status callback function with the transfer orchestrator. If this function is called
-// while Running() returns true, it returns AlreadyRunningError. Callbacks remain registered after
-// Stop() has been called.
-func RegisterStatusCallback(callback StatusCallback) error {
-	if global.Running {
-		return &AlreadyRunningError{}
-	}
-	global.Callbacks = append(global.Callbacks, callback)
-	return nil
-}
-
-// unregisters all status callback functions
-func ClearStatusCallbacks() {
-	clear(global.Callbacks)
-}
-
 // starts processing transfers according to the given configuration, returning an
 // informative error if anything prevents this
 func Start() error {
@@ -140,6 +119,10 @@ func Start() error {
 func Stop() error {
 	var err error
 	if global.Running {
+		if err := unsubscribeAll(); err != nil {
+			return err
+		}
+
 		if err := stager.Stop(); err != nil {
 			return err
 		}
@@ -235,7 +218,6 @@ func Cancel(transferId uuid.UUID) error {
 // globals
 var global struct {
 	Running, Started bool
-	Callbacks        []StatusCallback
 }
 
 //-----------------------------------------------

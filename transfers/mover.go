@@ -24,6 +24,7 @@ package transfers
 import (
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -256,10 +257,18 @@ func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (
 		newStatus.Code = TransferStatusFailed
 	}
 	if newStatus != oldStatus {
-		err = store.SetStatus(transferId, newStatus)
+		if err := store.SetStatus(transferId, newStatus); err != nil {
+			return newStatus, err
+		}
+		publish(Message{
+			Description:    newStatus.Message,
+			TransferId:     transferId,
+			TransferStatus: newStatus,
+			Time:           time.Now(),
+		})
 	}
 
-	return newStatus, err
+	return newStatus, nil
 }
 
 func (m *moverState) cancel(moves []moveOperation) error {

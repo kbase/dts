@@ -56,6 +56,31 @@ var mockJDPSecret string = "mock_shared_secret"
 var mockOrcId string = "0000-0000-9876-0000"
 var mockStagedFileId = 12345
 
+const mockResponseBody string = `{
+		"organisms": [
+			{
+				"id": "org456",
+				"name": "Test Organism",
+				"title": "His Royal Testness",
+				"files": [
+					{
+						"_id": "file123",
+						"file_name": "testfile.txt",
+						"file_path": "/data",
+						"type": "text/plain",
+						"file_size": 2048,
+						"metadata": {
+							"analysis_project_id": 7890,
+							"img": {
+								"taxon_oid": "A321"
+							}
+						}
+					}
+				]
+			}
+		]
+	}`
+
 // Response structure for mock JDP Server
 type SearchResults struct {
 	Descriptors []map[string]any `json:"descriptors"`
@@ -106,12 +131,28 @@ func createMockJDPServer() *httptest.Server {
 			json.NewEncoder(w).Encode(response)
 
 		case "/search":
-			// Return empty search results
-			response := SearchResults{
-				Descriptors: []map[string]any{},
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || !strings.Contains(authHeader, mockOrcId) {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "ORCID mismatch with authorization"})
+				return
+			}
+			query := r.URL.Query().Get("q")
+			response := `{
+				"organisms": []
+			}`
+			if query == "file123" {
+				specifics := r.URL.Query().Get("s")
+				if specifics != "" && specifics == "title" {
+					extras := r.URL.Query().Get("extra")
+					if extras != "taxon_oid,project_id" {
+						// Return a mock search result
+						response = mockResponseBody
+					}
+				}
 			}
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(response)
+			w.Write([]byte(response))
 
 		default:
 			// Handle paths like "/request_archived_files/requests/12345"
@@ -184,30 +225,7 @@ func createMockJDPServer() *httptest.Server {
 					"organisms": []
 				}`
 				if found {
-					responseBody = `{
-						"organisms": [
-							{
-								"id": "org456",
-								"name": "Test Organism",
-								"title": "His Royal Testness",
-								"files": [
-									{
-										"_id": "file123",
-										"file_name": "testfile.txt",
-										"file_path": "/data",
-										"type": "text/plain",
-										"file_size": 2048,
-										"metadata": {
-											"analysis_project_id": 7890,
-											"img": {
-												"taxon_oid": "A321"
-											}
-										}
-									}
-								]
-							}
-						]
-					}`
+					responseBody = mockResponseBody
 				}
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(responseBody))
@@ -407,6 +425,33 @@ func TestSearch(t *testing.T) {
 		results, err := db.Search(orcid, params)
 		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
 		assert.Nil(err, "JDP search query encountered an error")
+	} else {
+		orcid := mockOrcId
+		db := Database{
+			BaseURL:         mockJDPServer.URL,
+			Secret:          mockJDPSecret,
+			StagingRequests: make(map[uuid.UUID]StagingRequest),
+			DeleteAfter:     time.Duration(1) * time.Hour,
+		}
+		params := databases.SearchParameters{
+			Query: "file123",
+			Specific: map[string]any{
+				"s":     "title",
+				"extra": "img_taxon_oid,project_id",
+			},
+		}
+		results, err := db.Search(orcid, params)
+		assert.Nil(err, "JDP mock search query encountered an error")
+		assert.Equal(1, len(results.Descriptors), "JDP mock search query returned no results")
+		assert.Equal("JDP:file123", results.Descriptors[0]["id"], "JDP mock search query returned incorrect file ID")
+
+		// test with query that returns no results
+		params = databases.SearchParameters{
+			Query: "nonexistentfile",
+		}
+		results, err = db.Search(orcid, params)
+		assert.Nil(err, "JDP mock search query encountered an error")
+		assert.Equal(0, len(results.Descriptors), "JDP mock search query returned results for nonexistent file")
 	}
 }
 
@@ -665,6 +710,11 @@ func TestDescriptors(t *testing.T) {
 		assert.Nil(err, "JDP database Descriptors request encountered an error")
 		assert.Equal(1, len(descriptors), "JDP database Descriptors request returned incorrect number of results")
 		assert.Equal("JDP:file123", descriptors[0]["id"], "JDP database Descriptors request returned incorrect file ID")
+
+		// test with non-existent file ID
+		descriptors, err = db.Descriptors(orcid, []string{"JDP:nonexistent"})
+		assert.NotNil(err, "JDP database Descriptors request for nonexistent file ID encountered an error")
+		assert.Equal(0, len(descriptors), "JDP database Descriptors request for nonexistent file ID returned results")
 	}
 }
 
@@ -677,7 +727,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.Nil(err, "JDP database creation encountered an error")
 
 	validParams := map[string]any{
-		"extra":                "project_id",
+		"extra":                "project_id,img_taxon_oid",
 		"d":                    "asc",
 		"f":                    "library",
 		"include_private_data": 1,
@@ -695,7 +745,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert.Equal("bar", urlValues.Get("foo"), "Existing URL parameter 'foo' was modified")
 	assert.Equal("qux", urlValues.Get("baz"), "Existing URL parameter 'baz' was modified")
 	extraParams := urlValues["extra"]
-	expectedExtra := []string{"project_id"}
+	expectedExtra := []string{"project_id", "img_taxon_oid"}
 	assert.True(slices.Equal(expectedExtra, extraParams),
 		"Specific search parameters 'extra' has incorrect values")
 
@@ -766,31 +816,7 @@ func TestDescriptorFromOrganismAndFile(t *testing.T) {
 
 func TestDescriptorsFromResponseBody(t *testing.T) {
 	assert := assert.New(t)
-	responseBody := `{
-		"organisms": [
-			{
-				"id": "org456",
-				"name": "Test Organism",
-				"title": "His Royal Testness",
-				"files": [
-					{
-						"_id": "file123",
-						"file_name": "testfile.txt",
-						"file_path": "/data",
-						"type": "text/plain",
-						"file_size": 2048,
-						"metadata": {
-							"analysis_project_id": 7890,
-							"img": {
-								"taxon_oid": "A321"
-							}
-						}
-					}
-				]
-			}
-		]
-	}`
-	descriptors, err := descriptorsFromResponseBody([]byte(responseBody), nil)
+	descriptors, err := descriptorsFromResponseBody([]byte(mockResponseBody), nil)
 	assert.Nil(err, "Parsing descriptors from response body encountered an error")
 	assert.Equal(1, len(descriptors), "Incorrect number of descriptors parsed from response body")
 	descriptor := descriptors[0]
@@ -806,7 +832,7 @@ func TestDescriptorsFromResponseBody(t *testing.T) {
 
 	// response with extra fields
 	extraFields := []string{"img_taxon_oid", "project_id"}
-	descriptors, err = descriptorsFromResponseBody([]byte(responseBody), extraFields)
+	descriptors, err = descriptorsFromResponseBody([]byte(mockResponseBody), extraFields)
 	assert.Nil(err, "Parsing descriptors with extra fields from response body encountered an error")
 	assert.Equal(1, len(descriptors), "Incorrect number of descriptors parsed from response body with extra fields")
 	descriptor = descriptors[0]

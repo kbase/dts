@@ -773,12 +773,16 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)
-			if slices.Contains(acceptedValues, value) {
-				p.Add(name, value)
-			} else {
-				return &databases.InvalidSearchParameter{
-					Database: "JDP",
-					Message:  fmt.Sprintf("Invalid requested extra field: %s", value),
+			extraValues := strings.Split(value, ",")
+			for _, v := range extraValues {
+				v = strings.TrimSpace(v)
+				if slices.Contains(acceptedValues, v) {
+					p.Add(name, v)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "JDP",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", v),
+					}
 				}
 			}
 		default:

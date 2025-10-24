@@ -132,11 +132,11 @@ const (
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
 func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
-	if firstTime {
+	if firstTime_ {
 		// register types that appear in Frictionless Descriptors (for manifests)
 		gob.Register(credit.CreditMetadata{})
 
-		firstTime = false
+		firstTime_ = false
 	}
 
 	// make one to check the configuration
@@ -222,7 +222,7 @@ func Load(states DatabaseSaveStates) error {
 //-----------
 
 // set to false after the first database is registered
-var firstTime = true
+var firstTime_ = true
 
 // we maintain a table of database instances, identified by their names
 var allDatabases_ = make(map[string]Database)

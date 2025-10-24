@@ -125,7 +125,7 @@ type ResourcesNotFoundError struct {
 }
 
 func (e ResourcesNotFoundError) Error() string {
-	return fmt.Sprintf("The following resources in database '%s' were not found: %s", e.Database, strings.Join(e.ResourceIds, ","))
+	return fmt.Sprintf("The following resources in database '%s' were not found: %s", e.Database, strings.Join(e.ResourceIds, ", "))
 }
 
 // this error type is returned when an endpoint cannot be found for a file ID

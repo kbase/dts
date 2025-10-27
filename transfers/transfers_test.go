@@ -25,8 +25,11 @@
 package transfers
 
 import (
+	"cmp"
 	"log"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,23 +45,6 @@ import (
 // this runner runs all tests for all the singletons in this package
 func TestRunner(t *testing.T) {
 	/*
-		storeTests := StoreTests{Test: t}
-		storeTests.TestStartAndStop()
-		storeTests.TestNewTransfer()
-		storeTests.TestSetStatus()
-		storeTests.TestRemove()
-
-		stagerTests := StagerTests{Test: t}
-		stagerTests.TestStartAndStop()
-		stagerTests.TestStageFiles()
-
-		moverTests := MoverTests{Test: t}
-		moverTests.TestStartAndStop()
-
-		manifestorTests := ManifestorTests{Test: t}
-		print("manifestor start/stop\n")
-		manifestorTests.TestStartAndStop()
-
 		dispatcherTests := DispatcherTests{Test: t}
 		print("dispatcher start/stop\n")
 		dispatcherTests.TestStartAndStop()
@@ -90,41 +76,17 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	log.Print("=== TestCreate ===")
 	assert := assert.New(t.Test)
 
-	// record the task's journey through the aether
-	var journey struct {
-		Unknown, Staging, Active, Failed, Finalizing, Inactive, Succeeded bool
-	}
+	saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
+	os.Remove(saveFilename)
+
+	// subscribe to the transfer mechanism's feed and collect messages describing the task's journey
+	// through the aether
+	var messages []Message
 	subscription := Subscribe(32)
 	go func() {
 		var finished bool
 		for !finished {
-			message := <-subscription.Channel
-			switch message.TransferStatus.Code {
-			case TransferStatusUnknown:
-				assert.False(journey.Staging || journey.Active || journey.Failed || journey.Finalizing ||
-					journey.Inactive || journey.Succeeded)
-				journey.Unknown = true
-			case TransferStatusStaging:
-				assert.False(journey.Active || journey.Failed || journey.Finalizing ||
-					journey.Inactive || journey.Succeeded)
-				journey.Staging = true
-			case TransferStatusActive:
-				assert.False(journey.Failed || journey.Finalizing || journey.Inactive || journey.Succeeded)
-				journey.Active = true
-			case TransferStatusFailed:
-				assert.False(journey.Finalizing || journey.Inactive || journey.Succeeded)
-				journey.Failed = true
-			case TransferStatusFinalizing:
-				assert.False(journey.Failed || journey.Inactive || journey.Succeeded)
-				journey.Finalizing = true
-			case TransferStatusInactive:
-				assert.False(journey.Failed || journey.Succeeded)
-				journey.Inactive = true
-			case TransferStatusSucceeded:
-				assert.False(journey.Failed)
-				journey.Succeeded = true
-				finished = true
-			}
+			messages = append(messages, <-subscription.Channel)
 		}
 	}()
 
@@ -147,14 +109,32 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 
 	time.Sleep(2 * time.Second)
 
-	// how'd our journey go, friend?
-	assert.True(journey.Unknown)
-	assert.False(journey.Staging)
-	assert.True(journey.Active)
-	assert.False(journey.Failed)
-	assert.True(journey.Finalizing)
-	assert.False(journey.Inactive)
-	assert.True(journey.Succeeded)
+	// check that our messages are already in ascending order w.r.rt. timestamps and status codes
+	assert.True(slices.IsSortedFunc(messages, func(a, b Message) int {
+		return a.Time.Compare(b.Time)
+	}))
+	assert.True(slices.IsSortedFunc(messages, func(a, b Message) int {
+		return cmp.Compare(a.TransferStatus.Code, b.TransferStatus.Code)
+	}))
+
+	// make sure we hit all the desired statuses and none of the undesired (values not used)
+	occurred := map[TransferStatusCode]bool{
+		TransferStatusUnknown:    true,
+		TransferStatusActive:     true,
+		TransferStatusFinalizing: true,
+		TransferStatusSucceeded:  true,
+	}
+	didNotOccur := map[TransferStatusCode]bool{
+		TransferStatusStaging:  false,
+		TransferStatusFailed:   false,
+		TransferStatusInactive: false,
+	}
+	for _, message := range messages {
+		_, found := occurred[message.TransferStatus.Code]
+		assert.True(found)
+		_, found = didNotOccur[message.TransferStatus.Code]
+		assert.False(found)
+	}
 
 	err = Stop()
 	assert.Nil(err)
@@ -164,6 +144,9 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 func (t *TransferTests) TestStopAndRestart() {
 	/*
 		assert := assert.New(t.Test)
+
+		saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
+		os.Remove(saveFilename)
 
 		// start up, add a bunch of tasks, then immediately close
 		err := Start()

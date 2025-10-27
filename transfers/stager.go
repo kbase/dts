@@ -22,6 +22,7 @@
 package transfers
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log/slog"
 	"time"
@@ -49,33 +50,45 @@ type stagerChannels struct {
 	RequestStaging      chan uuid.UUID
 	RequestCancellation chan uuid.UUID
 	Error               chan error
-	Stop                chan struct{}
+	SaveAndStop         chan *gob.Encoder
+}
+
+func newStagerChannels() stagerChannels {
+	return stagerChannels{
+		RequestStaging:      make(chan uuid.UUID, 31),
+		RequestCancellation: make(chan uuid.UUID, 31),
+		Error:               make(chan error, 31),
+		SaveAndStop:         make(chan *gob.Encoder),
+	}
 }
 
 func (channels *stagerChannels) close() {
 	close(channels.RequestStaging)
 	close(channels.RequestCancellation)
 	close(channels.Error)
-	close(channels.Stop)
+	close(channels.SaveAndStop)
 }
 
 // starts the stager
 func (s *stagerState) Start() error {
 	slog.Debug("stager.Start")
-	s.Channels = stagerChannels{
-		RequestStaging:      make(chan uuid.UUID, 31),
-		RequestCancellation: make(chan uuid.UUID, 31),
-		Error:               make(chan error, 31),
-		Stop:                make(chan struct{}),
-	}
-	go s.process()
+	s.Channels = newStagerChannels()
+	go s.process(nil)
+	return <-s.Channels.Error
+}
+
+// loads the stager from saved data
+func (s *stagerState) Load(decoder *gob.Decoder) error {
+	slog.Debug("stager.Load")
+	s.Channels = newStagerChannels()
+	go s.process(decoder)
 	return <-s.Channels.Error
 }
 
 // stops the stager goroutine
-func (s *stagerState) Stop() error {
+func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("stager.Stop")
-	s.Channels.Stop <- struct{}{}
+	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
 	s.Channels.close()
 	return err
@@ -100,9 +113,19 @@ func (s *stagerState) Cancel(transferId uuid.UUID) error {
 //----------------------------------------------------
 
 // the goroutine itself
-func (s *stagerState) process() {
+func (s *stagerState) process(decoder *gob.Decoder) {
+	// load or create staging records
+	var stagings map[uuid.UUID]stagingEntry
+	if decoder != nil {
+		if err := decoder.Decode(&stagings); err != nil {
+			s.Channels.Error <- err
+			return
+		}
+	} else {
+		stagings = make(map[uuid.UUID]stagingEntry)
+	}
+
 	running := true
-	stagings := make(map[uuid.UUID]stagingEntry)
 	pulse := clock.Subscribe()
 	s.Channels.Error <- nil
 
@@ -122,15 +145,19 @@ func (s *stagerState) process() {
 				s.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
-			// check the staging status and advance to a transfer if it's finished
+			// check the staging status and advance to a transfer if it's finished, purging its record
 			for transferId, staging := range stagings {
-				if err := s.updateStatus(transferId, staging); err != nil {
+				if completed, err := s.updateStatus(transferId, staging); err == nil {
+					if completed {
+						delete(stagings, transferId)
+					}
+				} else {
 					slog.Error(err.Error())
 				}
 			}
-		case <-s.Channels.Stop:
+		case encoder := <-s.Channels.SaveAndStop:
+			s.Channels.Error <- encoder.Encode(stagings)
 			running = false
-			s.Channels.Error <- nil
 		}
 	}
 	clock.Unsubscribe()
@@ -156,40 +183,45 @@ func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
 	return stagingEntry{Id: id}, nil
 }
 
-func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) error {
+// update transfer status, returning true iff completed
+func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (bool, error) {
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
-		return err
+		return false, err
 	}
 	source, err := databases.NewDatabase(spec.Source)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	stagingStatus, err := source.StagingStatus(staging.Id)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	oldStatus, err := store.GetStatus(transferId)
-	if err == nil {
-		return err
+	if err != nil {
+		return false, err
 	}
+
+	completed := false
 	newStatus := oldStatus
 	switch stagingStatus {
 	case databases.StagingStatusSucceeded:
 		newStatus.Message = fmt.Sprintf("file staging succeeded for transfer %s", transferId.String())
 		newStatus.Code = TransferStatusActive
+		completed = true
 	case databases.StagingStatusFailed:
 		newStatus.Code = TransferStatusFailed
 		newStatus.Message = fmt.Sprintf("file staging failed for transfer %s", transferId.String())
+		completed = true
 	default: // still staging
 		newStatus.Code = TransferStatusStaging
 	}
 
 	if newStatus.Code != oldStatus.Code {
 		if err := store.SetStatus(transferId, newStatus); err != nil {
-			return err
+			return completed, err
 		}
 		publish(Message{
 			Description:    newStatus.Message,
@@ -201,8 +233,8 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) e
 
 	if newStatus.Code == TransferStatusActive {
 		if err := mover.MoveFiles(transferId); err != nil {
-			return err
+			return completed, err
 		}
 	}
-	return nil
+	return completed, nil
 }

@@ -67,6 +67,16 @@ func (e PayloadTooLargeError) Error() string {
 		e.Size, config.Service.MaxPayloadSize)
 }
 
+// indicates an error encountered in saving transfer data to a persistent file for loading later
+type SaveFileError struct {
+	Filename string
+	Message  string
+}
+
+func (e SaveFileError) Error() string {
+	return fmt.Sprintf("%s (save file: %s)", e.Message, e.Filename)
+}
+
 // indicates that the transfer with a given ID is not found
 type TransferNotFoundError struct {
 	Id uuid.UUID

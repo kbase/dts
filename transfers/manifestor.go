@@ -22,6 +22,7 @@
 package transfers
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -55,33 +56,45 @@ type manifestorChannels struct {
 	RequestGeneration   chan uuid.UUID
 	RequestCancellation chan uuid.UUID
 	Error               chan error
-	Stop                chan struct{}
+	SaveAndStop         chan *gob.Encoder
+}
+
+func newManifestorChannels() manifestorChannels {
+	return manifestorChannels{
+		RequestGeneration:   make(chan uuid.UUID, 32),
+		RequestCancellation: make(chan uuid.UUID, 32),
+		Error:               make(chan error, 32),
+		SaveAndStop:         make(chan *gob.Encoder),
+	}
 }
 
 func (channels *manifestorChannels) close() {
 	close(channels.RequestGeneration)
 	close(channels.RequestCancellation)
 	close(channels.Error)
-	close(channels.Stop)
+	close(channels.SaveAndStop)
 }
 
 func (m *manifestorState) Start() error {
 	slog.Debug("manifestor.Start")
-	m.Channels = manifestorChannels{
-		RequestGeneration:   make(chan uuid.UUID, 32),
-		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:               make(chan error, 32),
-		Stop:                make(chan struct{}),
-	}
+	m.Channels = newManifestorChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
-	go m.process()
+	go m.process(nil)
+	return <-m.Channels.Error
+}
+
+func (m *manifestorState) Load(decoder *gob.Decoder) error {
+	slog.Debug("manifestor.Load")
+	m.Channels = newManifestorChannels()
+	m.Endpoints = make(map[string]endpoints.Endpoint)
+	go m.process(decoder)
 	return <-m.Channels.Error
 }
 
 // stops the manifestor goroutine
-func (m *manifestorState) Stop() error {
+func (m *manifestorState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("manifestor.Stop")
-	m.Channels.Stop <- struct{}{}
+	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
 	m.Channels.close()
 	return err
@@ -107,10 +120,20 @@ func (m *manifestorState) Cancel(transferId uuid.UUID) error {
 // everything past here runs in the manifestor's goroutine
 //----------------------------------------------------
 
-// the goroutine itself
-func (m *manifestorState) process() {
+// the goroutine itself (accepts optional decoder for loading saved data)
+func (m *manifestorState) process(decoder *gob.Decoder) {
+	// load or create transfer records
+	var transfers map[uuid.UUID]uuid.UUID
+	if decoder != nil {
+		if err := decoder.Decode(&transfers); err != nil {
+			m.Channels.Error <- err
+			return
+		}
+	} else {
+		transfers = make(map[uuid.UUID]uuid.UUID)
+	}
+
 	running := true
-	manifestTransfers := make(map[uuid.UUID]uuid.UUID)
 	pulse := clock.Subscribe()
 	m.Channels.Error <- nil
 
@@ -119,14 +142,14 @@ func (m *manifestorState) process() {
 		case transferId := <-m.Channels.RequestGeneration:
 			manifestXferId, err := m.generateAndSendManifest(transferId)
 			if err == nil {
-				manifestTransfers[transferId] = manifestXferId
+				transfers[transferId] = manifestXferId
 			}
 			m.Channels.Error <- err
 		case transferId := <-m.Channels.RequestCancellation:
-			if manifestXferId, found := manifestTransfers[transferId]; found {
+			if manifestXferId, found := transfers[transferId]; found {
 				err := m.cancel(manifestXferId)
 				if err == nil {
-					delete(manifestTransfers, transferId)
+					delete(transfers, transferId)
 				}
 				m.Channels.Error <- err
 			} else {
@@ -134,19 +157,19 @@ func (m *manifestorState) process() {
 			}
 		case <-pulse:
 			// check the manifest transfers
-			for transferId, manifestXferId := range manifestTransfers {
+			for transferId, manifestXferId := range transfers {
 				completed, err := m.updateStatus(transferId, manifestXferId)
 				if err != nil {
 					slog.Error(err.Error())
 					continue
 				}
 				if completed {
-					delete(manifestTransfers, transferId)
+					delete(transfers, transferId)
 				}
 			}
-		case <-m.Channels.Stop:
+		case encoder := <-m.Channels.SaveAndStop:
+			m.Channels.Error <- encoder.Encode(transfers)
 			running = false
-			m.Channels.Error <- nil
 		}
 	}
 	clock.Unsubscribe()

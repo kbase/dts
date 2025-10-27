@@ -750,7 +750,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 		"Specific search parameters 'extra' has incorrect values")
 
 	invalidValues := []map[string]any{
-		{"extra": "invalid_extra"},     // not an allowed value
+		{"extra": "invalid_extra"},      // not an allowed value
 		{"extra": 123},                  // should be a string
 		{"d": "invalid_direction"},      // should be 'asc' or 'desc'
 		{"d": 789},                      // should be a string

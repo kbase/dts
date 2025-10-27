@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kbase/dts/config"
@@ -14,6 +15,8 @@ import (
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 )
+
+const testOrcid = "0000-0002-1825-0097"
 
 // this runs setup, runs all tests, and does breakdown
 func TestMain(m *testing.M) {
@@ -30,9 +33,16 @@ func TestNewDatabase(t *testing.T) {
 	assert.Nil(err, "KBase database creation encountered an error")
 }
 
+func TestSpecificSearchParameters(t *testing.T) {
+	assert := assert.New(t)
+	db, _ := NewDatabase(conf)
+	params := db.SpecificSearchParameters()
+	assert.Nil(params, "SpecificSearchParameters should return nil for kbase database")
+}
+
 func TestSearch(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := testOrcid
 	db, _ := NewDatabase(conf)
 	params := databases.SearchParameters{
 		Query: "prochlorococcus",
@@ -49,10 +59,36 @@ func TestSearch(t *testing.T) {
 
 func TestResources(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := testOrcid
 	db, _ := NewDatabase(conf)
 	_, err := db.Descriptors(orcid, nil)
 	assert.NotNil(err, "Descriptors not implemented for kbase database!")
+}
+
+func TestStageFiles(t *testing.T) {
+	assert := assert.New(t)
+	orcid := testOrcid
+	db, _ := NewDatabase(conf)
+	fileIds := []string{"file1", "file2"}
+	_, err := db.StageFiles(orcid, fileIds)
+	assert.NotNil(err, "StageFiles not implemented for kbase database!")
+}
+
+func TestStagingStatus(t *testing.T) {
+	assert := assert.New(t)
+	db, _ := NewDatabase(conf)
+	id := uuid.New()
+	_, err := db.StagingStatus(id)
+	assert.NotNil(err, "StagingStatus not implemented for kbase database!")
+}
+
+func TestFinalize(t *testing.T) {
+	assert := assert.New(t)
+	orcid := testOrcid
+	db, _ := NewDatabase(conf)
+	id := uuid.New()
+	err := db.Finalize(orcid, id)
+	assert.Nil(err, "Finalize should return nil error for kbase database")
 }
 
 func TestLocalUser(t *testing.T) {
@@ -64,6 +100,20 @@ func TestLocalUser(t *testing.T) {
 	username, err = db.LocalUser("1235-5678-9101-112X")
 	assert.NotNil(err)
 	assert.Equal("", username)
+	kbaseDb, ok := db.(*Database)
+	assert.True(ok)
+	err = kbaseDb.FinalizeDatabase()
+	assert.Nil(err)
+}
+
+func TestSaveLoad(t *testing.T) {
+	assert := assert.New(t)
+	db, _ := NewDatabase(conf)
+	state, err := db.Save()
+	assert.Nil(err, "Save should not return an error for kbase database")
+	assert.Equal("kbase", state.Name, "Save should return correct database name")
+	err = db.Load(state)
+	assert.Nil(err, "Load should not return an error for kbase database")
 }
 
 var CWD string

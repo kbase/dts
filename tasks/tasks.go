@@ -95,7 +95,7 @@ func Start(conf config.Config) error {
 			slog.Error(err.Error())
 		}
 		if _, found := conf.Databases["kbase"]; found {
-			err = databases.RegisterDatabase("kbase", kbase.NewDatabase)
+			err = databases.RegisterDatabase("kbase", kbase.DatabaseConstructor(conf))
 		}
 		if err != nil {
 			slog.Error(err.Error())

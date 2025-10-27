@@ -45,62 +45,82 @@ import (
 // spreadsheet is reloaded every hour on the top of the hour so a new file can
 // be dropped into the data directory with predictable results.
 
+// KBase User Federation
+type KBaseUserFederation struct {
+	Started    bool
+	FilePath   string        // full path to the KBase user table file
+	UpdateChan chan struct{} // triggers updates to the ORCID/user table
+	StopChan   chan struct{} // stops the user federation subsystem
+	OrcidChan  chan string   // passes ORCIDs in for lookup
+	UserChan   chan string   // passes usernames out
+	ErrorChan  chan error    // passes errors out
+}
+
+func newKBaseUserFederation(conf config.Config) (KBaseUserFederation, error) {
+	kbaseFed := KBaseUserFederation{}
+	kbaseFed.Started = false
+	kbaseFed.FilePath = filepath.Join(conf.Service.DataDirectory, kbaseUserTableFile)
+	return kbaseFed, nil
+}
+
 // starts up the user federation machinery if it hasn't yet been started
-func startUserFederation() error {
-	// fire up the user federation goroutine if needed
-	if !kbaseUserFederationStarted {
-		started := make(chan struct{})
-		go kbaseUserFederation(started)
-		<-started // wait for it to start
-
-		// load the user table
-		kbaseUpdateChan <- struct{}{}
-		err := <-kbaseErrorChan
-		if err != nil {
-			return err
-		}
-
-		// start a pulse that reloads the user table from a file at the top of every hour
-		go func() {
-			for {
-				t := time.Now()
-				topOfHour := time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location())
-				time.Sleep(time.Until(topOfHour))
-				err := reloadUserTable()
-
-				// reloading errors are logged, not propagated
-				if err != nil {
-					slog.Warn(err.Error())
-				}
-			}
-		}()
+func (kbaseFed *KBaseUserFederation) Start() error {
+	if kbaseFed.Started {
+		return nil
 	}
+	// fire up the user federation goroutine if needed
+	started := make(chan struct{})
+	go kbaseFed.kbaseUserFederation(started)
+	<-started // wait for it to start
+
+	// load the user table
+	kbaseFed.UpdateChan <- struct{}{}
+	err := <-kbaseFed.ErrorChan
+	if err != nil {
+		return err
+	}
+
+	// start a pulse that reloads the user table from a file at the top of every hour
+	go func() {
+		for {
+			t := time.Now()
+			topOfHour := time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location())
+			time.Sleep(time.Until(topOfHour))
+			err := kbaseFed.reloadUserTable()
+
+			// reloading errors are logged, not propagated
+			if err != nil {
+				slog.Warn(err.Error())
+			}
+		}
+	}()
+
 	return nil
 }
 
 // returns the KBase username associated with the given ORCID
-func usernameForOrcid(orcid string) (string, error) {
-	if !kbaseUserFederationStarted {
+func (kbaseFed *KBaseUserFederation) usernameForOrcid(orcid string) (string, error) {
+	if !kbaseFed.Started {
 		return "", fmt.Errorf("KBase federated user table not available")
 	}
-	kbaseOrcidChan <- orcid
-	username := <-kbaseUserChan
-	err := <-kbaseErrorChan
+	kbaseFed.OrcidChan <- orcid
+	username := <-kbaseFed.UserChan
+	err := <-kbaseFed.ErrorChan
 	return username, err
 }
 
-func reloadUserTable() error {
-	kbaseUpdateChan <- struct{}{}
-	return <-kbaseErrorChan
+func (kbaseFed *KBaseUserFederation) reloadUserTable() error {
+	kbaseFed.UpdateChan <- struct{}{}
+	return <-kbaseFed.ErrorChan
 }
 
 // stops the user federation machinery
-func stopUserFederation() error {
-	if !kbaseUserFederationStarted {
+func (kbaseFed *KBaseUserFederation) Stop() error {
+	if !kbaseFed.Started {
 		return fmt.Errorf("KBase user federation not started")
 	}
-	kbaseStopChan <- struct{}{}
-	err := <-kbaseErrorChan
+	kbaseFed.StopChan <- struct{}{}
+	err := <-kbaseFed.ErrorChan
 	return err
 }
 
@@ -110,51 +130,44 @@ func stopUserFederation() error {
 
 const kbaseUserTableFile = "kbase_user_orcids.csv"
 
-var kbaseUserFederationStarted = false
-var kbaseUpdateChan chan struct{} // triggers updates to the ORCID/user table
-var kbaseStopChan chan struct{}   // stops the user federation subsystem
-var kbaseOrcidChan chan string    // passes ORCIDs in for lookup
-var kbaseUserChan chan string     // passes usernames out
-var kbaseErrorChan chan error     // passes errors out
-
 // This goroutine maintains a table that associates ORCIDs with KBase users.
 // It fields requests for usernames given ORCIDs, and can also update the table
 // by reading a file.
-func kbaseUserFederation(started chan struct{}) {
+func (kbaseFed *KBaseUserFederation) kbaseUserFederation(started chan struct{}) {
 	// channels
-	kbaseOrcidChan = make(chan string)
-	kbaseUserChan = make(chan string)
-	kbaseErrorChan = make(chan error)
-	kbaseUpdateChan = make(chan struct{})
-	kbaseStopChan = make(chan struct{})
+	kbaseFed.OrcidChan = make(chan string)
+	kbaseFed.UserChan = make(chan string)
+	kbaseFed.ErrorChan = make(chan error)
+	kbaseFed.UpdateChan = make(chan struct{})
+	kbaseFed.StopChan = make(chan struct{})
 
 	// mapping of ORCIDs to KBase users
 	kbaseUserTable := make(map[string]string)
 
 	// we're ready
-	kbaseUserFederationStarted = true
+	kbaseFed.Started = true
 	started <- struct{}{}
 
 	for {
 		select {
-		case orcid := <-kbaseOrcidChan: // fetching username for orcid
+		case orcid := <-kbaseFed.OrcidChan: // fetching username for orcid
 			if username, found := kbaseUserTable[orcid]; found {
-				kbaseUserChan <- username
-				kbaseErrorChan <- nil
+				kbaseFed.UserChan <- username
+				kbaseFed.ErrorChan <- nil
 			} else {
-				kbaseUserChan <- ""
-				kbaseErrorChan <- fmt.Errorf("KBase user not found for ORCID %s", orcid)
+				kbaseFed.UserChan <- ""
+				kbaseFed.ErrorChan <- fmt.Errorf("KBase user not found for ORCID %s", orcid)
 			}
-		case <-kbaseUpdateChan: // update ORCID/user table
+		case <-kbaseFed.UpdateChan: // update ORCID/user table
 			var err error
-			newUserTable, err := readUserTable()
+			newUserTable, err := kbaseFed.readUserTable()
 			if err == nil {
 				kbaseUserTable = newUserTable
 			}
-			kbaseErrorChan <- err
-		case <-kbaseStopChan: // stop the subsystem
-			kbaseUserFederationStarted = false
-			kbaseErrorChan <- nil
+			kbaseFed.ErrorChan <- err
+		case <-kbaseFed.StopChan: // stop the subsystem
+			kbaseFed.Started = false
+			kbaseFed.ErrorChan <- nil
 			return
 		}
 	}
@@ -166,9 +179,9 @@ type UserOrcidRecord struct {
 
 // reads the user table file within the DTS data directory, returning a map
 // with ORCID keys associated with username values
-func readUserTable() (map[string]string, error) {
+func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]string, error) {
 	// open the CVS file containing the user mapping
-	filename := filepath.Join(config.Service.DataDirectory, kbaseUserTableFile)
+	filename := kbaseFed.FilePath
 	slog.Info(fmt.Sprintf("Reading KBase user table from %s", filename))
 	file, err := os.Open(filename)
 	if err != nil {

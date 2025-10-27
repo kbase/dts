@@ -31,7 +31,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -49,6 +48,8 @@ import (
 // file database appropriate for handling JDP searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// Base URL for JDP API
+	BaseURL string
 	// HTTP client that caches queries
 	Client http.Client
 	// shared secret used for authentication
@@ -68,8 +69,8 @@ type StagingRequest struct {
 
 func NewDatabase(conf config.Config) (databases.Database, error) {
 	// make sure we have a shared secret or an SSO token
-	secret, haveSecret := os.LookupEnv("DTS_JDP_SECRET")
-	if !haveSecret { // check for SSO token
+	secret := conf.Databases["jdp"].Secret
+	if secret == "" { // check for SSO token
 		return nil, fmt.Errorf("no shared secret was found for JDP authentication")
 	}
 
@@ -85,6 +86,7 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	// NOTE: server doesn't seem to support it. Maybe raise this issue with the
 	// NOTE: team?
 	return &Database{
+		BaseURL: defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),
 		Secret:          secret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
@@ -337,7 +339,7 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 //--------------------
 
 const (
-	jdpBaseURL     = "https://files.jgi.doe.gov/"
+	defaultBaseURL = "https://files.jgi.doe.gov/"
 	filePathPrefix = "/global/dna/dm_archive/" // directory containing JDP files
 )
 
@@ -434,7 +436,7 @@ func sourcesFromMetadata(md Metadata) []any {
 // creates a Frictionless DataResource-savvy name for a file:
 // * the name consists of lower case characters plus '.', '-', and '_'
 // * all forbidden characters encountered in the filename are removed
-// * a number suffix is added if needed to make the name unique
+// * multiple forbidden characters in a row are replaced with a single '_'
 func dataResourceName(filename string) string {
 	name := strings.ToLower(filename)
 
@@ -457,7 +459,7 @@ func dataResourceName(filename string) string {
 				end++
 			}
 			if end < len(name) {
-				name = name[:start] + string('_') + name[end+1:]
+				name = name[:start] + string('_') + name[end:]
 			} else {
 				name = name[:start] + string('_')
 			}
@@ -559,7 +561,7 @@ func (db Database) addAuthHeader(orcid string, request *http.Request) {
 // response body and/or error
 func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 	var u *url.URL
-	u, err := url.ParseRequestURI(jdpBaseURL)
+	u, err := url.ParseRequestURI(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +597,7 @@ func (db *Database) get(resource string, values url.Values) ([]byte, error) {
 // performs a POST request on the given resource on behalf of the user with the
 // given ORCID, returning the body of the resulting response (or an error)
 func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error) {
-	u, err := url.ParseRequestURI(jdpBaseURL)
+	u, err := url.ParseRequestURI(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -754,6 +756,13 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 					Message:  "Invalid flag given for include_private_data (must be 0 or 1)",
 				}
 			}
+			acceptedValues := paramSpec["include_private_data"].([]int)
+			if !slices.Contains(acceptedValues, value) {
+				return &databases.InvalidSearchParameter{
+					Database: "JDP",
+					Message:  fmt.Sprintf("Invalid flag for include_private_data: %d", value),
+				}
+			}
 			p.Add(name, fmt.Sprintf("%d", value))
 		case "extra": // comma-separated additional fields requested
 			var value string
@@ -764,12 +773,16 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)
-			if slices.Contains(acceptedValues, value) {
-				p.Add(name, value)
-			} else {
-				return &databases.InvalidSearchParameter{
-					Database: "JDP",
-					Message:  fmt.Sprintf("Invalid requested extra field: %s", value),
+			extraValues := strings.Split(value, ",")
+			for _, v := range extraValues {
+				v = strings.TrimSpace(v)
+				if slices.Contains(acceptedValues, v) {
+					p.Add(name, v)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "JDP",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", v),
+					}
 				}
 			}
 		default:

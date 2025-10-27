@@ -193,7 +193,7 @@ func setup() {
 		log.Panicf("Couldn't parse config: %s", err)
 	}
 
-    setupUserFederationTests(config.Service.DataDirectory)
+	setupUserFederationTests(config.Service.DataDirectory)
 
 	databases.RegisterDatabase("kbase", DatabaseConstructor(conf))
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)

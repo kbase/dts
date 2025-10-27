@@ -141,7 +141,7 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.Nil(err, "Error looking up existing ORCID")
 	assert.Equal("Alice", username, "Incorrect username for existing ORCID")
 
-	// look up anoher user
+	// look up another user
 	username, err = kbaseFed.usernameForOrcid("9402-1876-5432-1098")
 	assert.Nil(err, "Error looking up existing ORCID")
 	assert.Equal("Dave", username, "Incorrect username for existing ORCID")

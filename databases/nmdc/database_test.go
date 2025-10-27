@@ -1,7 +1,11 @@
 package nmdc
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,10 +19,17 @@ import (
 )
 
 const nmdcConfig string = `
+service:
+  port: 8080
+  max_connections: 100
+  poll_interval: 60
+  endpoint: globus-jdp
 databases:
   nmdc:
     name: National Microbiome Data Collaborative
     organization: DOE
+    user: ${DTS_NMDC_USER}
+    password: ${DTS_NMDC_PASSWORD}
     endpoints:
       nersc: globus-nmdc-nersc
       emsl: globus-nmdc-emsl
@@ -48,65 +59,317 @@ endpoints:
       client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
 `
 
+const mockStudyResponse string = `{
+  "id": "nmdc:sty-11-r2h77870",
+  "name": "Tara Oceans Mediterranean Sea Expedition 2013",
+  "description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013",
+  "dois": [
+	{
+       "doi_value": "10.5281/zenodo.1242459",
+	   "doi_category": "primary"
+	}
+  ],
+  "title": "Tara Oceans Mediterranean Sea Expedition 2013"
+}`
+
+
+const mockDataObjectResponse string = `{
+	"biosample_id": "nmdc:bs-1234-abcde56789",
+	"data_objects": [
+		{
+			"id": "nmdc:do-1234-abcde56789",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"was_generated_by": "dave"
+		}
+	]
+}`
+			
+const mockDataObjectsResponse string = `[
+	{
+		"biosample_id": "nmdc:bs-1234-abcde56789",
+		"data_objects": [
+			{
+				"id": "nmdc:do-1234-abcde56789",
+				"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+				"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+				"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+				"was_generated_by": "dave"
+			}
+		]
+	}
+]`
+
+// If the DTS_KBASE_TEST_ORCID environment variable is set, we will
+// assume valid NMDC credentials are available for testing.
+var areValidCredentials bool = false
+var testOrcid string = "0000-0002-0785-587X"
+
+var mockNmdcServer *httptest.Server
+var mockNmdcUser string = "testuser"
+var mockNmdcPassword string = "testpassword"
+var mockNmdcSecret string = "testsecret"
+var mockNerscEndpoint string = "globus-nmdc-nersc"
+var mockEmslEndpoint string = "globus-nmdc-emsl"
+
+
 // since NMDC doesn't support search queries at this time, we search for
 // data objects related to a study
 var nmdcSearchParams map[string]any
 
-// this function gets called at the begіnning of a test session
+// Creates a mock NMDC server for testing
+func createMockNmdcServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/token":
+			err := r.ParseForm()
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "invalid request",
+				})
+				return
+			}
+			grantType := r.FormValue("grant_type")
+			username := r.FormValue("username")
+			password := r.FormValue("password")
+			if grantType != "password" ||
+				username != mockNmdcUser ||
+				password != mockNmdcPassword {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "invalid credentials",
+				})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"access_token": mockNmdcSecret,
+				"token_type":   "bearer",
+				"expires": map[string]any{
+					"days":    1,
+					"hours":   0,
+					"minutes": 0,
+				},
+			})
+		default:
+			if strings.HasPrefix(r.URL.Path, "/studies") {
+				// return mock search results for study: /studies/nmdc:sty-11-r2h77870
+				id := strings.TrimPrefix(r.URL.Path, "/studies/")
+				if id == "nmdc:sty-11-r2h77870" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockStudyResponse))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "study not found",
+				})
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/data_objects/study/") {
+				// return mock data object search results for study data objects
+				studyId := strings.TrimPrefix(r.URL.Path, "/data_objects/study/")
+				if studyId == "nmdc:sty-11-r2h77870" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockDataObjectsResponse))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "data objects for study not found",
+				})
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/data_objects/") {
+				// return mock data object descriptors for: /data_objects/{id}
+				dataObjectId := strings.TrimPrefix(r.URL.Path, "/data_objects/")
+				if dataObjectId == "nmdc:do-1234-abcde56789" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockDataObjectResponse))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "data object not found",
+				})
+				return
+			}
+			// default: not found
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "not found",
+			})
+		}
+	}))
+}
+
+// create a mock NMDC database for testing
+func NewMockDatabase(baseUrl string) func() (databases.Database, error) {
+	return func() (databases.Database, error) {
+		return &Database{
+			BaseURL:        baseUrl,
+			Auth:           authorization{
+				Credential: credential{
+					User:     mockNmdcUser,
+					Password: mockNmdcPassword,
+				},
+				Token: mockNmdcSecret,
+				Type:  "basic",
+				Expires: false,
+			},
+			EndpointForHost: map[string]string{
+			"https://data.microbiomedata.org/data/": mockNerscEndpoint,
+			"https://nmdcdemo.emsl.pnnl.gov/":       mockEmslEndpoint,
+		},
+		}, nil
+	}
+}
+
+// function for setting mock database options
+func mockDatabaseOptions(cfg *DatabaseConfig) {
+	cfg.BaseURL = mockNmdcServer.URL + "/" // add trailing slash to match default URL format
+}
+
+// helper function replaces embedded environment variables in yaml strings
+// when they don't exist in the environment
+func setTestEnvVars(yaml string) (string, bool) {
+	testVars := map[string]string{
+		"DTS_NMDC_USER":            mockNmdcUser,
+		"DTS_NMDC_PASSWORD":        mockNmdcPassword,
+		"DTS_GLOBUS_TEST_ENDPOINT": "5e5f7d4e-3f4b-11eb-9ac6-0a58a9feac02",
+		"DTS_GLOBUS_CLIENT_ID":     "test_client_id",
+		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
+	}
+	hasValidCredentials := true
+	// check for existence of each variable. when not present, replace
+	// instances of it in the yaml string with a test value
+	for key, value := range testVars {
+		if os.Getenv(key) == "" {
+			yaml = os.Expand(yaml, func(yamlVar string) string {
+				if yamlVar == key {
+					hasValidCredentials = false
+					return value
+				}
+				return "${" + yamlVar + "}"
+			})
+		}
+	}
+	return yaml, hasValidCredentials
+}
+
+// this function gets called at the beginning of a test session
 func setup() {
 	dtstest.EnableDebugLogging()
-	config.Init([]byte(nmdcConfig))
-	databases.RegisterDatabase("nmdc", NewDatabase)
+	configString, isValid := setTestEnvVars(nmdcConfig)
+	areValidCredentials = isValid
+	config.Init([]byte(configString))
+	conf, err := config.NewConfig([]byte(configString))
+	if err != nil {
+		panic("Couldn't read test configuration: " + err.Error())
+	}
+	if areValidCredentials {
+		err := databases.RegisterDatabase("nmdc", DatabaseConstructor(conf))
+		if err != nil {
+			panic("Couldn't register NMDC database: " + err.Error())
+		}
+	} else {
+		mockNmdcServer := createMockNmdcServer()
+		err := databases.RegisterDatabase("nmdc", NewMockDatabase(mockNmdcServer.URL))
+		if err != nil {
+			panic("Couldn't register NMDC database: " + err.Error())
+		}
+	}
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
 
 	// construct NMDC-specific search parameters for a study
 	nmdcSearchParams = make(map[string]any)
 	nmdcSearchParams["study_id"] = "nmdc:sty-11-r2h77870"
+
+	// check for valid NMDC credentials
+	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	if orcid != "" {
+		testOrcid = orcid
+	}
+	mockNmdcServer = createMockNmdcServer()
 }
 
 // this function gets called after all tests have been run
 func breakdown() {
+	if mockNmdcServer != nil {
+		mockNmdcServer.Close()
+	}
 }
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	db, err := NewDatabase()
-	assert.NotNil(db, "NMDC database not created")
-	assert.Nil(err, "NMDC database creation encountered an error")
+	configString, _ := setTestEnvVars(nmdcConfig)
+	conf, err := config.NewConfig([]byte(configString))
+	assert.Nil(err, "Couldn't read test configuration")
+	if areValidCredentials {
+		db, err := NewDatabase(conf)
+		assert.NotNil(db, "NMDC database not created")
+		assert.Nil(err, "NMDC database creation encountered an error")
+	} else {
+		db, err := NewDatabase(conf, mockDatabaseOptions)
+		assert.NotNil(db, "NMDC mock database not created")
+		assert.Nil(err, "NMDC mock database creation encountered an error")
+	}
 }
 
 func TestSearch(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
+	configString, _ := setTestEnvVars(nmdcConfig)
+	conf, err := config.NewConfig([]byte(configString))
+	assert.Nil(err, "Couldn't read test configuration")
+	var db databases.Database
+	if areValidCredentials {
+		db, err = NewDatabase(conf)
+	} else {
+		db, err = NewDatabase(conf, mockDatabaseOptions)
+	}
+	assert.NotNil(db, "NMDC database not created")
+	assert.Nil(err, "NMDC database creation encountered an error")
 
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,
 	}
-	results, err := db.Search(orcid, params)
+	results, err := db.Search(testOrcid, params)
 	assert.True(len(results.Descriptors) > 0, "NMDC search query returned no results")
 	assert.Nil(err, "NMDC search query encountered an error")
 }
 
 func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-	db, _ := NewDatabase()
+	configString, _ := setTestEnvVars(nmdcConfig)
+	conf, err := config.NewConfig([]byte(configString))
+	assert.Nil(err, "Couldn't read test configuration")
+	var db databases.Database
+	var expectedCount int
+	if areValidCredentials {
+		db, err = NewDatabase(conf)
+		expectedCount = 10
+	} else {
+		db, err = NewDatabase(conf, mockDatabaseOptions)
+		expectedCount = 1
+	}
+	assert.NotNil(db, "NMDC database not created")
+	assert.Nil(err, "NMDC database creation encountered an error")
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,
 	}
-	results, _ := db.Search(orcid, params)
+	results, _ := db.Search(testOrcid, params)
 	fileIds := make([]string, len(results.Descriptors))
 	for i, descriptor := range results.Descriptors {
 		fileIds[i] = descriptor["id"].(string)
 	}
-	descriptors, err := db.Descriptors(orcid, fileIds[:10])
+	descriptors, err := db.Descriptors(testOrcid, fileIds[:expectedCount])
 	assert.Nil(err, "NMDC resource query encountered an error")
-	assert.True(len(descriptors) >= 10, // can include biosample metadata!
+	assert.True(len(descriptors) >= expectedCount, // can include biosample metadata!
 		"NMDC resource query didn't return all results")
-	for i, desc := range descriptors[:10] {
+	for i, desc := range descriptors[:expectedCount] {
 		nmdcSearchResult := results.Descriptors[i]
 		assert.Equal(nmdcSearchResult["id"], desc["id"], "Resource ID mismatch")
 		assert.Equal(nmdcSearchResult["name"], desc["name"], "Resource name mismatch")

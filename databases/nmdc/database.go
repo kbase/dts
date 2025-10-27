@@ -30,7 +30,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -48,6 +47,8 @@ import (
 // file database appropriate for handling searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// Base URL for NMDC API
+	BaseURL string
 	// HTTP client that caches queries
 	Client http.Client
 	// authorization info
@@ -56,19 +57,34 @@ type Database struct {
 	EndpointForHost map[string]string
 }
 
-func NewDatabase() (databases.Database, error) {
-	nmdcUser, haveNmdcUser := os.LookupEnv("DTS_NMDC_USER")
-	if !haveNmdcUser {
+type DatabaseConfig struct {
+	// Base URL for NMDC API
+	BaseURL string
+}
+
+type DatabaseOption func(*DatabaseConfig)
+
+func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Database, error) {
+    cfg := DatabaseConfig{
+		BaseURL: defaultBaseApiURL,
+	}
+
+	for _, opt := range options {
+		opt(&cfg)
+	}
+
+	nmdcUser := config.Databases["nmdc"].User
+	if nmdcUser == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
-			Message:  "No NMDC user (DTS_NMDC_USER) was provided for authentication",
+			Message:  "No NMDC user was provided for authentication",
 		}
 	}
-	nmdcPassword, haveNmdcPassword := os.LookupEnv("DTS_NMDC_PASSWORD")
-	if !haveNmdcPassword {
+	nmdcPassword := config.Databases["nmdc"].Password
+	if nmdcPassword == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
-			Message:  "No NMDC password (DTS_NMDC_PASSWORD) was provided for authentication",
+			Message:  "No NMDC password was provided for authentication",
 		}
 	}
 
@@ -96,6 +112,7 @@ func NewDatabase() (databases.Database, error) {
 
 	// NOTE: we prevent redirects from HTTPS -> HTTP!
 	db := &Database{
+		BaseURL:        cfg.BaseURL,
 		Client: databases.SecureHttpClient(time.Second * 20),
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": nerscEndpoint,
@@ -111,6 +128,12 @@ func NewDatabase() (databases.Database, error) {
 	db.Auth = auth
 
 	return db, nil
+}
+
+func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+	return func() (databases.Database, error) {
+		return NewDatabase(conf)
+	}
 }
 
 func (db Database) SpecificSearchParameters() map[string]any {
@@ -243,8 +266,8 @@ const (
 	// NOTE: which are synced daily-esque. They will sort this out in the coming year,
 	// NOTE: and it looks like PostGres is probably going to prevail.
 	// NOTE: (See https://github.com/microbiomedata/NMDC_documentation/blob/main/docs/howto_guides/portal_guide.md)
-	baseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
-	baseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
+	defaultBaseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
+	defaultBaseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
 )
 
 //------------------------------
@@ -271,7 +294,7 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 	var auth authorization
 	// NOTE: no slash at the end of the resource, or there's an
 	// NOTE: HTTPS -> HTTP redirect (?!??!!)
-	resource := baseApiURL + "token"
+	resource := db.BaseURL + "token"
 
 	// the token request must be URL-encoded
 	data := url.Values{}
@@ -363,7 +386,7 @@ func (db Database) addAuthHeader(request *http.Request) {
 // performs a GET request on the given resource, returning the resulting
 // response body and/or error
 func (db Database) get(resource string, values url.Values) ([]byte, error) {
-	res, err := url.Parse(baseApiURL)
+	res, err := url.Parse(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}

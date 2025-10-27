@@ -35,4 +35,8 @@ type databaseConfig struct {
 	Endpoints map[string]string `yaml:"endpoints,omitempty"`
 	// if set, a secret used to authenticate with the database
 	Secret string `yaml:"secret,omitempty"`
+	// if set, a user name used to authenticate with the database
+	User string `yaml:"user,omitempty"`
+	// if set, a password used to authenticate with the database
+	Password string `yaml:"password,omitempty"`
 }

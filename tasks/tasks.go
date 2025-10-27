@@ -101,7 +101,7 @@ func Start(conf config.Config) error {
 			slog.Error(err.Error())
 		}
 		if _, found := conf.Databases["nmdc"]; found {
-			err = databases.RegisterDatabase("nmdc", nmdc.NewDatabase)
+			err = databases.RegisterDatabase("nmdc", nmdc.DatabaseConstructor(conf))
 		}
 		if err != nil {
 			slog.Error(err.Error())

@@ -48,12 +48,12 @@ import (
 // KBase User Federation
 type KBaseUserFederation struct {
 	Started    bool
-	FilePath   string          // full path to the KBase user table file
-	UpdateChan chan struct{}   // triggers updates to the ORCID/user table
-	StopChan   chan struct{}   // stops the user federation subsystem
-	OrcidChan  chan string     // passes ORCIDs in for lookup
-	UserChan   chan string     // passes usernames out
-	ErrorChan  chan error      // passes errors out
+	FilePath   string        // full path to the KBase user table file
+	UpdateChan chan struct{} // triggers updates to the ORCID/user table
+	StopChan   chan struct{} // stops the user federation subsystem
+	OrcidChan  chan string   // passes ORCIDs in for lookup
+	UserChan   chan string   // passes usernames out
+	ErrorChan  chan error    // passes errors out
 }
 
 func newKBaseUserFederation(conf config.Config) (KBaseUserFederation, error) {
@@ -64,7 +64,7 @@ func newKBaseUserFederation(conf config.Config) (KBaseUserFederation, error) {
 }
 
 // starts up the user federation machinery if it hasn't yet been started
-func (kbaseFed *KBaseUserFederation) startUserFederation() error {
+func (kbaseFed *KBaseUserFederation) Start() error {
 	if kbaseFed.Started {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (kbaseFed *KBaseUserFederation) reloadUserTable() error {
 }
 
 // stops the user federation machinery
-func (kbaseFed *KBaseUserFederation) stopUserFederation() error {
+func (kbaseFed *KBaseUserFederation) Stop() error {
 	if !kbaseFed.Started {
 		return fmt.Errorf("KBase user federation not started")
 	}

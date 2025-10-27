@@ -43,7 +43,7 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = db.kbaseFed.startUserFederation()
+	err = db.kbaseFed.Start()
 	if err != nil {
 		return nil, err
 	}
@@ -102,5 +102,5 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 }
 
 func (db *Database) FinalizeDatabase() error {
-	return db.kbaseFed.stopUserFederation()
+	return db.kbaseFed.Stop()
 }

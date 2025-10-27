@@ -73,7 +73,7 @@ Bob|1234-5678-9101-1121
 var testDataDir string
 
 func setupUserFederationTests(testDir string) {
-    testDataDir = testDir
+	testDataDir = testDir
 
 	// create the data directory and populate it with our test spreadsheets
 	os.Mkdir(testDir, 0755)
@@ -133,7 +133,7 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert := assert.New(t)
 
 	kbaseFed := newTestKbaseUserFederation(t, filepath.Join(testDataDir, "good_user_table_0.csv"))
-	err := kbaseFed.startUserFederation()
+	err := kbaseFed.Start()
 	assert.Nil(err, "Error starting KBase user federation")
 
 	// look up a user
@@ -152,7 +152,7 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.Equal("", username, "Username returned for non-existing ORCID")
 
 	// try to restart the federation
-	err = kbaseFed.startUserFederation()
+	err = kbaseFed.Start()
 	assert.Nil(err, "Error restarting KBase user federation")
 
 	// reload the user table with updated data
@@ -176,11 +176,11 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.Equal("", username, "Username returned for old ORCID after reload")
 
 	// stop the user federation
-	err = kbaseFed.stopUserFederation()
+	err = kbaseFed.Stop()
 	assert.Nil(err, "Error stopping KBase user federation")
 
 	// try to stop again
-	err = kbaseFed.stopUserFederation()
+	err = kbaseFed.Stop()
 	assert.NotNil(err, "No error stopping KBase user federation again")
 
 	// try to look up a user after stopping
@@ -291,7 +291,7 @@ func TestReadUserTable(t *testing.T) {
 
 func TestIsUsername(t *testing.T) {
 	assert := assert.New(t)
-	
+
 	validUsernames := []string{
 		"john_doe",
 		"Jane_Doe123",
@@ -302,11 +302,11 @@ func TestIsUsername(t *testing.T) {
 	}
 
 	invalidUsernames := []string{
-		"",                     // Empty string
-		"user name",           // Space
-		"user@name",           // Special character
-		"user$name",           // Special character
-		"user#name",           // Special character
+		"",          // Empty string
+		"user name", // Space
+		"user@name", // Special character
+		"user$name", // Special character
+		"user#name", // Special character
 	}
 
 	for _, username := range validUsernames {
@@ -328,11 +328,11 @@ func TestIsOrcid(t *testing.T) {
 	}
 
 	invalidOrcids := []string{
-		"0000-0002-1825-009",    // Too short
-		"0000-0002-1825-00978",  // Too long
-		"0000-0002-1825-0090X",  // Invalid character
-		"0000_0002_1825_0097",   // Invalid separator
-		"abcd-efgh-ijkl-mnop",   // Non-numeric
+		"0000-0002-1825-009",   // Too short
+		"0000-0002-1825-00978", // Too long
+		"0000-0002-1825-0090X", // Invalid character
+		"0000_0002_1825_0097",  // Invalid separator
+		"abcd-efgh-ijkl-mnop",  // Non-numeric
 	}
 
 	for _, orcid := range validOrcids {

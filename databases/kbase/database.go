@@ -26,21 +26,35 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 )
 
 // file database appropriate for handling KBase searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	kbaseFed KBaseUserFederation
 }
 
-func NewDatabase() (databases.Database, error) {
-	err := startUserFederation()
+func NewDatabase(conf config.Config) (databases.Database, error) {
+	db := Database{}
+	var err error
+	db.kbaseFed, err = newKBaseUserFederation(conf)
+	if err != nil {
+		return nil, err
+	}
+	err = db.kbaseFed.startUserFederation()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Database{}, nil
+	return &db, nil
+}
+
+func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+	return func() (databases.Database, error) {
+		return NewDatabase(conf)
+	}
 }
 
 func (db *Database) SpecificSearchParameters() map[string]any {
@@ -72,7 +86,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	return usernameForOrcid(orcid)
+	return db.kbaseFed.usernameForOrcid(orcid)
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {
@@ -85,4 +99,8 @@ func (db Database) Save() (databases.DatabaseSaveState, error) {
 func (db *Database) Load(state databases.DatabaseSaveState) error {
 	// no internal state -> nothing to do
 	return nil
+}
+
+func (db *Database) FinalizeDatabase() error {
+	return db.kbaseFed.stopUserFederation()
 }

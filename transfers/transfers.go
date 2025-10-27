@@ -48,6 +48,7 @@ type Database = databases.Database
 type Endpoint = endpoints.Endpoint
 type FileTransfer = endpoints.FileTransfer
 type TransferStatus = endpoints.TransferStatus
+type TransferStatusCode = endpoints.TransferStatusCode
 
 // useful constants
 const (
@@ -93,19 +94,8 @@ func Start() error {
 		return err
 	}
 
-	if err := store.Start(); err != nil {
-		return err
-	}
+	// start the dispatcher, which starts everything else
 	if err := dispatcher.Start(); err != nil {
-		return err
-	}
-	if err := stager.Start(); err != nil {
-		return err
-	}
-	if err := mover.Start(); err != nil {
-		return err
-	}
-	if err := manifestor.Start(); err != nil {
 		return err
 	}
 
@@ -119,23 +109,10 @@ func Start() error {
 func Stop() error {
 	var err error
 	if global.Running {
-		if err := unsubscribeAll(); err != nil {
-			return err
-		}
-
-		if err := stager.Stop(); err != nil {
-			return err
-		}
-		if err := mover.Stop(); err != nil {
-			return err
-		}
-		if err := manifestor.Stop(); err != nil {
-			return err
-		}
-		if err := store.Stop(); err != nil {
-			return err
-		}
 		if err := dispatcher.Stop(); err != nil {
+			return err
+		}
+		if err := unsubscribeAll(); err != nil {
 			return err
 		}
 		if err = journal.Finalize(); err != nil {

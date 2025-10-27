@@ -22,6 +22,7 @@
 package transfers
 
 import (
+	"encoding/gob"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -50,34 +51,47 @@ type moverChannels struct {
 	RequestMove         chan uuid.UUID
 	RequestCancellation chan uuid.UUID
 	Error               chan error
-	Stop                chan struct{}
+	SaveAndStop         chan *gob.Encoder
+}
+
+func newMoverChannels() moverChannels {
+	return moverChannels{
+		RequestMove:         make(chan uuid.UUID, 32),
+		RequestCancellation: make(chan uuid.UUID, 32),
+		Error:               make(chan error, 32),
+		SaveAndStop:         make(chan *gob.Encoder),
+	}
 }
 
 func (channels *moverChannels) close() {
 	close(channels.RequestMove)
 	close(channels.RequestCancellation)
 	close(channels.Error)
-	close(channels.Stop)
+	close(channels.SaveAndStop)
 }
 
 // starts the mover
 func (m *moverState) Start() error {
 	slog.Debug("mover.Start")
-	m.Channels = moverChannels{
-		RequestMove:         make(chan uuid.UUID, 32),
-		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:               make(chan error, 32),
-		Stop:                make(chan struct{}),
-	}
+	m.Channels = newMoverChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
-	go m.process()
+	go m.process(nil)
+	return <-m.Channels.Error
+}
+
+// loads the mover from saved data
+func (m *moverState) Load(decoder *gob.Decoder) error {
+	slog.Debug("mover.Start")
+	m.Channels = newMoverChannels()
+	m.Endpoints = make(map[string]endpoints.Endpoint)
+	go m.process(decoder)
 	return <-m.Channels.Error
 }
 
 // stops the mover goroutine
-func (m *moverState) Stop() error {
+func (m *moverState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("mover.Stop")
-	m.Channels.Stop <- struct{}{}
+	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
 	m.Channels.close()
 	return err
@@ -102,9 +116,19 @@ func (m *moverState) Cancel(transferId uuid.UUID) error {
 //----------------------------------------------------
 
 // the goroutine itself
-func (m *moverState) process() {
+func (m *moverState) process(decoder *gob.Decoder) {
+	// load or create move operation records
+	var moveOperations map[uuid.UUID][]moveOperation // a single transfer is one or more moves
+	if decoder != nil {
+		if err := decoder.Decode(&moveOperations); err != nil {
+			m.Channels.Error <- err
+			return
+		}
+	} else {
+		moveOperations = make(map[uuid.UUID][]moveOperation)
+	}
+
 	running := true
-	moveOperations := make(map[uuid.UUID][]moveOperation) // a single transfer can be several move operations!
 	pulse := clock.Subscribe()
 	m.Channels.Error <- nil
 
@@ -127,7 +151,7 @@ func (m *moverState) process() {
 				m.Channels.Error <- TransferNotFoundError{Id: transferId}
 			}
 		case <-pulse:
-			// check the move statuses and advance as needed
+			// check the move statuses and advance as needed, purging records as needed
 			for transferId, moves := range moveOperations {
 				if status, err := m.updateStatus(transferId, moves); err != nil {
 					slog.Error(err.Error())
@@ -141,9 +165,9 @@ func (m *moverState) process() {
 					delete(moveOperations, transferId)
 				}
 			}
-		case <-m.Channels.Stop:
+		case encoder := <-m.Channels.SaveAndStop:
+			m.Channels.Error <- encoder.Encode(moveOperations)
 			running = false
-			m.Channels.Error <- nil
 		}
 	}
 	clock.Unsubscribe()

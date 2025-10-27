@@ -23,6 +23,7 @@ package transfers
 
 import (
 	"cmp"
+	"encoding/gob"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 )
 
@@ -63,8 +65,25 @@ type storeChannels struct {
 
 	RequestRemoval chan uuid.UUID
 
-	Error chan error
-	Stop  chan struct{}
+	Error       chan error
+	SaveAndStop chan *gob.Encoder
+}
+
+func newStoreChannels() storeChannels {
+	return storeChannels{
+		RequestNewTransfer: make(chan Specification, 32),
+		ReturnNewTransfer:  make(chan uuid.UUID, 32),
+		RequestSpec:        make(chan uuid.UUID, 32),
+		ReturnSpec:         make(chan Specification, 32),
+		RequestDescriptors: make(chan uuid.UUID, 32),
+		ReturnDescriptors:  make(chan []map[string]any, 32),
+		SetStatus:          make(chan transferIdAndStatus, 32),
+		RequestStatus:      make(chan uuid.UUID, 32),
+		ReturnStatus:       make(chan TransferStatus, 32),
+		RequestRemoval:     make(chan uuid.UUID, 32),
+		Error:              make(chan error, 32),
+		SaveAndStop:        make(chan *gob.Encoder),
+	}
 }
 
 func (channels *storeChannels) close() {
@@ -79,7 +98,7 @@ func (channels *storeChannels) close() {
 	close(channels.ReturnStatus)
 	close(channels.RequestRemoval)
 	close(channels.Error)
-	close(channels.Stop)
+	close(channels.SaveAndStop)
 }
 
 type transferIdAndStatus struct {
@@ -89,27 +108,21 @@ type transferIdAndStatus struct {
 
 func (s *storeState) Start() error {
 	slog.Debug("store.Start")
-	s.Channels = storeChannels{
-		RequestNewTransfer: make(chan Specification, 32),
-		ReturnNewTransfer:  make(chan uuid.UUID, 32),
-		RequestSpec:        make(chan uuid.UUID, 32),
-		ReturnSpec:         make(chan Specification, 32),
-		RequestDescriptors: make(chan uuid.UUID, 32),
-		ReturnDescriptors:  make(chan []map[string]any, 32),
-		SetStatus:          make(chan transferIdAndStatus, 32),
-		RequestStatus:      make(chan uuid.UUID, 32),
-		ReturnStatus:       make(chan TransferStatus, 32),
-		RequestRemoval:     make(chan uuid.UUID, 32),
-		Error:              make(chan error, 32),
-		Stop:               make(chan struct{}),
-	}
-	go s.process()
+	s.Channels = newStoreChannels()
+	go s.process(nil)
 	return <-s.Channels.Error
 }
 
-func (s *storeState) Stop() error {
+func (s *storeState) Load(decoder *gob.Decoder) error {
+	slog.Debug("store.Start")
+	s.Channels = newStoreChannels()
+	go s.process(decoder)
+	return <-s.Channels.Error
+}
+
+func (s *storeState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("store.Stop")
-	s.Channels.Stop <- struct{}{}
+	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
 	s.Channels.close()
 	return err
@@ -181,10 +194,24 @@ func (s *storeState) Remove(transferId uuid.UUID) error {
 //----------------------------------------------------
 
 // the goroutine itself
-func (s *storeState) process() {
+func (s *storeState) process(decoder *gob.Decoder) {
+	// load or create transfer records
+	var transfers map[uuid.UUID]transferStoreEntry
+	if decoder != nil {
+		if err := decoder.Decode(&transfers); err != nil {
+			s.Channels.Error <- err
+			return
+		}
+	} else {
+		transfers = make(map[uuid.UUID]transferStoreEntry)
+	}
+
 	running := true
-	transfers := make(map[uuid.UUID]transferStoreEntry)
+	pulse := clock.Subscribe()
 	s.Channels.Error <- nil
+
+	// time period after which to delete completed transfers
+	deleteAfter := time.Duration(config.Service.DeleteAfter) * time.Second
 
 	for running {
 		select {
@@ -211,6 +238,9 @@ func (s *storeState) process() {
 		case idAndStatus := <-s.Channels.SetStatus:
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
+				if idAndStatus.Status.Code == TransferStatusFailed || idAndStatus.Status.Code == TransferStatusSucceeded {
+					transfer.CompletionTime = time.Now()
+				}
 				transfers[idAndStatus.Id] = transfer
 				s.Channels.Error <- nil
 			} else {
@@ -229,8 +259,17 @@ func (s *storeState) process() {
 			} else {
 				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
-		case <-s.Channels.Stop:
-			s.Channels.Error <- nil
+		case <-pulse: // prune old records
+			for id, transfer := range transfers {
+				if transfer.Status.Code == TransferStatusFailed || transfer.Status.Code == TransferStatusSucceeded {
+					if time.Since(transfer.CompletionTime) > deleteAfter {
+						slog.Debug("*plonk*")
+						delete(transfers, id)
+					}
+				}
+			}
+		case encoder := <-s.Channels.SaveAndStop:
+			s.Channels.Error <- encoder.Encode(transfers)
 			running = false
 		}
 	}
@@ -238,9 +277,10 @@ func (s *storeState) process() {
 
 // an entry in the transfer metadata store
 type transferStoreEntry struct {
-	Descriptors []map[string]any
-	Spec        Specification
-	Status      TransferStatus
+	CompletionTime time.Time
+	Descriptors    []map[string]any
+	Spec           Specification
+	Status         TransferStatus
 }
 
 func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEntry, error) {

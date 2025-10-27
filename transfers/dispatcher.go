@@ -22,11 +22,16 @@
 package transfers
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/config"
+	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -129,7 +134,7 @@ func (d *dispatcherState) CancelTransfer(transferId uuid.UUID) error {
 // the goroutine itself
 func (d *dispatcherState) process() {
 	running := true
-	d.Channels.Error <- nil
+	d.Channels.Error <- d.start()
 
 	for running {
 		select {
@@ -152,10 +157,60 @@ func (d *dispatcherState) process() {
 				d.Channels.ReturnStatus <- status
 			}
 		case <-d.Channels.Stop:
+			err := d.stop()
+			d.Channels.Error <- err
 			running = false
-			d.Channels.Error <- nil
 		}
 	}
+}
+
+func (d *dispatcherState) start() error {
+	saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
+	saveFile, err := os.Open(saveFilename)
+	if err != nil { // no save file -- fresh start
+		slog.Debug("no previous transfers found")
+		if err := store.Start(); err != nil {
+			return err
+		}
+		if err := stager.Start(); err != nil {
+			return err
+		}
+		if err := mover.Start(); err != nil {
+			return err
+		}
+		if err := manifestor.Start(); err != nil {
+			return err
+		}
+	}
+
+	slog.Debug(fmt.Sprintf("found previous tasks in %s", saveFilename))
+	defer saveFile.Close()
+	decoder := gob.NewDecoder(saveFile)
+	var databaseStates databases.DatabaseSaveStates
+	if err := decoder.Decode(&databaseStates); err == nil {
+		if err = databases.Load(databaseStates); err != nil {
+			slog.Error(fmt.Sprintf("Restoring database states: %s", err.Error()))
+		}
+		if err := store.Load(decoder); err != nil {
+			return err
+		}
+		if err := stager.Load(decoder); err != nil {
+			return err
+		}
+		if err := mover.Load(decoder); err != nil {
+			return err
+		}
+		if err := manifestor.Load(decoder); err != nil {
+			return err
+		}
+	} else {
+		return &SaveFileError{
+			Filename: saveFilename,
+			Message:  fmt.Sprintf("Reading save file: %s", err.Error()),
+		}
+	}
+	slog.Debug(fmt.Sprintf("Restored transfers from %s", saveFilename))
+	return nil
 }
 
 // creates a transfer from the given specification and starts things moving; returns a UUID for the
@@ -212,4 +267,45 @@ func (d *dispatcherState) cancel(transferId uuid.UUID) error {
 		return manifestor.Cancel(transferId)
 	}
 	return nil
+}
+
+func (d *dispatcherState) stop() error {
+	// save states into a file using a gob encoder
+	saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
+	saveFile, err := os.OpenFile(saveFilename, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return &SaveFileError{
+			Filename: saveFilename,
+			Message:  fmt.Sprintf("Opening save file: %s", err.Error()),
+		}
+	}
+
+	encoder := gob.NewEncoder(saveFile)
+	if databaseStates, err := databases.Save(); err == nil {
+		err = encoder.Encode(databaseStates)
+		if err := stager.SaveAndStop(encoder); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
+		if err := mover.SaveAndStop(encoder); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
+		if err := manifestor.SaveAndStop(encoder); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
+		if err := store.SaveAndStop(encoder); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
+		slog.Debug(fmt.Sprintf("saving transfer data to %s", saveFilename))
+	} else {
+		return &SaveFileError{
+			Filename: saveFilename,
+			Message:  fmt.Sprintf("Writing save file: %s", err.Error()),
+		}
+	}
+
+	return err
 }

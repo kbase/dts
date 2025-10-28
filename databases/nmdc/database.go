@@ -672,6 +672,8 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		// FIXME: are we expecting to transfer raw data from NMDC? I don't think
 		// FIXME: they expect us to do this!
 		relatedCredit.ResourceType = "dataset"
+	} else {
+		relatedCredit.ResourceType = "dataset" // set to match default value for credit metadata
 	}
 	return relatedCredit, relatedBiosample, nil
 }

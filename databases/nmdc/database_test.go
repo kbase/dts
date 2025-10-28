@@ -74,16 +74,19 @@ const mockStudyResponse string = `{
 
 
 const mockDataObjectResponse string = `{
-	"biosample_id": "nmdc:bs-1234-abcde56789",
-	"data_objects": [
-		{
-			"id": "nmdc:do-1234-abcde56789",
-			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
-			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
-			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
-			"was_generated_by": "dave"
-		}
-	]
+	"id": "nmdc:do-1234-abcde56789",
+	"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+	"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+	"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+	"was_generated_by": "dave"
+}`
+
+const mockDataObjectWithNmdcWorkflowResponse string = `{
+	"id": "nmdc:do-5678-efghij12345",
+	"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+	"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+	"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+	"was_generated_by": "nmdc:wf-1234-abcde56789"
 }`
 			
 const mockDataObjectsResponse string = `[
@@ -96,10 +99,32 @@ const mockDataObjectsResponse string = `[
 				"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 				"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 				"was_generated_by": "dave"
+			},
+			{
+				"id": "nmdc:do-5678-efghij12345",
+				"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+				"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+				"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+				"was_generated_by": "nmdc:wf-1234-abcde56789"
 			}
 		]
 	}
 ]`
+
+const mockWorkflowResponse string = `{
+	"id": "nmdc:wf-1234-abcde56789",
+	"name": "Mock Workflow",
+	"studies": [
+		{
+			"id": "nmdc:sty-11-r2h77870",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013"
+		},
+		{
+			"id": "nmdc:sty-22-r3h88991",
+			"name": "Mock Study 2"
+		}
+	]
+}`
 
 // If the DTS_KBASE_TEST_ORCID environment variable is set, we will
 // assume valid NMDC credentials are available for testing.
@@ -188,10 +213,35 @@ func createMockNmdcServer() *httptest.Server {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(mockDataObjectResponse))
 					return
+				} else if dataObjectId == "nmdc:do-5678-efghij12345" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockDataObjectWithNmdcWorkflowResponse))
+					return
 				}
 				w.WriteHeader(http.StatusNotFound)
 				json.NewEncoder(w).Encode(map[string]string{
 					"error": "data object not found",
+				})
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/workflow_executions/") {
+				// return mock workflow for: /workflow_executions/{id}
+				workflowId := strings.TrimPrefix(r.URL.Path, "/workflow_executions/")
+				if !strings.HasSuffix(workflowId, "/related_resources") {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid workflow id",
+					})
+					return
+				}
+				workflowId = strings.TrimSuffix(workflowId, "/related_resources")
+				if workflowId == "nmdc:wf-1234-abcde56789" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockWorkflowResponse))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "workflow not found",
 				})
 				return
 			}
@@ -352,7 +402,7 @@ func TestDescriptors(t *testing.T) {
 		expectedCount = 10
 	} else {
 		db, err = NewDatabase(conf, mockDatabaseOptions)
-		expectedCount = 1
+		expectedCount = 2
 	}
 	assert.NotNil(db, "NMDC database not created")
 	assert.Nil(err, "NMDC database creation encountered an error")
@@ -378,6 +428,7 @@ func TestDescriptors(t *testing.T) {
 		assert.Equal(nmdcSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
 		assert.Equal(nmdcSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
+		// skip comparisons of 
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
 }

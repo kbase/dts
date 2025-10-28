@@ -63,7 +63,7 @@ const (
 
 // starts processing transfers according to the given configuration, returning an
 // informative error if anything prevents this
-func Start() error {
+func Start(conf config.Config) error {
 	if global.Running {
 		return &AlreadyRunningError{}
 	}
@@ -73,7 +73,7 @@ func Start() error {
 		if err := registerEndpointProviders(); err != nil {
 			return err
 		}
-		if err := registerDatabases(); err != nil {
+		if err := registerDatabases(conf); err != nil {
 			return err
 		}
 		global.Started = true
@@ -85,7 +85,7 @@ func Start() error {
 	}
 
 	// can we access the local endpoint?
-	if _, err := endpoints.NewEndpoint(config.Service.Endpoint); err != nil {
+	if _, err := endpoints.NewEndpoint(conf.Service.Endpoint); err != nil {
 		return err
 	}
 
@@ -217,14 +217,14 @@ func registerEndpointProviders() error {
 }
 
 // registers databases; if at least one database is available, no error is propagated
-func registerDatabases() error {
+func registerDatabases(conf config.Config) error {
 	if _, found := config.Databases["jdp"]; found {
-		if err := databases.RegisterDatabase("jdp", jdp.NewDatabase); err != nil {
+		if err := databases.RegisterDatabase("jdp", jdp.DatabaseConstructor(conf)); err != nil {
 			slog.Error(err.Error())
 		}
 	}
 	if _, found := config.Databases["kbase"]; found {
-		if err := databases.RegisterDatabase("kbase", kbase.NewDatabase); err != nil {
+		if err := databases.RegisterDatabase("kbase", kbase.DatabaseConstructor(conf)); err != nil {
 			slog.Error(err.Error())
 		}
 	}

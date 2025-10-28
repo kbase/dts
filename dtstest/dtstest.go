@@ -103,6 +103,8 @@ type Endpoint struct {
 	Xfers map[uuid.UUID]transferInfo
 	// root path
 	RootPath string
+	// a set of files on this endpoint that have been staged
+	StagedFiles map[string]bool
 }
 
 // Registers an endpoint test fixture with the given name in the configuration,
@@ -112,9 +114,10 @@ func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	slog.Debug(fmt.Sprintf("Registering test endpoint %s...", endpointName))
 	newEndpointFunc := func(name string) (endpoints.Endpoint, error) {
 		return &Endpoint{
-			Options:  options,
-			Xfers:    make(map[uuid.UUID]transferInfo),
-			RootPath: config.Endpoints[endpointName].Root,
+			Options:     options,
+			Xfers:       make(map[uuid.UUID]transferInfo),
+			RootPath:    config.Endpoints[endpointName].Root,
+			StagedFiles: make(map[string]bool),
 		}, nil
 	}
 	provider := config.Endpoints[endpointName].Provider
@@ -138,11 +141,20 @@ func (ep *Endpoint) FilesStaged(files []map[string]any) (bool, error) {
 				return false, fmt.Errorf("unrecognized file: %s", fileId)
 			}
 		}
-		// the source endpoint should report true for the staged files as long
-		// as the source database has had time to stage them
-		for _, req := range ep.Database.Staging {
-			if time.Since(req.Time) < ep.Options.StagingDuration {
-				return false, nil
+		if ep.Options.StagingDuration > 0 {
+			for _, descriptor := range files {
+				fileId := descriptor["id"].(string)
+				if _, staged := ep.StagedFiles[fileId]; !staged {
+					return false, nil
+				}
+			}
+			// the source endpoint should report true for the staged files as long
+			// as the source database has had time to stage them
+			for _, req := range ep.Database.Staging {
+				slog.Debug(fmt.Sprintf("Request time: %s", req.Time.String()))
+				if time.Since(req.Time) < ep.Options.StagingDuration {
+					return false, nil
+				}
 			}
 		}
 	}
@@ -268,6 +280,12 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 	if info, found := db.Staging[id]; found {
 		endpoint := db.Endpt.(*Endpoint)
 		if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
+			// update the staged status on the test endpoint
+			stagingRequest := db.Staging[id]
+			for _, fileId := range stagingRequest.FileIds {
+				endpoint.StagedFiles[fileId] = true
+			}
+
 			return databases.StagingStatusSucceeded, nil
 		}
 		return databases.StagingStatusActive, nil

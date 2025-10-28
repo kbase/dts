@@ -46,7 +46,7 @@ func Subscribe(bufferSize int) Subscription {
 func Unsubscribe(sub Subscription) error {
 	messageBroker_.Mutex.Lock()
 	if sub.Id < 0 || sub.Id >= len(messageBroker_.Subscriptions) {
-		return errors.New(fmt.Sprintf("invalid subscription ID: %d\n", sub.Id))
+		return fmt.Errorf("invalid subscription ID: %d", sub.Id)
 	}
 	close(messageBroker_.Subscriptions[sub.Id])
 	messageBroker_.Subscriptions = slices.Delete(messageBroker_.Subscriptions, sub.Id, sub.Id)

@@ -226,6 +226,9 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 	// do we need to stage files for the source database?
 	filesStaged := true
 	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
 	for source, descriptorsForSource := range descriptorsForEndpoint {
 		sourceEndpoint, err := endpoints.NewEndpoint(source)
 		if err != nil {
@@ -280,7 +283,10 @@ func (d *dispatcherState) stop() error {
 
 	encoder := gob.NewEncoder(saveFile)
 	if databaseStates, err := databases.Save(); err == nil {
-		err = encoder.Encode(databaseStates)
+		if err := encoder.Encode(databaseStates); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
 		if err := store.SaveAndStop(encoder); err != nil {
 			os.Remove(saveFilename)
 			return err

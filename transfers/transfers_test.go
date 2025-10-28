@@ -62,7 +62,7 @@ func (t *TransferTests) TestStartAndStop() {
 	assert := assert.New(t.Test)
 
 	assert.False(Running())
-	err := Start()
+	err := Start(conf)
 	assert.Nil(err)
 	assert.True(Running())
 	err = Stop()
@@ -75,7 +75,7 @@ func (t *TransferTests) TestCreate() {
 	assert := assert.New(t.Test)
 
 	// start clean -- remove any existing save file
-	saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
+	saveFilename := filepath.Join(conf.Service.DataDirectory, "dts.gob")
 	os.Remove(saveFilename)
 
 	// subscribe to the transfer mechanism's feed and collect messages describing the task's journey
@@ -89,7 +89,7 @@ func (t *TransferTests) TestCreate() {
 		}
 	}()
 
-	err := Start()
+	err := Start(conf)
 	assert.Nil(err)
 	assert.True(Running())
 
@@ -137,7 +137,7 @@ func (t *TransferTests) TestCreate() {
 	}
 
 	// restart and check the status of the completed transfer
-	err = Start()
+	err = Start(conf)
 	assert.Nil(err)
 	assert.True(Running())
 
@@ -178,13 +178,17 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
+	conf, err = config.NewConfig([]byte(myConfig))
+	if err != nil {
+		log.Panicf("Couldn't create config instance: %s", err)
+	}
 
 	// register test databases/endpoints referred to in config file
 	dtstest.RegisterTestFixturesFromConfig(endpointOptions, testDescriptors)
 
 	// Create the data and manifest directories
-	os.Mkdir(config.Service.DataDirectory, 0755)
-	os.Mkdir(config.Service.ManifestDirectory, 0755)
+	os.Mkdir(conf.Service.DataDirectory, 0755)
+	os.Mkdir(conf.Service.ManifestDirectory, 0755)
 }
 
 // this function gets called after all tests have been run
@@ -269,3 +273,6 @@ var testDescriptors map[string]map[string]any = map[string]map[string]any{
 		"endpoint": "source-endpoint",
 	},
 }
+
+// configuration instance
+var conf config.Config

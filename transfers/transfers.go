@@ -80,7 +80,7 @@ func Start(conf config.Config) error {
 	}
 
 	// do the necessary directories exist, and are they writable/readable?
-	if err := validateDirectories(); err != nil {
+	if err := validateDirectories(conf); err != nil {
 		return err
 	}
 
@@ -218,17 +218,17 @@ func registerEndpointProviders() error {
 
 // registers databases; if at least one database is available, no error is propagated
 func registerDatabases(conf config.Config) error {
-	if _, found := config.Databases["jdp"]; found {
+	if _, found := conf.Databases["jdp"]; found {
 		if err := databases.RegisterDatabase("jdp", jdp.DatabaseConstructor(conf)); err != nil {
 			slog.Error(err.Error())
 		}
 	}
-	if _, found := config.Databases["kbase"]; found {
+	if _, found := conf.Databases["kbase"]; found {
 		if err := databases.RegisterDatabase("kbase", kbase.DatabaseConstructor(conf)); err != nil {
 			slog.Error(err.Error())
 		}
 	}
-	if _, found := config.Databases["nmdc"]; found {
+	if _, found := conf.Databases["nmdc"]; found {
 		if err := databases.RegisterDatabase("nmdc", nmdc.NewDatabase); err != nil {
 			slog.Error(err.Error())
 		}
@@ -239,12 +239,12 @@ func registerDatabases(conf config.Config) error {
 	return nil
 }
 
-func validateDirectories() error {
-	err := validateDirectory("data", config.Service.DataDirectory)
+func validateDirectories(conf config.Config) error {
+	err := validateDirectory("data", conf.Service.DataDirectory)
 	if err != nil {
 		return err
 	}
-	return validateDirectory("manifest", config.Service.ManifestDirectory)
+	return validateDirectory("manifest", conf.Service.ManifestDirectory)
 }
 
 // checks for the existence of a directory and whether it is readable/writeable, returning an error

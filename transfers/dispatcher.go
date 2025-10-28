@@ -178,9 +178,7 @@ func (d *dispatcherState) start() error {
 		if err := mover.Start(); err != nil {
 			return err
 		}
-		if err := manifestor.Start(); err != nil {
-			return err
-		}
+		return manifestor.Start()
 	}
 
 	slog.Debug(fmt.Sprintf("found previous tasks in %s", saveFilename))
@@ -283,6 +281,10 @@ func (d *dispatcherState) stop() error {
 	encoder := gob.NewEncoder(saveFile)
 	if databaseStates, err := databases.Save(); err == nil {
 		err = encoder.Encode(databaseStates)
+		if err := store.SaveAndStop(encoder); err != nil {
+			os.Remove(saveFilename)
+			return err
+		}
 		if err := stager.SaveAndStop(encoder); err != nil {
 			os.Remove(saveFilename)
 			return err
@@ -292,10 +294,6 @@ func (d *dispatcherState) stop() error {
 			return err
 		}
 		if err := manifestor.SaveAndStop(encoder); err != nil {
-			os.Remove(saveFilename)
-			return err
-		}
-		if err := store.SaveAndStop(encoder); err != nil {
 			os.Remove(saveFilename)
 			return err
 		}

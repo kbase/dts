@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -50,8 +51,7 @@ func TestRunner(t *testing.T) {
 
 	transfers := TransferTests{Test: t}
 	transfers.TestStartAndStop()
-	transfers.TestCreateWithoutStaging()
-	//tester.TestStopAndRestartTransfers()
+	transfers.TestCreate()
 }
 
 // We attach the tests to this type, which runs them one by one.
@@ -70,7 +70,7 @@ func (t *TransferTests) TestStartAndStop() {
 	assert.False(Running())
 }
 
-func (t *TransferTests) TestCreateWithoutStaging() {
+func (t *TransferTests) TestCreate() {
 	log.Print("=== TestCreate ===")
 	assert := assert.New(t.Test)
 
@@ -103,7 +103,7 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 
 	status, err := Status(transferId)
 	assert.Nil(err)
-	assert.GreaterOrEqual(status.Code, TransferStatusStaging)
+	assert.GreaterOrEqual(status.Code, TransferStatusUnknown)
 	assert.Equal(3, status.NumFiles)
 
 	// wait for the (local) transfers to complete
@@ -119,22 +119,21 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	assert.False(Running())
 
 	// make sure we hit all the desired statuses and none of the undesired (values not used)
-	occurred := map[TransferStatusCode]bool{
-		TransferStatusUnknown:    true,
-		TransferStatusActive:     true,
-		TransferStatusFinalizing: true,
-		TransferStatusSucceeded:  true,
+	for _, occurred := range []TransferStatusCode{
+		TransferStatusUnknown,
+		TransferStatusStaging,
+		TransferStatusActive,
+		TransferStatusFinalizing,
+		TransferStatusSucceeded,
+	} {
+		assert.True(slices.ContainsFunc(messages, func(message Message) bool {
+			return message.TransferStatus.Code == occurred
+		}))
 	}
-	didNotOccur := map[TransferStatusCode]bool{
-		TransferStatusStaging:  false,
-		TransferStatusFailed:   false,
-		TransferStatusInactive: false,
-	}
-	for _, message := range messages {
-		_, found := occurred[message.TransferStatus.Code]
-		assert.True(found)
-		_, found = didNotOccur[message.TransferStatus.Code]
-		assert.False(found)
+	for _, didntOccur := range []TransferStatusCode{TransferStatusFailed, TransferStatusInactive} {
+		assert.False(slices.ContainsFunc(messages, func(message Message) bool {
+			return message.TransferStatus.Code == didntOccur
+		}))
 	}
 
 	// restart and check the status of the completed transfer
@@ -150,47 +149,6 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	// clean up
 	err = Stop()
 	os.Remove(saveFilename)
-}
-
-func (t *TransferTests) TestCreateWithStaging() {
-	/*
-		assert := assert.New(t.Test)
-
-		saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
-		os.Remove(saveFilename)
-
-		// start up, add a bunch of tasks, then immediately close
-		err := Start()
-		assert.Nil(err)
-		numTasks := 10
-		taskIds := make([]uuid.UUID, numTasks)
-		for i := 0; i < numTasks; i++ {
-			taskId, _ := Create(Specification{
-				User: auth.User{
-					Name:  "Joe-bob",
-					Orcid: "1234-5678-9012-3456",
-				},
-				Source:      "test-source",
-				Destination: "test-destination",
-				FileIds:     []string{"file1", "file2"},
-			})
-			taskIds[i] = taskId
-		}
-		time.Sleep(100 * time.Millisecond) // let things settle
-		err = Stop()
-		assert.Nil(err)
-
-		// now restart the task manager and make sure all the tasks are there
-		err = Start()
-		assert.Nil(err)
-		for i := 0; i < numTasks; i++ {
-			_, err := Status(taskIds[i])
-			assert.Nil(err)
-		}
-
-		err = Stop()
-		assert.Nil(err)
-	*/
 }
 
 // This runs setup, runs all tests, and does breakdown.
@@ -245,9 +203,6 @@ var endpointOptions = dtstest.EndpointOptions{
 	StagingDuration:  time.Duration(150) * time.Millisecond,
 	TransferDuration: time.Duration(500) * time.Millisecond,
 }
-
-// a pause to give the task manager a bit of time
-var pause time.Duration = time.Duration(25) * time.Millisecond
 
 // configuration
 const transfersConfig string = `

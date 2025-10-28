@@ -434,6 +434,111 @@ func TestDescriptors(t *testing.T) {
 	}
 }
 
+func TestCreditMetadataForStudy(t *testing.T) {
+	assert := assert.New(t)
+	db := Database{}
+	study := Study{
+		Id:		  "nmdc:sty-11-r2h77870",
+		Title:    "Primary Title",
+		AlternativeTitles: []string{
+			"Secondary Title",
+			"Tertiary Title",
+		},
+		CreditAssociations: []CreditAssociation{
+			{
+				Roles:       []string{"creator"},
+				Person: PersonValue{
+					Email: "jane.doe@example.com",
+					Name:  "Jane Doe",
+				},
+			},
+			{
+				Roles:       []string{"contributor","tester"},
+				Person: PersonValue{
+					Name: "John Smith",
+					Orcid: "0000-0002-1825-0097",
+				},
+				Type: "person",
+			},
+			{
+				Roles:       []string{"singer"},
+				Person: PersonValue{
+					Name: "Cher",
+				},
+			},
+		},
+		AssociatedDois: []Doi{
+			{
+				Value:    "10.1234/example.doi.1",
+				Category: "primary",
+			},
+			{
+				Value:    "10.5678/example.doi.2",
+				Category: "dataset_doi",
+			},
+		},
+		FundingSources: []string{
+			"Department of Energy",
+			"NSF",
+		},
+	}
+	credit := db.creditMetadataForStudy(study)
+	assert.Equal("Jane Doe", credit.Contributors[0].Name,
+		"Credit metadata first contributor name is incorrect")
+	assert.Equal("Jane", credit.Contributors[0].GivenName,
+		"Credit metadata first contributor given name is incorrect")
+	assert.Equal("Doe", credit.Contributors[0].FamilyName,
+		"Credit metadata first contributor family name is incorrect")
+	assert.Equal("creator", credit.Contributors[0].ContributorRoles,
+		"Credit metadata first contributor role is incorrect")
+	assert.Equal("John Smith", credit.Contributors[1].Name,
+		"Credit metadata second contributor name is incorrect")
+	assert.Equal("John", credit.Contributors[1].GivenName,
+		"Credit metadata second contributor given name is incorrect")
+	assert.Equal("Smith", credit.Contributors[1].FamilyName,
+		"Credit metadata second contributor family name is incorrect")
+	assert.Equal("0000-0002-1825-0097", credit.Contributors[1].ContributorId,
+		"Credit metadata second contributor ORCID is incorrect")
+	assert.Equal("contributor,tester", credit.Contributors[1].ContributorRoles,
+		"Credit metadata second contributor first role is incorrect")
+	assert.Equal("Cher", credit.Contributors[2].Name,
+		"Credit metadata third contributor name is incorrect")
+	assert.Equal("Cher", credit.Contributors[2].GivenName,
+		"Credit metadata third contributor given name is incorrect")
+	assert.Equal("", credit.Contributors[2].FamilyName,
+		"Credit metadata third contributor family name is incorrect")
+	assert.Equal("singer", credit.Contributors[2].ContributorRoles,
+		"Credit metadata third contributor role is incorrect")
+	assert.Equal("Primary Title", credit.Titles[0].Title,
+		"Credit metadata primary title is incorrect")
+	assert.Equal("Secondary Title", credit.Titles[1].Title,
+		"Credit metadata first alternative title is incorrect")
+	assert.Equal("Tertiary Title", credit.Titles[2].Title,
+		"Credit metadata second alternative title is incorrect")
+	assert.Equal("10.1234/example.doi.1", credit.RelatedIdentifiers[0].Id,
+		"Credit metadata primary DOI is incorrect")
+	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[0].RelationshipType,
+		"Credit metadata primary DOI relationship type is incorrect")
+	assert.Equal("", credit.RelatedIdentifiers[0].Description,
+		"Credit metadata primary DOI description is incorrect")
+	assert.Equal("10.5678/example.doi.2", credit.RelatedIdentifiers[1].Id,
+		"Credit metadata dataset DOI is incorrect")
+	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[1].RelationshipType,
+		"Credit metadata dataset DOI relationship type is incorrect")
+	assert.Equal("Dataset DOI", credit.RelatedIdentifiers[1].Description,
+		"Credit metadata dataset DOI description is incorrect")
+	assert.Equal(2, len(credit.Funding),
+		"Credit metadata funding source count is incorrect")
+	assert.Equal("ROR:01bj3aw27", credit.Funding[0].Funder.OrganizationId,
+		"Credit metadata first funding source organization ID is incorrect")
+	assert.Equal("United States Department of Energy", credit.Funding[0].Funder.OrganizationName,
+		"Credit metadata first funding source name is incorrect")
+	assert.Equal("", credit.Funding[1].Funder.OrganizationId,
+		"Unrecognized funding source should have empty Funder instance")
+	assert.Equal("", credit.Funding[1].Funder.OrganizationName,
+		"Unrecognized funding source should have empty Funder instance")
+}
+
 func TestPageNumberAndSize(t *testing.T) {
 	assert := assert.New(t)
 	num, size := pageNumberAndSize(0, 0)

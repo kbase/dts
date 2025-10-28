@@ -678,6 +678,13 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 	return relatedCredit, relatedBiosample, nil
 }
 
+var idCategoryLabels = map[string]string{
+	"award_doi":                "Awarded proposal DOI",
+	"dataset_doi":              "Dataset DOI",
+	"publication_doi":          "Publication DOI",
+	"data_management_plan_doi": "Data management plan DOI",
+}
+
 // extracts credit metadata from the given study
 func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 	// NOTE: principal investigator role is included with credit associations
@@ -689,7 +696,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 			Name:             association.Person.Name,
 			ContributorRoles: strings.Join(association.Roles, ","),
 		}
-		names := strings.Split(" ", association.Person.Name)
+		names := strings.Split(association.Person.Name, " ")
 		contributors[i].GivenName = names[0]
 		if len(names) > 1 {
 			contributors[i].FamilyName = names[len(names)-1]
@@ -713,16 +720,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 				Id:               doi.Value,
 				RelationshipType: "IsCitedBy",
 			}
-			switch doi.Category {
-			case "award_doi":
-				relatedIdentifiers[i].Description = "Awarded proposal DOI"
-			case "dataset_doi":
-				relatedIdentifiers[i].Description = "Dataset DOI"
-			case "publication_doi":
-				relatedIdentifiers[i].Description = "Publication DOI"
-			case "data_management_plan_doi":
-				relatedIdentifiers[i].Description = "Data management plan DOI"
-			}
+			relatedIdentifiers[i].Description = idCategoryLabels[doi.Category]
 		}
 	}
 

@@ -142,12 +142,12 @@ func (db Database) SpecificSearchParameters() map[string]any {
 	return map[string]any{
 		"activity_id":    "",
 		"data_object_id": "",
-		"fields":         "",
+		"fields":         []string{},
 		"filter":         "",
 		"sort":           "",
 		"sample_id":      "",
 		"study_id":       "",
-		"extra":          "",
+		"extra":          []string{},
 	}
 }
 
@@ -901,15 +901,39 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)
-			if slices.Contains(acceptedValues, value) {
-				p.Add(name, value)
-			} else {
-				return &databases.InvalidSearchParameter{
-					Database: "nmdc",
-					Message:  fmt.Sprintf("Invalid requested extra field: %s", value),
+			fieldValues := strings.Split(value, ",")
+			for _, fieldValue := range fieldValues {
+				fieldValue = strings.TrimSpace(fieldValue)
+				if slices.Contains(acceptedValues, fieldValue) {
+					p.Add(name, fieldValue)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "nmdc",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", fieldValue),
+					}
 				}
 			}
 		case "extra": // accepts comma-delimited strings
+			var value string
+			if value, ok = jsonValue.(string); !ok {
+				return &databases.InvalidSearchParameter{
+					Database: "nmdc",
+					Message:  "Invalid NMDC requested extra field given (must be comma-delimited string)",
+				}
+			}
+			acceptedValues := paramSpec["extra"].([]string)
+			extraValues := strings.Split(value, ",")
+			for _, extraValue := range extraValues {
+				extraValue = strings.TrimSpace(extraValue)
+				if slices.Contains(acceptedValues, extraValue) {
+					p.Add(name, extraValue)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "nmdc",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", extraValue),
+					}
+				}
+			}
 		default:
 			return &databases.InvalidSearchParameter{
 				Database: "nmdc",

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -430,6 +431,123 @@ func TestDescriptors(t *testing.T) {
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
 		// skip comparisons of 
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
+	}
+}
+
+func TestPageNumberAndSize(t *testing.T) {
+	assert := assert.New(t)
+	num, size := pageNumberAndSize(0, 0)
+	assert.Equal(1, num, "Page number for offset 0 and size 0 is incorrect")
+	assert.Equal(100, size, "Page size for offset 0 and size 0 is incorrect")
+
+	num, size = pageNumberAndSize(0, 10)
+	assert.Equal(1, num, "Page number for offset 0 and size 10 is incorrect")
+	assert.Equal(10, size, "Page size for offset 0 and size 10 is incorrect")
+
+	num, size = pageNumberAndSize(25, 25)
+	assert.Equal(2, num, "Page number for offset 25 and size 25 is incorrect")
+	assert.Equal(25, size, "Page size for offset 25 and size 25 is incorrect")
+
+	num, size = pageNumberAndSize(50, -1)
+	assert.Equal(2, num, "Page number for offset 50 and size -1 is incorrect")
+	assert.Equal(50, size, "Page size for offset 50 and size -1 is incorrect")
+}
+
+func TestFormatFromType(t *testing.T) {
+	assert := assert.New(t)
+	tests := []struct {
+		FileType 	 string
+		ExpectedFormat string
+	}{
+		{"BAI File", "bai"},
+		{"Metagenome Bins", "fasta"},
+		{"unknown type", "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.FileType, func(t *testing.T) {
+			format := formatFromType(tt.FileType)
+			assert.Equal(tt.ExpectedFormat, format,
+				"Format for type %q is incorrect", tt.FileType)
+		})
+	}
+}
+
+func TestMimeTypeForFile(t *testing.T) {
+	assert := assert.New(t)
+	tests := []struct {
+		FileName     string
+		ExpectedMIME string
+	}{
+		{"test.txt", "text/plain"},
+		{"test.html", "text/html"},
+		{"test.json", "application/json"},
+		{"test.xml", "application/xml"},
+		{"test.mp4", "video/mp4"},
+		{"test.mp3", "audio/mpeg"},
+		{"test.unknown", "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.FileName, func(t *testing.T) {
+			mime := mimetypeForFile(tt.FileName)
+			ok := strings.Contains(mime, tt.ExpectedMIME)
+			assert.True(ok, "MIME type for %q is incorrect", tt.FileName)
+		})
+	}
+}
+
+func TestDataResourceName(t *testing.T) {
+	assert := assert.New(t)
+	inputOutputPairs := map[string]string{
+		"name-with.valid_chars.txt": "name-with.valid_chars",
+		"name with!invalid*%(chars).html": "name_with_invalid_chars_",
+		"": "",
+		"^.*$&%": "_",
+	}
+	for input, expectedOutput := range inputOutputPairs {
+		t.Run(input, func(t *testing.T) {
+			output := dataResourceName(input)
+			assert.Equal(expectedOutput, output,
+				"dataResourceName produced incorrect output")
+		})
+	}
+}
+
+func TestAddSpecificSearchParameters(t *testing.T) {
+	assert := assert.New(t)
+	db := Database{}
+	validParams := map[string]any{
+		"study_id": "nmdc:sty-11-r2h77870",
+		"data_object_id": "nmdc:do-1234-abcde56789",
+	}
+	p := url.Values{}
+	p.Set("existing_param", "existing_value")
+	err := db.addSpecificSearchParameters(validParams, &p)
+	assert.Nil(err, "Adding NMDC specific search parameters encountered an error")
+	assert.Equal("nmdc:sty-11-r2h77870", p.Get("study_id"),
+		"NMDC specific search parameter 'study_id' has incorrect value")
+	assert.Equal("nmdc:do-1234-abcde56789", p.Get("data_object_id"),
+		"NMDC specific search parameter 'data_object_id' has incorrect value")
+	assert.Equal("existing_value", p.Get("existing_param"),
+		"Existing search parameter value was modified incorrectly")
+
+	invalidParams := []map[string]any{
+		{"invalid_param": "some_value"},
+		{"study_id": 12345}, // invalid type
+		{"data_object_id": []string{"nmdc:do-1234-abcde56789"}}, // invalid type
+		{"extra": "invalid_field,other_invalid_field"}, // invalid value
+		{"extra": 23456}, // invalid type
+		{"fields": "invalid_field"}, // invalid value
+		{"fields": 34567}, // invalid type
+	}
+	for _, params := range invalidParams {
+		p := url.Values{}
+		p.Set("existing_param", "existing_value")
+		err := db.addSpecificSearchParameters(params, &p)
+		assert.NotNil(err, "Adding invalid NMDC specific search parameters did not return an error")
+		assert.Equal(1, len(p),
+			"Invalid NMDC specific search parameters modified the parameter list")
+		assert.Equal("existing_value", p.Get("existing_param"),
+			"Existing search parameter value was modified incorrectly")
 	}
 }
 

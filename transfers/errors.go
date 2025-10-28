@@ -33,28 +33,28 @@ import (
 type AlreadyRunningError struct{}
 
 func (t AlreadyRunningError) Error() string {
-	return fmt.Sprintf("Transfer orchestration is already running and cannot be started again.")
+	return "transfer orchestration is already running and cannot be started again"
 }
 
 // indicates that Stop() has been called when tasks are not being processed
 type NotRunningError struct{}
 
 func (t NotRunningError) Error() string {
-	return fmt.Sprintf("Transfers are not currently being processed.")
+	return "transfers are not currently being processed"
 }
 
 // indicates that no databases are currently available
 type NoDatabasesAvailable struct{}
 
 func (t NoDatabasesAvailable) Error() string {
-	return fmt.Sprintf("No databases are currently available for transfer.")
+	return "no databases are currently available for transfer"
 }
 
 // indicates that a transfer has been requested with no files(!)
 type NoFilesRequestedError struct{}
 
 func (t NoFilesRequestedError) Error() string {
-	return fmt.Sprintf("Requested transfer includes no file IDs!")
+	return "requested transfer includes no file IDs"
 }
 
 // indicates that a payload has been requested that is too large
@@ -63,7 +63,7 @@ type PayloadTooLargeError struct {
 }
 
 func (e PayloadTooLargeError) Error() string {
-	return fmt.Sprintf("Requested transfer payload is too large: %g GB (limit is %g GB).",
+	return fmt.Sprintf("requested transfer payload is too large: %g GB (limit is %g GB)",
 		e.Size, config.Service.MaxPayloadSize)
 }
 
@@ -83,5 +83,5 @@ type TransferNotFoundError struct {
 }
 
 func (e TransferNotFoundError) Error() string {
-	return fmt.Sprintf("Transfer not found: %s.", e.Id.String())
+	return fmt.Sprintf("transfer not found: %s", e.Id.String())
 }

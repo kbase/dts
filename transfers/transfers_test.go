@@ -148,6 +148,7 @@ func (t *TransferTests) TestCreate() {
 
 	// clean up
 	err = Stop()
+	assert.Nil(err)
 	os.Remove(saveFilename)
 }
 

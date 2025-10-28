@@ -251,7 +251,7 @@ func validateDirectories(conf config.Config) error {
 // if these conditions are not met
 func validateDirectory(dirType, dir string) error {
 	if dir == "" {
-		return fmt.Errorf("no %s directory was specified!", dirType)
+		return fmt.Errorf("no %s directory was specified", dirType)
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -261,7 +261,7 @@ func validateDirectory(dirType, dir string) error {
 		return &os.PathError{
 			Op:   "validateDirectory",
 			Path: dir,
-			Err:  fmt.Errorf("%s is not a valid %s directory!", dir, dirType),
+			Err:  fmt.Errorf("%s is not a valid %s directory", dir, dirType),
 		}
 	}
 
@@ -273,7 +273,7 @@ func validateDirectory(dirType, dir string) error {
 		return &os.PathError{
 			Op:   "validateDirectory",
 			Path: dir,
-			Err:  fmt.Errorf("Could not write to %s directory %s!", dirType, dir),
+			Err:  fmt.Errorf("could not write to %s directory %s", dirType, dir),
 		}
 	}
 	readTestData, err := os.ReadFile(testFile)
@@ -284,7 +284,7 @@ func validateDirectory(dirType, dir string) error {
 		return &os.PathError{
 			Op:   "validateDirectory",
 			Path: dir,
-			Err:  fmt.Errorf("Could not read from %s directory %s!", dirType, dir),
+			Err:  fmt.Errorf("could not read from %s directory %s", dirType, dir),
 		}
 	}
 	return nil

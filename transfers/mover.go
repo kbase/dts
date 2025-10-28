@@ -193,6 +193,9 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 
 	// start transfers for each endpoint
 	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
+	if err != nil {
+		return nil, err
+	}
 	moves := make([]moveOperation, 0)
 	for source, descriptorsForSource := range descriptorsForEndpoint {
 		files := make([]endpoints.FileTransfer, len(descriptorsForSource))

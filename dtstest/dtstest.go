@@ -197,6 +197,7 @@ type stagingRequest struct {
 
 // This type implements a databases.Database test fixture
 type Database struct {
+	Name        string
 	Endpt       endpoints.Endpoint
 	descriptors map[string]map[string]any
 	Staging     map[uuid.UUID]stagingRequest
@@ -211,6 +212,7 @@ func RegisterDatabase(databaseName string, descriptors map[string]map[string]any
 			return nil, err
 		}
 		db := Database{
+			Name:        databaseName,
 			Endpt:       endpoint,
 			descriptors: descriptors,
 			Staging:     make(map[uuid.UUID]stagingRequest),
@@ -286,9 +288,12 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 }
 
 func (db *Database) Save() (databases.DatabaseSaveState, error) {
-	return databases.DatabaseSaveState{}, nil
+	return databases.DatabaseSaveState{
+		Name: db.Name,
+	}, nil
 }
 
 func (db *Database) Load(state databases.DatabaseSaveState) error {
+	db.Name = state.Name
 	return nil
 }

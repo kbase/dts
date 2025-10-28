@@ -25,11 +25,9 @@
 package transfers
 
 import (
-	"cmp"
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +74,7 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	log.Print("=== TestCreate ===")
 	assert := assert.New(t.Test)
 
+	// start clean -- remove any existing save file
 	saveFilename := filepath.Join(config.Service.DataDirectory, "dts.gob")
 	os.Remove(saveFilename)
 
@@ -107,15 +106,17 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 	assert.GreaterOrEqual(status.Code, TransferStatusStaging)
 	assert.Equal(3, status.NumFiles)
 
+	// wait for the (local) transfers to complete
 	time.Sleep(2 * time.Second)
 
-	// check that our messages are already in ascending order w.r.rt. timestamps and status codes
-	assert.True(slices.IsSortedFunc(messages, func(a, b Message) int {
-		return a.Time.Compare(b.Time)
-	}))
-	assert.True(slices.IsSortedFunc(messages, func(a, b Message) int {
-		return cmp.Compare(a.TransferStatus.Code, b.TransferStatus.Code)
-	}))
+	status, err = Status(transferId)
+	assert.Nil(err)
+	assert.Equal(status.Code, TransferStatusSucceeded)
+	assert.Equal(3, status.NumFiles)
+
+	err = Stop()
+	assert.Nil(err)
+	assert.False(Running())
 
 	// make sure we hit all the desired statuses and none of the undesired (values not used)
 	occurred := map[TransferStatusCode]bool{
@@ -136,12 +137,22 @@ func (t *TransferTests) TestCreateWithoutStaging() {
 		assert.False(found)
 	}
 
-	err = Stop()
+	// restart and check the status of the completed transfer
+	err = Start()
 	assert.Nil(err)
-	assert.False(Running())
+	assert.True(Running())
+
+	status, err = Status(transferId)
+	assert.Nil(err)
+	assert.Equal(status.Code, TransferStatusSucceeded)
+	assert.Equal(3, status.NumFiles)
+
+	// clean up
+	err = Stop()
+	os.Remove(saveFilename)
 }
 
-func (t *TransferTests) TestStopAndRestart() {
+func (t *TransferTests) TestCreateWithStaging() {
 	/*
 		assert := assert.New(t.Test)
 

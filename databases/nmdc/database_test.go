@@ -352,6 +352,32 @@ func breakdown() {
 	}
 }
 
+// Get an instance of the NMDC database for a specific test
+func getNmdcDatabase(t *testing.T) databases.Database {
+	assert := assert.New(t)
+	configString, _ := setTestEnvVars(nmdcConfig)
+	conf, err := config.NewConfig([]byte(configString))
+	assert.Nil(err, "Couldn't read test configuration")
+	var db databases.Database
+	db, err = NewDatabase(conf)
+	assert.NotNil(db, "NMDC database not created")
+	assert.Nil(err, "NMDC database creation encountered an error")
+	return db
+}
+
+// Get an instance of the NMDC mock database for a specific test
+func getMockNmdcDatabase(t *testing.T) databases.Database {
+	assert := assert.New(t)
+	configString, _ := setTestEnvVars(nmdcConfig)
+	conf, err := config.NewConfig([]byte(configString))
+	assert.Nil(err, "Couldn't read test configuration")
+	var db databases.Database
+	db, err = NewDatabase(conf, mockDatabaseOptions)
+	assert.NotNil(db, "NMDC mock database not created")
+	assert.Nil(err, "NMDC mock database creation encountered an error")
+	return db
+}
+
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
 	configString, _ := setTestEnvVars(nmdcConfig)
@@ -370,18 +396,13 @@ func TestNewDatabase(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	assert := assert.New(t)
-	configString, _ := setTestEnvVars(nmdcConfig)
-	conf, err := config.NewConfig([]byte(configString))
-	assert.Nil(err, "Couldn't read test configuration")
 	var db databases.Database
 	if areValidCredentials {
-		db, err = NewDatabase(conf)
+		db = getNmdcDatabase(t)
 	} else {
-		db, err = NewDatabase(conf, mockDatabaseOptions)
+		db = getMockNmdcDatabase(t)
 	}
-	assert.NotNil(db, "NMDC database not created")
-	assert.Nil(err, "NMDC database creation encountered an error")
-
+	
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,
@@ -393,20 +414,15 @@ func TestSearch(t *testing.T) {
 
 func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
-	configString, _ := setTestEnvVars(nmdcConfig)
-	conf, err := config.NewConfig([]byte(configString))
-	assert.Nil(err, "Couldn't read test configuration")
 	var db databases.Database
 	var expectedCount int
 	if areValidCredentials {
-		db, err = NewDatabase(conf)
+		db = getNmdcDatabase(t)
 		expectedCount = 10
 	} else {
-		db, err = NewDatabase(conf, mockDatabaseOptions)
+		db = getMockNmdcDatabase(t)
 		expectedCount = 2
 	}
-	assert.NotNil(db, "NMDC database not created")
-	assert.Nil(err, "NMDC database creation encountered an error")
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,
@@ -432,6 +448,49 @@ func TestDescriptors(t *testing.T) {
 		// skip comparisons of 
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
+}
+
+func TestCreateDataObjectDescriptor(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dataObject := DataObject{
+		Id:          "nmdc:do-1234-abcde56789",
+		Name:        "Test Data Object.txt",
+		Description: "This is a test data object",
+		FileSizeBytes: 123456,
+		MD5Checksum: "d41d8cd98f00b204e9800998ecf8427e",
+		URL:		 "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
+		Type:	   "data_object",
+	}
+	studyCredit := credit.CreditMetadata{
+		Identifier:   "original-study-id",
+		ResourceType: "study",
+		Url: 		"original-study-url",
+	}
+	nmdcDb := db.(*Database)
+	descriptor := nmdcDb.createDataObjectDescriptor(dataObject, studyCredit)
+	assert.Equal(dataObject.Id, descriptor["id"], "Data object descriptor ID mismatch")
+	assert.Equal("test_data_object", descriptor["name"], "Data object descriptor name mismatch")
+	assert.Equal("nmdc%3Ado-1234-abcde56789", descriptor["path"], "Data object descriptor path mismatch")
+	assert.Equal("application/octet-stream", descriptor["mediatype"], "Data object descriptor media type mismatch")
+	assert.Equal(dataObject.FileSizeBytes, descriptor["bytes"], "Data object descriptor size mismatch")
+	creditMeta, ok := descriptor["credit"].(credit.CreditMetadata)
+	assert.True(ok, "Data object descriptor credit type assertion failed")
+	assert.Equal(dataObject.Id, creditMeta.Identifier, "Data object descriptor credit ID mismatch")
+	assert.Equal(studyCredit.ResourceType, creditMeta.ResourceType, "Data object descriptor credit resource type mismatch")
+	assert.Equal(dataObject.URL, creditMeta.Url, "Data object descriptor credit URL mismatch")
+}
+
+func TestCreditAndBiosampleForWorkflow(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dbNmdc := db.(*Database)
+
+	// check no workflow id
+	relatedCredit, relatedBiosample, err := dbNmdc.creditAndBiosampleForWorkflow("")
+	assert.NotNil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
+	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
 }
 
 func TestCreditMetadataForStudy(t *testing.T) {

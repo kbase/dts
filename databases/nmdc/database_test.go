@@ -79,7 +79,7 @@ const mockDataObjectResponse string = `{
 	"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 	"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 	"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
-	"was_generated_by": "dave"
+	"was_generated_by": "nmdc:wf-1234-abcde56789"
 }`
 
 const mockDataObjectWithNmdcWorkflowResponse string = `{
@@ -99,7 +99,7 @@ const mockDataObjectsResponse string = `[
 				"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 				"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
 				"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
-				"was_generated_by": "dave"
+				"was_generated_by": "nmdc:wf-1234-abcde56789"
 			},
 			{
 				"id": "nmdc:do-5678-efghij12345",
@@ -118,11 +118,17 @@ const mockWorkflowResponse string = `{
 	"studies": [
 		{
 			"id": "nmdc:sty-11-r2h77870",
-			"name": "Tara Oceans Mediterranean Sea Expedition 2013"
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013"
 		},
 		{
 			"id": "nmdc:sty-22-r3h88991",
-			"name": "Mock Study 2"
+			"title": "Mock Study 2"
+		}
+	],
+	"biosamples": [
+		{
+			"id": "nmdc:bs-1234-abcde56789",
+			"name": "Mock Biosample 1"
 		}
 	]
 }`
@@ -491,6 +497,31 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 	assert.NotNil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
+
+	// check valid workflow id
+	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-1234-abcde56789")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with valid workflow ID should not error")
+	assert.Equal("", relatedCredit.Identifier,
+		"creditAndBiosampleForWorkflow returned non-empty credit identifier")
+	assert.Equal("Tara Oceans Mediterranean Sea Expedition 2013", relatedCredit.Titles[0].Title,
+		"creditAndBiosampleForWorkflow returned incorrect credit name")
+	assert.Equal("dataset", relatedCredit.ResourceType,
+		"creditAndBiosampleForWorkflow returned incorrect credit resource type")
+	assert.NotNil(relatedBiosample, "creditAndBiosampleForWorkflow with valid workflow ID should return biosample")
+	assert.Equal("nmdc:bs-1234-abcde56789", relatedBiosample["id"],
+		"creditAndBiosampleForWorkflow returned incorrect biosample ID")
+
+	// check invalid workflow id indicating raw data
+	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:omg-invalid-workflow-id")
+	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID should return no credit")
+	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID should return no biosample")
+
+	// check with invalid workflow id format
+	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("invalid-workflow-id-format")
+	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
+	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
 }
 
 func TestCreditMetadataForStudy(t *testing.T) {

@@ -669,13 +669,13 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		return relatedCredit, relatedBiosample, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
-		// FIXME: are we expecting to transfer raw data from NMDC? I don't think
-		// FIXME: they expect us to do this!
-		relatedCredit.ResourceType = "dataset"
-	} else {
-		relatedCredit.ResourceType = "dataset" // set to match default value for credit metadata
+		return credit.CreditMetadata{}, nil, &UnexpectedRawDataFilesError{
+			WorkflowID: workflowExecId,
+		}
 	}
-	return relatedCredit, relatedBiosample, nil
+	return credit.CreditMetadata{}, nil, UnsupportedWorkflowTypeError{
+			WorkflowId: workflowExecId,
+	}
 }
 
 var idCategoryLabels = map[string]string{

@@ -657,13 +657,25 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		}
 
 		// credit metadata
-		if len(workflowExec.Studies) > 0 {
+		if len(workflowExec.Studies) == 1 {
 			relatedCredit = db.creditMetadataForStudy(workflowExec.Studies[0])
+		} else if len(workflowExec.Studies) > 1 {
+			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
+				Identifier: workflowExecId,
+				ResourceType: "studies",
+				Count:      len(workflowExec.Studies),
+			}
 		}
 
 		// biosample metadata
-		if len(workflowExec.Biosamples) > 0 { // FIXME: can be > 1??
+		if len(workflowExec.Biosamples) == 1 {
 			relatedBiosample = workflowExec.Biosamples[0].(map[string]any)
+		} else if len(workflowExec.Biosamples) > 1 {
+			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
+				Identifier: workflowExecId,
+				ResourceType: "biosamples",
+				Count:      len(workflowExec.Biosamples),
+			}
 		}
 
 		return relatedCredit, relatedBiosample, nil

@@ -119,16 +119,54 @@ const mockWorkflowResponse string = `{
 		{
 			"id": "nmdc:sty-11-r2h77870",
 			"title": "Tara Oceans Mediterranean Sea Expedition 2013"
-		},
-		{
-			"id": "nmdc:sty-22-r3h88991",
-			"title": "Mock Study 2"
 		}
 	],
 	"biosamples": [
 		{
 			"id": "nmdc:bs-1234-abcde56789",
 			"name": "Mock Biosample 1"
+		}
+	]
+}`
+
+const mockWorkflowTooManyStudeiesResponse string = `{
+	"id": "nmdc:wf-too-many-studies",
+	"name": "Mock Workflow with Too Many Studies",
+	"studies": [
+		{
+			"id": "nmdc:sty-11-r2h77870",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013"
+		},
+		{
+			"id": "nmdc:sty-22-x3y4z56789",
+			"title": "Another Study"
+		}
+	],
+	"biosamples": [
+		{
+			"id": "nmdc:bs-1234-abcde56789",
+			"name": "Mock Biosample 1"
+		}
+	]
+}`
+
+const mockWorkflowTooManyBiosamplesResponse string = `{
+	"id": "nmdc:wf-too-many-biosamples",
+	"name": "Mock Workflow with Too Many Biosamples",
+	"studies": [
+		{
+			"id": "nmdc:sty-11-r2h77870",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013"
+		}
+	],
+	"biosamples": [
+		{
+			"id": "nmdc:bs-1234-abcde56789",
+			"name": "Mock Biosample 1"
+		},
+		{
+			"id": "nmdc:bs-5678-fghij12345",
+			"name": "Mock Biosample 2"
 		}
 	]
 }`
@@ -244,6 +282,14 @@ func createMockNmdcServer() *httptest.Server {
 				if workflowId == "nmdc:wf-1234-abcde56789" {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(mockWorkflowResponse))
+					return
+				} else if workflowId == "nmdc:wf-too-many-studies" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockWorkflowTooManyStudeiesResponse))
+					return
+				} else if workflowId == "nmdc:wf-too-many-biosamples" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(mockWorkflowTooManyBiosamplesResponse))
 					return
 				}
 				w.WriteHeader(http.StatusNotFound)
@@ -522,6 +568,18 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
+
+	// check workflow with too many studies
+	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-studies")
+	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many studies should error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no credit")
+	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no biosample")
+	
+	// check workflow with too many biosamples
+	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-biosamples")
+	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no credit")
+	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no biosample")
 }
 
 func TestCreditMetadataForStudy(t *testing.T) {

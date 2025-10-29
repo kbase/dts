@@ -43,3 +43,15 @@ type UnexpectedRawDataFilesError struct {
 func (e UnexpectedRawDataFilesError) Error() string {
 	return fmt.Sprintf("unexpected raw data files returned for NMDC workflow ID: %s", e.WorkflowID)
 }
+
+// This error type indicates too many records were returned.
+type TooManyRecordsError struct {
+	ResourceType string
+	Identifier   string
+	Count        int
+}
+
+func (e TooManyRecordsError) Error() string {
+	return fmt.Sprintf("too many NMDC records returned for %s with identifier %s: %d",
+		e.ResourceType, e.Identifier, e.Count)
+}

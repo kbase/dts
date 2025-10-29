@@ -204,13 +204,17 @@ var global struct {
 func registerEndpointProviders() error {
 	// NOTE: it's okay if these endpoint providers have already been registered,
 	// NOTE: as they can be used in testing
-	err := endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
-	if err == nil {
-		err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+	endpointsToRegister := map[string]func(endpointName string) (endpoints.Endpoint, error){
+		"globus": globus.NewEndpointFromConfig,
+		"local":  local.NewEndpoint,
 	}
-	if err != nil {
-		if _, matches := err.(*endpoints.AlreadyRegisteredError); !matches {
-			return err
+	for name, constructor := range endpointsToRegister {
+		err := endpoints.RegisterEndpointProvider(name, constructor)
+		if err != nil {
+			// ignore AlreadyRegisteredError but propagate others
+			if _, matches := err.(*endpoints.AlreadyRegisteredError); !matches {
+				return err
+			}
 		}
 	}
 	return nil

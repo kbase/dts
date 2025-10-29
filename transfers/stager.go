@@ -36,7 +36,13 @@ import (
 // Stager
 //--------
 
-// The stager coordinates the staging of files at a source database in preparation for transfer.
+// The stager coordinates the staging of files at a source database in preparation for transfer. It
+// responds to requests from the dispatcher to stage files associated with a given transfer ID. The
+// dispatcher then monitors the staging process, updating the status of the transfer via the store
+// as needed. When a set of files has been staged, the stager sends a request to the mover to move
+// the files to their destination.
+//
+// The stager is started and stopped by the dispatcher.
 
 // stager global state
 var stager stagerState

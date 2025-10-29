@@ -37,7 +37,13 @@ import (
 // Mover
 //-------
 
-// The mover manages actual file transfer operations and cancellations.
+// The mover manages the transfer of file payloads. It responds to requests from the dispatcher or
+// the stager to move files associated with a given transfer ID. The mover than monitors the
+// transfer process, updating the status of the transfer via the store as needed. When a set of
+// files has been successfully transferred, the mover sends a request to the manifestor to generate
+// a manifest and transfer it into place at the destination.
+//
+// The mover is started and stopped by the dispatcher.
 
 // mover global state
 var mover moverState

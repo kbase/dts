@@ -41,8 +41,13 @@ import (
 //------------
 
 // The manifestor generates a JSON manifest for each successful transfer and sends it to the
-// transfer's destination. The manifest contains a Frictionless DataPackage containing all
+// transfer's destination. This manifest contains a Frictionless DataPackage containing all
 // descriptors relevant to the transfer.
+//
+// The manifestor responds to requests from the mover to generate a manifest and transfer it to the
+// transfer destination, updating the status of the manifest's transfer via the store as needed.
+//
+// The manifestor is started and stopped by the dispatcher.
 
 // manifestor global state
 var manifestor manifestorState

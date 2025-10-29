@@ -41,6 +41,20 @@ import (
 
 // The transfer metadata store maintains a table of active and completed transfers and all related
 // metadata. The store only tracks the state of the transfers--it doesn't initiate any activity.
+//
+// The store can create a new transfer record given a specification. This operation returns a UUID
+// that can be used to fetch and manipulate the record in the following ways:
+//
+// * the specification for the transfer can be requested
+// * an array of Frictionless DataResources ("descriptors") for the transfer can be requested
+// * the status of a transfer can be requested or updated
+// * a transfer record can be removed
+//
+// The store removes records that are older than the given maximum record "age". The age of a
+// transfer record is the amount of time that has elapsed since the transfer completed (successfully
+// or unsuccessfully).
+//
+// The store is started and stopped by the dispatcher.
 
 // store global state
 var store storeState
@@ -263,7 +277,6 @@ func (s *storeState) process(decoder *gob.Decoder) {
 			for id, transfer := range transfers {
 				if transfer.Status.Code == TransferStatusFailed || transfer.Status.Code == TransferStatusSucceeded {
 					if time.Since(transfer.CompletionTime) > deleteAfter {
-						slog.Debug("*plonk*")
 						delete(transfers, id)
 					}
 				}

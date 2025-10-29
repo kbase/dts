@@ -39,6 +39,19 @@ import (
 // Dispatcher
 //------------
 
+// The dispatcher handles transfer-related requests from clients. When the dispatcher is started,
+// it starts the store, stager, mover, and manifestor, loading any previous transfers from disk.
+//
+// When a client requests that the dispatcher create a transfer, the dispatcher asks the store to
+// create a new transfer record, and then dispatches a request to the stager or the mover, based on
+// whether the files to be transferred require staging.
+//
+// A client can request the status of ongoing and completed transfers, which the dispatcher fetches
+// from the store. A client can also request that an ongoing transfer be deleted, which the
+// dispatcher propagates to the store, stager, mover, and manifestor.
+//
+// When the dispatcher is stopped, it stops the store, stager, mover, and manifestor.
+
 // dispatcher global state
 var dispatcher dispatcherState
 

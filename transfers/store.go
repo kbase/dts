@@ -84,23 +84,24 @@ type storeChannels struct {
 }
 
 func newStoreChannels() storeChannels {
+	numClients := 4 // dispatcher, stager, mover, manifestor
 	return storeChannels{
-		RequestNewTransfer: make(chan Specification, 32),
-		ReturnNewTransfer:  make(chan uuid.UUID, 32),
-		RequestSpec:        make(chan uuid.UUID, 32),
-		ReturnSpec:         make(chan Specification, 32),
-		RequestDescriptors: make(chan uuid.UUID, 32),
-		ReturnDescriptors:  make(chan []map[string]any, 32),
-		SetStatus:          make(chan transferIdAndStatus, 32),
-		RequestStatus:      make(chan uuid.UUID, 32),
-		ReturnStatus:       make(chan TransferStatus, 32),
-		RequestRemoval:     make(chan uuid.UUID, 32),
-		Error:              make(chan error, 32),
+		RequestNewTransfer: make(chan Specification),
+		ReturnNewTransfer:  make(chan uuid.UUID),
+		RequestSpec:        make(chan uuid.UUID, numClients),
+		ReturnSpec:         make(chan Specification),
+		RequestDescriptors: make(chan uuid.UUID, numClients),
+		ReturnDescriptors:  make(chan []map[string]any),
+		SetStatus:          make(chan transferIdAndStatus, numClients),
+		RequestStatus:      make(chan uuid.UUID, numClients),
+		ReturnStatus:       make(chan TransferStatus),
+		RequestRemoval:     make(chan uuid.UUID, numClients),
+		Error:              make(chan error),
 		SaveAndStop:        make(chan *gob.Encoder),
 	}
 }
 
-func (channels *storeChannels) close() {
+func (channels *storeChannels) Close() {
 	close(channels.RequestNewTransfer)
 	close(channels.ReturnNewTransfer)
 	close(channels.RequestSpec)
@@ -138,7 +139,7 @@ func (s *storeState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("store.Stop")
 	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
-	s.Channels.close()
+	s.Channels.Close()
 	return err
 }
 

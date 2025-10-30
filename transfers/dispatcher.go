@@ -72,7 +72,19 @@ type dispatcherChannels struct {
 	Stop  chan struct{} // used by client to stop task management
 }
 
-func (channels *dispatcherChannels) close() {
+func newDispatcherChannels(maxConnections int) dispatcherChannels {
+	return dispatcherChannels{
+		RequestTransfer:  make(chan Specification, maxConnections),
+		ReturnTransferId: make(chan uuid.UUID),
+		CancelTransfer:   make(chan uuid.UUID, maxConnections),
+		RequestStatus:    make(chan uuid.UUID, maxConnections),
+		ReturnStatus:     make(chan TransferStatus),
+		Error:            make(chan error),
+		Stop:             make(chan struct{}),
+	}
+}
+
+func (channels *dispatcherChannels) Close() {
 	close(channels.RequestTransfer)
 	close(channels.ReturnTransferId)
 	close(channels.CancelTransfer)
@@ -84,15 +96,7 @@ func (channels *dispatcherChannels) close() {
 
 func (d *dispatcherState) Start() error {
 	slog.Debug("dispatcher.Start()")
-	d.Channels = dispatcherChannels{
-		RequestTransfer:  make(chan Specification, 32),
-		ReturnTransferId: make(chan uuid.UUID, 32),
-		CancelTransfer:   make(chan uuid.UUID, 32),
-		RequestStatus:    make(chan uuid.UUID, 32),
-		ReturnStatus:     make(chan TransferStatus, 32),
-		Error:            make(chan error, 32),
-		Stop:             make(chan struct{}),
-	}
+	d.Channels = newDispatcherChannels(config.Service.MaxConnections)
 	go d.process()
 	return <-d.Channels.Error
 }
@@ -101,7 +105,7 @@ func (d *dispatcherState) Stop() error {
 	slog.Debug("dispatcher.Stop")
 	d.Channels.Stop <- struct{}{}
 	err := <-d.Channels.Error
-	d.Channels.close()
+	d.Channels.Close()
 	return err
 }
 

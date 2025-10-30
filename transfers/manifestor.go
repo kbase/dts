@@ -66,14 +66,14 @@ type manifestorChannels struct {
 
 func newManifestorChannels() manifestorChannels {
 	return manifestorChannels{
-		RequestGeneration:   make(chan uuid.UUID, 32),
-		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:               make(chan error, 32),
+		RequestGeneration:   make(chan uuid.UUID),
+		RequestCancellation: make(chan uuid.UUID),
+		Error:               make(chan error),
 		SaveAndStop:         make(chan *gob.Encoder),
 	}
 }
 
-func (channels *manifestorChannels) close() {
+func (channels *manifestorChannels) Close() {
 	close(channels.RequestGeneration)
 	close(channels.RequestCancellation)
 	close(channels.Error)
@@ -101,7 +101,7 @@ func (m *manifestorState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("manifestor.Stop")
 	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
-	m.Channels.close()
+	m.Channels.Close()
 	return err
 }
 

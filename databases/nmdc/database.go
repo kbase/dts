@@ -30,7 +30,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -48,6 +47,8 @@ import (
 // file database appropriate for handling searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// Base URL for NMDC API
+	BaseURL string
 	// HTTP client that caches queries
 	Client http.Client
 	// authorization info
@@ -56,23 +57,38 @@ type Database struct {
 	EndpointForHost map[string]string
 }
 
-func NewDatabase() (databases.Database, error) {
-	nmdcUser, haveNmdcUser := os.LookupEnv("DTS_NMDC_USER")
-	if !haveNmdcUser {
+type DatabaseConfig struct {
+	// Base URL for NMDC API
+	BaseURL string
+}
+
+type DatabaseOption func(*DatabaseConfig)
+
+func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Database, error) {
+	cfg := DatabaseConfig{
+		BaseURL: defaultBaseApiURL,
+	}
+
+	for _, opt := range options {
+		opt(&cfg)
+	}
+
+	nmdcUser := conf.Databases["nmdc"].User
+	if nmdcUser == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
-			Message:  "No NMDC user (DTS_NMDC_USER) was provided for authentication",
+			Message:  "No NMDC user was provided for authentication",
 		}
 	}
-	nmdcPassword, haveNmdcPassword := os.LookupEnv("DTS_NMDC_PASSWORD")
-	if !haveNmdcPassword {
+	nmdcPassword := conf.Databases["nmdc"].Password
+	if nmdcPassword == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
-			Message:  "No NMDC password (DTS_NMDC_PASSWORD) was provided for authentication",
+			Message:  "No NMDC password was provided for authentication",
 		}
 	}
 
-	if config.Databases["nmdc"].Endpoint != "" {
+	if conf.Databases["nmdc"].Endpoint != "" {
 		return nil, &databases.InvalidEndpointsError{
 			Database: "nmdc",
 			Message:  "NMDC requires 'nersc' and 'emsl' endpoints to be specified",
@@ -81,7 +97,7 @@ func NewDatabase() (databases.Database, error) {
 	// check for "nersc" and "emsl" Globus endpoints
 	for _, functionalName := range []string{"nersc", "emsl"} {
 		// was this functional name assigned to an endpoint?
-		if _, found := config.Databases["nmdc"].Endpoints[functionalName]; !found {
+		if _, found := conf.Databases["nmdc"].Endpoints[functionalName]; !found {
 			return nil, &databases.InvalidEndpointsError{
 				Database: "nmdc",
 				Message:  fmt.Sprintf("Could not find '%s' endpoint for NMDC database", functionalName),
@@ -91,12 +107,13 @@ func NewDatabase() (databases.Database, error) {
 
 	// fetch functional endpoint names and map URLs to them
 	// (see https://nmdc-documentation.readthedocs.io/en/latest/howto_guides/globus.html)
-	nerscEndpoint := config.Databases["nmdc"].Endpoints["nersc"]
-	emslEndpoint := config.Databases["nmdc"].Endpoints["emsl"]
+	nerscEndpoint := conf.Databases["nmdc"].Endpoints["nersc"]
+	emslEndpoint := conf.Databases["nmdc"].Endpoints["emsl"]
 
 	// NOTE: we prevent redirects from HTTPS -> HTTP!
 	db := &Database{
-		Client: databases.SecureHttpClient(time.Second * 20),
+		BaseURL: cfg.BaseURL,
+		Client:  databases.SecureHttpClient(time.Second * 20),
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": nerscEndpoint,
 			"https://nmdcdemo.emsl.pnnl.gov/":       emslEndpoint,
@@ -113,18 +130,24 @@ func NewDatabase() (databases.Database, error) {
 	return db, nil
 }
 
+func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+	return func() (databases.Database, error) {
+		return NewDatabase(conf)
+	}
+}
+
 func (db Database) SpecificSearchParameters() map[string]any {
 	// for details about NMDC-specific search parameters, see
 	// https://api.microbiomedata.org/docs#/find:~:text=Find%20NMDC-,metadata,-entities.
 	return map[string]any{
 		"activity_id":    "",
 		"data_object_id": "",
-		"fields":         "",
+		"fields":         []string{},
 		"filter":         "",
 		"sort":           "",
 		"sample_id":      "",
 		"study_id":       "",
-		"extra":          "",
+		"extra":          []string{},
 	}
 }
 
@@ -243,8 +266,8 @@ const (
 	// NOTE: which are synced daily-esque. They will sort this out in the coming year,
 	// NOTE: and it looks like PostGres is probably going to prevail.
 	// NOTE: (See https://github.com/microbiomedata/NMDC_documentation/blob/main/docs/howto_guides/portal_guide.md)
-	baseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
-	baseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
+	defaultBaseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
+	defaultBaseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
 )
 
 //------------------------------
@@ -271,7 +294,7 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 	var auth authorization
 	// NOTE: no slash at the end of the resource, or there's an
 	// NOTE: HTTPS -> HTTP redirect (?!??!!)
-	resource := baseApiURL + "token"
+	resource := db.BaseURL + "token"
 
 	// the token request must be URL-encoded
 	data := url.Values{}
@@ -363,7 +386,7 @@ func (db Database) addAuthHeader(request *http.Request) {
 // performs a GET request on the given resource, returning the resulting
 // response body and/or error
 func (db Database) get(resource string, values url.Values) ([]byte, error) {
-	res, err := url.Parse(baseApiURL)
+	res, err := url.Parse(db.BaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -461,11 +484,12 @@ type WorkflowExecution struct {
 // fetches metadata for data objects based on the given URL search parameters
 func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 	// extract any requested "extra" metadata fields (and scrub them from params)
-	// FIXME: no extra fields yet, so we simply remove this parameter
-	//var extraFields []string
 	if params.Has("extra") {
-		//extraFields = strings.Split(params.Get("extra"), ",")
-		params.Del("extra")
+		// currently no extra fields are supported
+		return nil, &ExtraFieldsInSearchError{
+			StudyID: params.Get("study_id"),
+			Fields:  strings.Split(params.Get("extra"), ","),
+		}
 	}
 
 	body, err := db.get("data_objects/", params)
@@ -542,7 +566,7 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 	}
 
 	// create biosample descriptors
-	biosampleDescriptors := make([]map[string]any, len(biosampleForWorkflow))
+	biosampleDescriptors := make([]map[string]any, 0)
 	for _, b := range biosampleForWorkflow {
 		biosample := b.(map[string]any)
 		var studyIds []string
@@ -634,23 +658,44 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		}
 
 		// credit metadata
-		if len(workflowExec.Studies) > 0 {
+		if len(workflowExec.Studies) == 1 {
 			relatedCredit = db.creditMetadataForStudy(workflowExec.Studies[0])
+		} else if len(workflowExec.Studies) > 1 {
+			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
+				Identifier:   workflowExecId,
+				ResourceType: "studies",
+				Count:        len(workflowExec.Studies),
+			}
 		}
 
 		// biosample metadata
-		if len(workflowExec.Biosamples) > 0 { // FIXME: can be > 1??
+		if len(workflowExec.Biosamples) == 1 {
 			relatedBiosample = workflowExec.Biosamples[0].(map[string]any)
+		} else if len(workflowExec.Biosamples) > 1 {
+			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
+				Identifier:   workflowExecId,
+				ResourceType: "biosamples",
+				Count:        len(workflowExec.Biosamples),
+			}
 		}
 
 		return relatedCredit, relatedBiosample, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
-		// FIXME: are we expecting to transfer raw data from NMDC? I don't think
-		// FIXME: they expect us to do this!
-		relatedCredit.ResourceType = "dataset"
+		return credit.CreditMetadata{}, nil, &UnexpectedRawDataFilesError{
+			WorkflowID: workflowExecId,
+		}
 	}
-	return relatedCredit, relatedBiosample, nil
+	return credit.CreditMetadata{}, nil, UnsupportedWorkflowTypeError{
+		WorkflowId: workflowExecId,
+	}
+}
+
+var idCategoryLabels = map[string]string{
+	"award_doi":                "Awarded proposal DOI",
+	"dataset_doi":              "Dataset DOI",
+	"publication_doi":          "Publication DOI",
+	"data_management_plan_doi": "Data management plan DOI",
 }
 
 // extracts credit metadata from the given study
@@ -664,7 +709,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 			Name:             association.Person.Name,
 			ContributorRoles: strings.Join(association.Roles, ","),
 		}
-		names := strings.Split(" ", association.Person.Name)
+		names := strings.Split(association.Person.Name, " ")
 		contributors[i].GivenName = names[0]
 		if len(names) > 1 {
 			contributors[i].FamilyName = names[len(names)-1]
@@ -688,16 +733,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 				Id:               doi.Value,
 				RelationshipType: "IsCitedBy",
 			}
-			switch doi.Category {
-			case "award_doi":
-				relatedIdentifiers[i].Description = "Awarded proposal DOI"
-			case "dataset_doi":
-				relatedIdentifiers[i].Description = "Dataset DOI"
-			case "publication_doi":
-				relatedIdentifiers[i].Description = "Publication DOI"
-			case "data_management_plan_doi":
-				relatedIdentifiers[i].Description = "Data management plan DOI"
-			}
+			relatedIdentifiers[i].Description = idCategoryLabels[doi.Category]
 		}
 	}
 
@@ -876,15 +912,39 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)
-			if slices.Contains(acceptedValues, value) {
-				p.Add(name, value)
-			} else {
-				return &databases.InvalidSearchParameter{
-					Database: "nmdc",
-					Message:  fmt.Sprintf("Invalid requested extra field: %s", value),
+			fieldValues := strings.Split(value, ",")
+			for _, fieldValue := range fieldValues {
+				fieldValue = strings.TrimSpace(fieldValue)
+				if slices.Contains(acceptedValues, fieldValue) {
+					p.Add(name, fieldValue)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "nmdc",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", fieldValue),
+					}
 				}
 			}
 		case "extra": // accepts comma-delimited strings
+			var value string
+			if value, ok = jsonValue.(string); !ok {
+				return &databases.InvalidSearchParameter{
+					Database: "nmdc",
+					Message:  "Invalid NMDC requested extra field given (must be comma-delimited string)",
+				}
+			}
+			acceptedValues := paramSpec["extra"].([]string)
+			extraValues := strings.Split(value, ",")
+			for _, extraValue := range extraValues {
+				extraValue = strings.TrimSpace(extraValue)
+				if slices.Contains(acceptedValues, extraValue) {
+					p.Add(name, extraValue)
+				} else {
+					return &databases.InvalidSearchParameter{
+						Database: "nmdc",
+						Message:  fmt.Sprintf("Invalid requested extra field: %s", extraValue),
+					}
+				}
+			}
 		default:
 			return &databases.InvalidSearchParameter{
 				Database: "nmdc",

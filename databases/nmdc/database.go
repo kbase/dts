@@ -73,14 +73,14 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 		opt(&cfg)
 	}
 
-	nmdcUser := config.Databases["nmdc"].User
+	nmdcUser := conf.Databases["nmdc"].User
 	if nmdcUser == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC user was provided for authentication",
 		}
 	}
-	nmdcPassword := config.Databases["nmdc"].Password
+	nmdcPassword := conf.Databases["nmdc"].Password
 	if nmdcPassword == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
@@ -88,7 +88,7 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 		}
 	}
 
-	if config.Databases["nmdc"].Endpoint != "" {
+	if conf.Databases["nmdc"].Endpoint != "" {
 		return nil, &databases.InvalidEndpointsError{
 			Database: "nmdc",
 			Message:  "NMDC requires 'nersc' and 'emsl' endpoints to be specified",
@@ -97,7 +97,7 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 	// check for "nersc" and "emsl" Globus endpoints
 	for _, functionalName := range []string{"nersc", "emsl"} {
 		// was this functional name assigned to an endpoint?
-		if _, found := config.Databases["nmdc"].Endpoints[functionalName]; !found {
+		if _, found := conf.Databases["nmdc"].Endpoints[functionalName]; !found {
 			return nil, &databases.InvalidEndpointsError{
 				Database: "nmdc",
 				Message:  fmt.Sprintf("Could not find '%s' endpoint for NMDC database", functionalName),
@@ -107,8 +107,8 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 
 	// fetch functional endpoint names and map URLs to them
 	// (see https://nmdc-documentation.readthedocs.io/en/latest/howto_guides/globus.html)
-	nerscEndpoint := config.Databases["nmdc"].Endpoints["nersc"]
-	emslEndpoint := config.Databases["nmdc"].Endpoints["emsl"]
+	nerscEndpoint := conf.Databases["nmdc"].Endpoints["nersc"]
+	emslEndpoint := conf.Databases["nmdc"].Endpoints["emsl"]
 
 	// NOTE: we prevent redirects from HTTPS -> HTTP!
 	db := &Database{

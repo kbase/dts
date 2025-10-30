@@ -152,7 +152,7 @@ const mockWorkflowResponse string = `{
 	]
 }`
 
-const mockWorkflowTooManyStudeiesResponse string = `{
+const mockWorkflowTooManyStudiesResponse string = `{
 	"id": "nmdc:wf-too-many-studies",
 	"name": "Mock Workflow with Too Many Studies",
 	"studies": [
@@ -367,7 +367,7 @@ func createMockNmdcServer() *httptest.Server {
 					return
 				} else if workflowId == "nmdc:wf-too-many-studies" {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(mockWorkflowTooManyStudeiesResponse))
+					w.Write([]byte(mockWorkflowTooManyStudiesResponse))
 					return
 				} else if workflowId == "nmdc:wf-too-many-biosamples" {
 					w.WriteHeader(http.StatusOK)
@@ -708,7 +708,6 @@ func TestDescriptors(t *testing.T) {
 		assert.Equal(nmdcSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
 		assert.Equal(nmdcSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
-		// skip comparisons of
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
 }

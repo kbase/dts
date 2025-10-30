@@ -61,15 +61,16 @@ type moverChannels struct {
 }
 
 func newMoverChannels() moverChannels {
+	numClients := 2 // dispatcher, stager
 	return moverChannels{
-		RequestMove:         make(chan uuid.UUID, 32),
-		RequestCancellation: make(chan uuid.UUID, 32),
-		Error:               make(chan error, 32),
+		RequestMove:         make(chan uuid.UUID, numClients),
+		RequestCancellation: make(chan uuid.UUID, numClients),
+		Error:               make(chan error),
 		SaveAndStop:         make(chan *gob.Encoder),
 	}
 }
 
-func (channels *moverChannels) close() {
+func (channels *moverChannels) Close() {
 	close(channels.RequestMove)
 	close(channels.RequestCancellation)
 	close(channels.Error)
@@ -99,7 +100,7 @@ func (m *moverState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("mover.Stop")
 	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
-	m.Channels.close()
+	m.Channels.Close()
 	return err
 }
 

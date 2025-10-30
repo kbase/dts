@@ -61,14 +61,14 @@ type stagerChannels struct {
 
 func newStagerChannels() stagerChannels {
 	return stagerChannels{
-		RequestStaging:      make(chan uuid.UUID, 31),
-		RequestCancellation: make(chan uuid.UUID, 31),
-		Error:               make(chan error, 31),
+		RequestStaging:      make(chan uuid.UUID),
+		RequestCancellation: make(chan uuid.UUID),
+		Error:               make(chan error),
 		SaveAndStop:         make(chan *gob.Encoder),
 	}
 }
 
-func (channels *stagerChannels) close() {
+func (channels *stagerChannels) Close() {
 	close(channels.RequestStaging)
 	close(channels.RequestCancellation)
 	close(channels.Error)
@@ -96,7 +96,7 @@ func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
 	slog.Debug("stager.Stop")
 	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
-	s.Channels.close()
+	s.Channels.Close()
 	return err
 }
 

@@ -233,7 +233,7 @@ func registerDatabases(conf config.Config) error {
 		}
 	}
 	if _, found := conf.Databases["nmdc"]; found {
-		if err := databases.RegisterDatabase("nmdc", nmdc.NewDatabase); err != nil {
+		if err := databases.RegisterDatabase("nmdc", nmdc.DatabaseConstructor(conf)); err != nil {
 			slog.Error(err.Error())
 		}
 	}

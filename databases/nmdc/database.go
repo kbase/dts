@@ -65,7 +65,7 @@ type DatabaseConfig struct {
 type DatabaseOption func(*DatabaseConfig)
 
 func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Database, error) {
-    cfg := DatabaseConfig{
+	cfg := DatabaseConfig{
 		BaseURL: defaultBaseApiURL,
 	}
 
@@ -112,8 +112,8 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 
 	// NOTE: we prevent redirects from HTTPS -> HTTP!
 	db := &Database{
-		BaseURL:        cfg.BaseURL,
-		Client: databases.SecureHttpClient(time.Second * 20),
+		BaseURL: cfg.BaseURL,
+		Client:  databases.SecureHttpClient(time.Second * 20),
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": nerscEndpoint,
 			"https://nmdcdemo.emsl.pnnl.gov/":       emslEndpoint,
@@ -484,11 +484,12 @@ type WorkflowExecution struct {
 // fetches metadata for data objects based on the given URL search parameters
 func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 	// extract any requested "extra" metadata fields (and scrub them from params)
-	// FIXME: no extra fields yet, so we simply remove this parameter
-	//var extraFields []string
 	if params.Has("extra") {
-		//extraFields = strings.Split(params.Get("extra"), ",")
-		params.Del("extra")
+		// currently no extra fields are supported
+		return nil, &ExtraFieldsInSearchError{
+			StudyID: params.Get("study_id"),
+			Fields:  strings.Split(params.Get("extra"), ","),
+		}
 	}
 
 	body, err := db.get("data_objects/", params)
@@ -565,7 +566,7 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 	}
 
 	// create biosample descriptors
-	biosampleDescriptors := make([]map[string]any, len(biosampleForWorkflow))
+	biosampleDescriptors := make([]map[string]any, 0)
 	for _, b := range biosampleForWorkflow {
 		biosample := b.(map[string]any)
 		var studyIds []string
@@ -661,9 +662,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 			relatedCredit = db.creditMetadataForStudy(workflowExec.Studies[0])
 		} else if len(workflowExec.Studies) > 1 {
 			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
-				Identifier: workflowExecId,
+				Identifier:   workflowExecId,
 				ResourceType: "studies",
-				Count:      len(workflowExec.Studies),
+				Count:        len(workflowExec.Studies),
 			}
 		}
 
@@ -672,9 +673,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 			relatedBiosample = workflowExec.Biosamples[0].(map[string]any)
 		} else if len(workflowExec.Biosamples) > 1 {
 			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
-				Identifier: workflowExecId,
+				Identifier:   workflowExecId,
 				ResourceType: "biosamples",
-				Count:      len(workflowExec.Biosamples),
+				Count:        len(workflowExec.Biosamples),
 			}
 		}
 
@@ -686,7 +687,7 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		}
 	}
 	return credit.CreditMetadata{}, nil, UnsupportedWorkflowTypeError{
-			WorkflowId: workflowExecId,
+		WorkflowId: workflowExecId,
 	}
 }
 

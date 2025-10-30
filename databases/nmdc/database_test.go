@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -73,7 +74,6 @@ const mockStudyResponse string = `{
   "title": "Tara Oceans Mediterranean Sea Expedition 2013"
 }`
 
-
 const mockDataObjectResponse string = `{
 	"id": "nmdc:do-1234-abcde56789",
 	"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
@@ -89,7 +89,7 @@ const mockDataObjectWithNmdcWorkflowResponse string = `{
 	"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
 	"was_generated_by": "nmdc:wf-1234-abcde56789"
 }`
-			
+
 const mockDataObjectsResponse string = `[
 	{
 		"biosample_id": "nmdc:bs-1234-abcde56789",
@@ -112,6 +112,25 @@ const mockDataObjectsResponse string = `[
 	}
 ]`
 
+const mockDataObjectsGetResponse string = `{
+	"results": [
+		{
+			"id": "nmdc:do-1234-abcde56789",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		},
+		{
+			"id": "nmdc:do-5678-efghij12345",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		}
+	]
+}`
+
 const mockWorkflowResponse string = `{
 	"id": "nmdc:wf-1234-abcde56789",
 	"name": "Mock Workflow",
@@ -124,7 +143,11 @@ const mockWorkflowResponse string = `{
 	"biosamples": [
 		{
 			"id": "nmdc:bs-1234-abcde56789",
-			"name": "Mock Biosample 1"
+			"name": "Mock Biosample 1",
+			"associated_studies": [
+				"nmdc:sty-11-r2h77870",
+				"nmdc:sty-22-x3y4z56789"
+			]
 		}
 	]
 }`
@@ -183,7 +206,6 @@ var mockNmdcSecret string = "testsecret"
 var mockNerscEndpoint string = "globus-nmdc-nersc"
 var mockEmslEndpoint string = "globus-nmdc-emsl"
 
-
 // since NMDC doesn't support search queries at this time, we search for
 // data objects related to a study
 var nmdcSearchParams map[string]any
@@ -224,9 +246,45 @@ func createMockNmdcServer() *httptest.Server {
 					"minutes": 0,
 				},
 			})
+		case "/data_objects/":
+			token := r.Header.Get("Authorization")
+			if token != "Bearer "+mockNmdcSecret {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "invalid credentials",
+				})
+				return
+			}
+			if !r.URL.Query().Has("sample_id") {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "missing sample_id parameter",
+				})
+				return
+			}
+			sampleId := r.URL.Query().Get("sample_id")
+			// return mock data objects for the sample
+			if sampleId == "nmdc:bs-1234-abcde56789" {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(mockDataObjectsGetResponse))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "data objects for study not found",
+			})
+			return
 		default:
-			if strings.HasPrefix(r.URL.Path, "/studies") {
+			if strings.HasPrefix(r.URL.Path, "/studies/") {
 				// return mock search results for study: /studies/nmdc:sty-11-r2h77870
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
 				id := strings.TrimPrefix(r.URL.Path, "/studies/")
 				if id == "nmdc:sty-11-r2h77870" {
 					w.WriteHeader(http.StatusOK)
@@ -240,6 +298,14 @@ func createMockNmdcServer() *httptest.Server {
 				return
 			} else if strings.HasPrefix(r.URL.Path, "/data_objects/study/") {
 				// return mock data object search results for study data objects
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
 				studyId := strings.TrimPrefix(r.URL.Path, "/data_objects/study/")
 				if studyId == "nmdc:sty-11-r2h77870" {
 					w.WriteHeader(http.StatusOK)
@@ -253,6 +319,14 @@ func createMockNmdcServer() *httptest.Server {
 				return
 			} else if strings.HasPrefix(r.URL.Path, "/data_objects/") {
 				// return mock data object descriptors for: /data_objects/{id}
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
 				dataObjectId := strings.TrimPrefix(r.URL.Path, "/data_objects/")
 				if dataObjectId == "nmdc:do-1234-abcde56789" {
 					w.WriteHeader(http.StatusOK)
@@ -270,6 +344,14 @@ func createMockNmdcServer() *httptest.Server {
 				return
 			} else if strings.HasPrefix(r.URL.Path, "/workflow_executions/") {
 				// return mock workflow for: /workflow_executions/{id}
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
 				workflowId := strings.TrimPrefix(r.URL.Path, "/workflow_executions/")
 				if !strings.HasSuffix(workflowId, "/related_resources") {
 					w.WriteHeader(http.StatusBadRequest)
@@ -311,20 +393,20 @@ func createMockNmdcServer() *httptest.Server {
 func NewMockDatabase(baseUrl string) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
 		return &Database{
-			BaseURL:        baseUrl,
-			Auth:           authorization{
+			BaseURL: baseUrl,
+			Auth: authorization{
 				Credential: credential{
 					User:     mockNmdcUser,
 					Password: mockNmdcPassword,
 				},
-				Token: mockNmdcSecret,
-				Type:  "basic",
+				Token:   mockNmdcSecret,
+				Type:    "basic",
 				Expires: false,
 			},
 			EndpointForHost: map[string]string{
-			"https://data.microbiomedata.org/data/": mockNerscEndpoint,
-			"https://nmdcdemo.emsl.pnnl.gov/":       mockEmslEndpoint,
-		},
+				"https://data.microbiomedata.org/data/": mockNerscEndpoint,
+				"https://nmdcdemo.emsl.pnnl.gov/":       mockEmslEndpoint,
+			},
 		}, nil
 	}
 }
@@ -444,6 +526,46 @@ func TestNewDatabase(t *testing.T) {
 		assert.NotNil(db, "NMDC mock database not created")
 		assert.Nil(err, "NMDC mock database creation encountered an error")
 	}
+
+	// test with missing user
+	badConfig, _ := config.NewConfig([]byte(configString))
+	nmdcConfig := badConfig.Databases["nmdc"]
+	nmdcConfig.User = ""
+	badConfig.Databases["nmdc"] = nmdcConfig
+	db, err := NewDatabase(badConfig)
+	assert.Nil(db, "NMDC database created with missing user")
+	assert.NotNil(err, "NMDC database creation with missing user did not return an error")
+
+	// test with missing password
+	badConfig, _ = config.NewConfig([]byte(configString))
+	nmdcConfig = badConfig.Databases["nmdc"]
+	nmdcConfig.Password = ""
+	badConfig.Databases["nmdc"] = nmdcConfig
+	db, err = NewDatabase(badConfig)
+	assert.Nil(db, "NMDC database created with missing password")
+	assert.NotNil(err, "NMDC database creation with missing password did not return an error")
+
+	// test with incorrectly specified endpoint
+	badConfig, _ = config.NewConfig([]byte(configString))
+	nmdcConfig = badConfig.Databases["nmdc"]
+	nmdcConfig.Endpoint = "some-bad-endpoint"
+	badConfig.Databases["nmdc"] = nmdcConfig
+	db, err = NewDatabase(badConfig)
+	assert.Nil(db, "NMDC database created with incorrectly specified endpoint")
+	assert.NotNil(err, "NMDC database creation with incorrectly specified endpoint did not return an error")
+
+	// test without nersc and emsl endpoints
+	badConfig, _ = config.NewConfig([]byte(configString))
+	nmdcConfig = badConfig.Databases["nmdc"]
+	nmdcConfig.Endpoint = ""
+	nmdcConfig.Endpoints = map[string]string{
+		"nersc":    "globus-nmdc-nersc",
+		"not-emsl": "globus-nmdc-not-emsl",
+	}
+	badConfig.Databases["nmdc"] = nmdcConfig
+	db, err = NewDatabase(badConfig)
+	assert.Nil(db, "NMDC database not created with nersc and emsl endpoints")
+	assert.NotNil(err, "NMDC database creation with nersc and emsl endpoints encountered an error")
 }
 
 func TestSearch(t *testing.T) {
@@ -454,7 +576,7 @@ func TestSearch(t *testing.T) {
 	} else {
 		db = getMockNmdcDatabase(t)
 	}
-	
+
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,
@@ -462,6 +584,95 @@ func TestSearch(t *testing.T) {
 	results, err := db.Search(testOrcid, params)
 	assert.True(len(results.Descriptors) > 0, "NMDC search query returned no results")
 	assert.Nil(err, "NMDC search query encountered an error")
+
+	// check with parameters that don't include a study_id
+	mockDb := getMockNmdcDatabase(t)
+	params = databases.SearchParameters{
+		Query: "",
+		Specific: map[string]any{
+			"sample_id": "nmdc:bs-1234-abcde56789",
+		},
+	}
+	results, err = mockDb.Search(testOrcid, params)
+	assert.Nil(err, "NMDC search query without study_id encountered an error")
+	assert.NotNil(results, "NMDC search query without study_id did not return results")
+}
+
+func TestSimpleFunctions(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+
+	// StageFiles just returns new UUID
+	id, err := db.StageFiles(testOrcid, []string{"file1", "file2"})
+	assert.Nil(err, "StageFiles encountered an error")
+	assert.NotEmpty(id, "StageFiles returned empty ID")
+
+	// StagingStatus just returns "succeeded"
+	status, err := db.StagingStatus(id)
+	assert.Nil(err, "StagingStatus encountered an error")
+	assert.Equal(databases.StagingStatusSucceeded, status, "StagingStatus returned unexpected status")
+
+	// Finalize does nothing
+	err = db.Finalize(testOrcid, id)
+	assert.Nil(err, "Finalize encountered an error")
+
+	// LocalUser is not implemented for NMDC
+	localUser, err := db.LocalUser(testOrcid)
+	assert.Nil(err, "LocalUser encountered an error")
+	assert.Equal("localuser", localUser, "LocalUser returned unexpected value")
+}
+
+func TestSaveLoad(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+
+	state, err := db.Save()
+	assert.Nil(err, "Save encountered an error")
+	assert.NotNil(state, "Save returned nil state")
+
+	var db2 Database
+	err = db2.Load(state)
+	assert.Nil(err, "Load encountered an error")
+	// no state to save, so nothing to compare
+}
+
+func TestGetAccessToken(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dbNmdc := db.(*Database)
+
+	// get a token for a valid user
+	cred := credential{
+		User:     mockNmdcUser,
+		Password: mockNmdcPassword,
+	}
+	auth, err := dbNmdc.getAccessToken(cred)
+	assert.Nil(err, "getAccessToken encountered an error")
+	assert.Equal(mockNmdcSecret, auth.Token, "getAccessToken returned incorrect token")
+
+	// get a token for an invalid user
+	cred = credential{
+		User:     "baduser",
+		Password: "badpassword",
+	}
+	auth, err = dbNmdc.getAccessToken(cred)
+	assert.NotNil(err, "getAccessToken with invalid credentials did not return an error")
+	assert.Equal("", auth.Token, "getAccessToken with invalid credentials returned a token")
+}
+
+func TestRenewAccessTokenIfExpired(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dbNmdc := db.(*Database)
+
+	// set an expired token
+	dbNmdc.Auth.Token = "expired_token"
+	dbNmdc.Auth.ExpirationTime = time.Now().Add(-1 * time.Hour)
+
+	// call renewAccessTokenIfExpired
+	err := dbNmdc.renewAccessTokenIfExpired()
+	assert.Nil(err, "renewAccessTokenIfExpired encountered an error")
+	assert.Equal(mockNmdcSecret, dbNmdc.Auth.Token, "Access token was not renewed correctly")
 }
 
 func TestDescriptors(t *testing.T) {
@@ -497,27 +708,84 @@ func TestDescriptors(t *testing.T) {
 		assert.Equal(nmdcSearchResult["bytes"], desc["bytes"], "Resource size mismatch")
 		assert.Equal(nmdcSearchResult["mediatype"], desc["mediatype"], "Resource media type mismatch")
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
-		// skip comparisons of 
+		// skip comparisons of
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
+}
+
+func TestDataObjects(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dbNmdc := db.(*Database)
+	params := url.Values{}
+	params.Add("sample_id", "nmdc:bs-1234-abcde56789")
+	dataObjects, err := dbNmdc.dataObjects(params)
+	assert.Nil(err, "dataObjects encountered an error")
+	assert.Equal(2, len(dataObjects), "dataObjects returned incorrect number of data objects")
+	assert.Equal("nmdc:do-1234-abcde56789", dataObjects[0].Id, "dataObjects returned incorrect first data object ID")
+	assert.Equal("nmdc:do-5678-efghij12345", dataObjects[1].Id, "dataObjects returned incorrect second data object ID")
+
+	// include unsupported extra fields in search params
+	params.Add("extra", "some_field,some_other_field")
+	dataObjects, err = dbNmdc.dataObjects(params)
+	assert.NotNil(err, "dataObjects with unsupported field did not encounter an error")
+	assert.Nil(dataObjects, "dataObjects with unsupported field returned data objects")
+}
+
+func TestCreateDataObjectAndBiosampleDescriptors(t *testing.T) {
+	assert := assert.New(t)
+	db := getMockNmdcDatabase(t)
+	dbNmdc := db.(*Database)
+
+	dataObjects := []DataObject{
+		{
+			Id:             "nmdc:do-1234-abcde56789",
+			Name:           "Test Data Object 1.txt",
+			Description:    "This is test data object 1",
+			FileSizeBytes:  123456,
+			MD5Checksum:    "d41d8cd98f00b204e9800998ecf8427e",
+			URL:            "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
+			Type:           "data_object",
+			WasGeneratedBy: "nmdc:wf-1234-abcde56789",
+		},
+		{
+			Id:             "nmdc:do-5678-efghij12345",
+			Name:           "Test Data Object 2.txt",
+			Description:    "This is test data object 2",
+			FileSizeBytes:  654321,
+			MD5Checksum:    "0cc175b9c0f1b6a831c399e269772661",
+			URL:            "https://data.microbiomedata.org/data/nmdc:do-5678-efghij12345",
+			Type:           "data_object",
+			WasGeneratedBy: "nmdc:wf-1234-abcde56789",
+		},
+	}
+	dataDesc, bioDesc, err := dbNmdc.createDataObjectAndBiosampleDescriptors(dataObjects)
+	assert.Nil(err, "createDataObjectAndBiosampleDescriptors encountered an error")
+	assert.Equal(2, len(dataDesc), "createDataObjectAndBiosampleDescriptors returned incorrect number of data object descriptors")
+	assert.Equal("nmdc:do-1234-abcde56789", dataDesc[0]["id"], "createDataObjectAndBiosampleDescriptors returned incorrect first data object ID")
+	assert.Equal("nmdc:do-5678-efghij12345", dataDesc[1]["id"], "createDataObjectAndBiosampleDescriptors returned incorrect second data object ID")
+	assert.NotNil(bioDesc, "createDataObjectAndBiosampleDescriptors returned nil biosample descriptor")
+	assert.Equal(2, len(bioDesc), "createDataObjectAndBiosampleDescriptors returned incorrect number of biosample descriptors")
+	assert.Equal("biosample-metadata-for-study-nmdc:sty-11-r2h77870", bioDesc[0]["name"], "createDataObjectAndBiosampleDescriptors returned incorrect biosample ID")
+	assert.Equal("biosample-metadata-for-study-nmdc:sty-22-x3y4z56789", bioDesc[1]["name"], "createDataObjectAndBiosampleDescriptors returned incorrect biosample ID")
 }
 
 func TestCreateDataObjectDescriptor(t *testing.T) {
 	assert := assert.New(t)
 	db := getMockNmdcDatabase(t)
 	dataObject := DataObject{
-		Id:          "nmdc:do-1234-abcde56789",
-		Name:        "Test Data Object.txt",
-		Description: "This is a test data object",
+		Id:            "nmdc:do-1234-abcde56789",
+		Name:          "Test Data Object.txt",
+		Description:   "This is a test data object",
 		FileSizeBytes: 123456,
-		MD5Checksum: "d41d8cd98f00b204e9800998ecf8427e",
-		URL:		 "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
-		Type:	   "data_object",
+		MD5Checksum:   "d41d8cd98f00b204e9800998ecf8427e",
+		URL:           "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
+		Type:          "data_object",
 	}
 	studyCredit := credit.CreditMetadata{
 		Identifier:   "original-study-id",
 		ResourceType: "study",
-		Url: 		"original-study-url",
+		Url:          "original-study-url",
 	}
 	nmdcDb := db.(*Database)
 	descriptor := nmdcDb.createDataObjectDescriptor(dataObject, studyCredit)
@@ -574,7 +842,7 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many studies should error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no biosample")
-	
+
 	// check workflow with too many biosamples
 	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-biosamples")
 	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should error")
@@ -586,30 +854,30 @@ func TestCreditMetadataForStudy(t *testing.T) {
 	assert := assert.New(t)
 	db := Database{}
 	study := Study{
-		Id:		  "nmdc:sty-11-r2h77870",
-		Title:    "Primary Title",
+		Id:    "nmdc:sty-11-r2h77870",
+		Title: "Primary Title",
 		AlternativeTitles: []string{
 			"Secondary Title",
 			"Tertiary Title",
 		},
 		CreditAssociations: []CreditAssociation{
 			{
-				Roles:       []string{"creator"},
+				Roles: []string{"creator"},
 				Person: PersonValue{
 					Email: "jane.doe@example.com",
 					Name:  "Jane Doe",
 				},
 			},
 			{
-				Roles:       []string{"contributor","tester"},
+				Roles: []string{"contributor", "tester"},
 				Person: PersonValue{
-					Name: "John Smith",
+					Name:  "John Smith",
 					Orcid: "0000-0002-1825-0097",
 				},
 				Type: "person",
 			},
 			{
-				Roles:       []string{"singer"},
+				Roles: []string{"singer"},
 				Person: PersonValue{
 					Name: "Cher",
 				},
@@ -709,7 +977,7 @@ func TestPageNumberAndSize(t *testing.T) {
 func TestFormatFromType(t *testing.T) {
 	assert := assert.New(t)
 	tests := []struct {
-		FileType 	 string
+		FileType       string
 		ExpectedFormat string
 	}{
 		{"BAI File", "bai"},
@@ -751,10 +1019,10 @@ func TestMimeTypeForFile(t *testing.T) {
 func TestDataResourceName(t *testing.T) {
 	assert := assert.New(t)
 	inputOutputPairs := map[string]string{
-		"name-with.valid_chars.txt": "name-with.valid_chars",
+		"name-with.valid_chars.txt":       "name-with.valid_chars",
 		"name with!invalid*%(chars).html": "name_with_invalid_chars_",
-		"": "",
-		"^.*$&%": "_",
+		"":                                "",
+		"^.*$&%":                          "_",
 	}
 	for input, expectedOutput := range inputOutputPairs {
 		t.Run(input, func(t *testing.T) {
@@ -769,7 +1037,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
 	db := Database{}
 	validParams := map[string]any{
-		"study_id": "nmdc:sty-11-r2h77870",
+		"study_id":       "nmdc:sty-11-r2h77870",
 		"data_object_id": "nmdc:do-1234-abcde56789",
 	}
 	p := url.Values{}
@@ -785,12 +1053,12 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 
 	invalidParams := []map[string]any{
 		{"invalid_param": "some_value"},
-		{"study_id": 12345}, // invalid type
+		{"study_id": 12345},                                     // invalid type
 		{"data_object_id": []string{"nmdc:do-1234-abcde56789"}}, // invalid type
-		{"extra": "invalid_field,other_invalid_field"}, // invalid value
-		{"extra": 23456}, // invalid type
-		{"fields": "invalid_field"}, // invalid value
-		{"fields": 34567}, // invalid type
+		{"extra": "invalid_field,other_invalid_field"},          // invalid value
+		{"extra": 23456},                                        // invalid type
+		{"fields": "invalid_field"},                             // invalid value
+		{"fields": 34567},                                       // invalid type
 	}
 	for _, params := range invalidParams {
 		p := url.Values{}

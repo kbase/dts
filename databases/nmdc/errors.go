@@ -55,3 +55,14 @@ func (e TooManyRecordsError) Error() string {
 	return fmt.Sprintf("too many NMDC records returned for %s with identifier %s: %d",
 		e.ResourceType, e.Identifier, e.Count)
 }
+
+// This error type indicates unsupported extra fields were included in a NMDC search.
+type ExtraFieldsInSearchError struct {
+	StudyID string
+	Fields  []string
+}
+
+func (e ExtraFieldsInSearchError) Error() string {
+	return fmt.Sprintf("unsupported extra fields included in NMDC search for study ID: %s, fields: %v",
+		e.StudyID, e.Fields)
+}

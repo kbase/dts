@@ -819,7 +819,7 @@ func (service *prototype) getTransferRecords(ctx context.Context,
 	input *struct {
 		Authorization string    `header:"authorization" doc:"Authorization header with encoded access token"`
 		Start         time.Time `path:"start" example:"2025-01-02T15:04:05Z07:00" doc:"the start date for the requested transfers"`
-		End           time.Time `path:"end" example:"2025-02-01T11:00:00Z07:00" doc:"the start date for the requested transfers"`
+		End           time.Time `path:"end" example:"2025-02-01T11:00:00Z07:00" doc:"the end date for the requested transfers"`
 	}) (*TransferRecordsOutput, error) {
 
 	_, err := authorize(input.Authorization)

@@ -41,6 +41,11 @@ credentials:
   globus:
     id: ${GLOBUS_CLIENT_ID}
     secret: ${GLOBUS_CLIENT_SECRET}
+  jdp:
+    secret: ${DTS_JDP_SECRET}
+  nmdc:
+    id: ${DTS_NMDC_USER}
+    secret: ${DTS_NMDC_PASSWORD}
 
 endpoints:
   globus-local:
@@ -77,6 +82,7 @@ databases: # databases between which files can be transferred
   jdp:
     name: JGI Data Portal
     organization: Joint Genome Institute
+    credential: jdp
     endpoint: globus-jdp
   kbase:
     name: KBase Workspace Service (KSS)
@@ -85,6 +91,7 @@ databases: # databases between which files can be transferred
   nmdc:
     name: National Microbiome Data Collaborative
     organization: LBNL, PNNL, ORNL
+    credential: nmdc
     endpoints:
       nersc: globus-nmdc-nersc
       emsl: globus-nmdc-emsl

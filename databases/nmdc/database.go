@@ -39,6 +39,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
@@ -73,15 +74,14 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 		opt(&cfg)
 	}
 
-	nmdcUser := conf.Databases["nmdc"].User
-	if nmdcUser == "" {
+	nmdcCredential := conf.Credentials[conf.Databases["nmdc"].Credential]
+	if nmdcCredential.Id == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC user was provided for authentication",
 		}
 	}
-	nmdcPassword := conf.Databases["nmdc"].Password
-	if nmdcPassword == "" {
+	if nmdcCredential.Secret == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC password was provided for authentication",
@@ -121,7 +121,7 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 	}
 
 	// get an API access token
-	auth, err := db.getAccessToken(credential{User: nmdcUser, Password: nmdcPassword})
+	auth, err := db.getAccessToken(nmdcCredential)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ const (
 
 type authorization struct {
 	// API user credential
-	Credential credential
+	Credential auth.Credential
 	// client token and type (indicating how it's used in an auth header)
 	Token, Type string
 	// indicates whether the token expires
@@ -285,12 +285,8 @@ type authorization struct {
 	ExpirationTime time.Time
 }
 
-type credential struct {
-	User, Password string
-}
-
 // fetches an access token / type from NMDC using a credential
-func (db *Database) getAccessToken(credential credential) (authorization, error) {
+func (db *Database) getAccessToken(credential auth.Credential) (authorization, error) {
 	var auth authorization
 	// NOTE: no slash at the end of the resource, or there's an
 	// NOTE: HTTPS -> HTTP redirect (?!??!!)
@@ -299,8 +295,8 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 	// the token request must be URL-encoded
 	data := url.Values{}
 	data.Set("grant_type", "password")
-	data.Set("username", credential.User)
-	data.Set("password", credential.Password)
+	data.Set("username", credential.Id)
+	data.Set("password", credential.Secret)
 	request, err := http.NewRequest(http.MethodPost, resource, strings.NewReader(data.Encode()))
 	if err != nil {
 		return auth, err
@@ -363,7 +359,7 @@ func (db *Database) getAccessToken(credential credential) (authorization, error)
 		}
 		return auth, &databases.UnauthorizedError{
 			Database: "nmdc",
-			User:     credential.User,
+			User:     credential.Id,
 			Message:  errResponse.Detail,
 		}
 	}

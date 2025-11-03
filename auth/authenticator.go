@@ -26,13 +26,10 @@ import (
 	"encoding/csv"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fernet/fernet-go"
-
-	"github.com/kbase/dts/config"
 )
 
 // This type accepts a valid access token in exchange for a user record. It is
@@ -44,6 +41,7 @@ type Authenticator struct {
 	TimeOfLastRead  time.Time
 	RereadInterval  time.Duration
 	AccessTokenFile string
+	Secret          string
 }
 
 const (
@@ -53,10 +51,12 @@ const (
 	defaultAccessTokenFile = "access.dat"
 )
 
-func NewAuthenticator() (*Authenticator, error) {
+// Creates a new authenticator by reading an access token file and decrypting it with a secret.
+func NewAuthenticator(accessTokenFile, secret string) (*Authenticator, error) {
 	var a Authenticator
 	a.RereadInterval = defaultRereadInterval
-	a.AccessTokenFile = defaultAccessTokenFile
+	a.AccessTokenFile = accessTokenFile
+	a.Secret = secret
 	err := a.readAccessTokenFile()
 	if err != nil {
 		return nil, err
@@ -83,13 +83,12 @@ func (a *Authenticator) GetUser(accessToken string) (User, error) {
 }
 
 func (a *Authenticator) readAccessTokenFile() error {
-	tokenFilePath := filepath.Join(config.Service.DataDirectory, a.AccessTokenFile)
-	key, err := fernet.DecodeKey(config.Service.Secret)
+	key, err := fernet.DecodeKey(a.Secret)
 	if err != nil {
 		return err
 	}
 
-	cipherText, err := os.ReadFile(tokenFilePath)
+	cipherText, err := os.ReadFile(a.AccessTokenFile)
 	if err != nil {
 		return err
 	}

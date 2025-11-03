@@ -27,6 +27,7 @@ package auth
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,9 +35,6 @@ import (
 
 	"github.com/fernet/fernet-go"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/kbase/dts/config"
-	"github.com/kbase/dts/dtstest"
 )
 
 // runs setup, runs all tests, and does breakdown
@@ -51,7 +49,6 @@ func TestMain(m *testing.M) {
 func TestRunner(t *testing.T) {
 	tester := SerialTests{Test: t}
 	tester.TestNewAuthenticator()
-	tester.TestInvalidDataDirectory()
 	tester.TestGetUser()
 	tester.TestGetUserAfterReread()
 	tester.TestGetUserAfterBadReread()
@@ -63,6 +60,9 @@ var TestKey fernet.Key
 
 // temporary testing directory
 var TestDir string
+
+// testing access token file
+var TestAccessTokenFile string
 
 // testing access token
 var TestAccessToken string
@@ -77,7 +77,7 @@ var TestUser = User{
 }
 
 func setup() {
-	dtstest.EnableDebugLogging()
+	enableDebugLogging()
 
 	log.Print("Creating testing directory...\n")
 	var err error
@@ -85,13 +85,11 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't create testing directory: %s", err.Error())
 	}
-	config.Service.DataDirectory = TestDir
 
 	err = TestKey.Generate()
 	if err != nil {
 		log.Panicf("Couldn't generate encryption key: %s", err.Error())
 	}
-	config.Service.Secret = TestKey.Encode()
 
 	TestAccessToken = "7029c1877e9c2dd3dab814cc0f2763af"
 
@@ -106,7 +104,8 @@ func setup() {
 		log.Panicf("Couldn't encrypt test access data: %s", err.Error())
 	}
 
-	output, err := os.Create(filepath.Join(TestDir, "access.dat"))
+	TestAccessTokenFile = filepath.Join(TestDir, "access.dat")
+	output, err := os.Create(TestAccessTokenFile)
 	if err != nil {
 		log.Panicf("Couldn't open test access data file: %s", err.Error())
 	}
@@ -119,6 +118,13 @@ func setup() {
 	setupKBaseAuthServerTests()
 }
 
+func enableDebugLogging() {
+	logLevel := new(slog.LevelVar)
+	logLevel.Set(slog.LevelDebug)
+	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
+	slog.SetDefault(slog.New(h))
+}
+
 // To run the tests serially, we attach them to a SerialTests type and
 // have them run by a a single test runner.
 type SerialTests struct{ Test *testing.T }
@@ -127,27 +133,16 @@ type SerialTests struct{ Test *testing.T }
 // constructed
 func (t *SerialTests) TestNewAuthenticator() {
 	assert := assert.New(t.Test)
-	auth, err := NewAuthenticator()
+	auth, err := NewAuthenticator(TestAccessTokenFile, TestKey.Encode())
 	assert.NotNil(auth, "Authenticator not created")
 	assert.Nil(err, "Authenticator constructor triggered an error")
-}
-
-// tests the case in which a directory without an encrpyted access.dat file has
-// been configured for the authenticator
-func (t *SerialTests) TestInvalidDataDirectory() {
-	assert := assert.New(t.Test)
-	config.Service.DataDirectory = os.Getenv("HOME")
-	auth, err := NewAuthenticator()
-	assert.Nil(auth, "Authenticator created with invalid data directory")
-	assert.NotNil(err, "Invalid data directory for authenticator triggered no error")
-	config.Service.DataDirectory = TestDir
 }
 
 // tests whether the authenticator server can return information for the
 // the user associated with a valid ORCID
 func (t *SerialTests) TestGetUser() {
 	assert := assert.New(t.Test)
-	auth, err := NewAuthenticator()
+	auth, err := NewAuthenticator(TestAccessTokenFile, TestKey.Encode())
 	assert.NotNil(auth)
 	assert.Nil(err)
 
@@ -166,7 +161,7 @@ func (t *SerialTests) TestGetUser() {
 // user after enough time has passed to trigger a re-read of the access file
 func (t *SerialTests) TestGetUserAfterReread() {
 	assert := assert.New(t.Test)
-	auth, err := NewAuthenticator()
+	auth, err := NewAuthenticator(TestAccessTokenFile, TestKey.Encode())
 	assert.NotNil(auth)
 	assert.Nil(err)
 
@@ -188,7 +183,7 @@ func (t *SerialTests) TestGetUserAfterReread() {
 // tests whether the authenticator server handles a bad re-read correctly
 func (t *SerialTests) TestGetUserAfterBadReread() {
 	assert := assert.New(t.Test)
-	auth, err := NewAuthenticator()
+	auth, err := NewAuthenticator(TestAccessTokenFile, TestKey.Encode())
 	assert.NotNil(auth)
 	assert.Nil(err)
 
@@ -209,7 +204,7 @@ func (t *SerialTests) TestGetUserAfterBadReread() {
 // (fictitious ORCID: https://orcid.org/0000-0001-5109-3700)
 func (t *SerialTests) TestGetInvalidUser() {
 	assert := assert.New(t.Test)
-	auth, _ := NewAuthenticator()
+	auth, _ := NewAuthenticator(TestAccessTokenFile, TestKey.Encode())
 	badAccessToken := "c5683570c1412b77eabcb9d6eb0aae2a"
 	_, err := auth.GetUser(badAccessToken)
 	assert.NotNil(err)

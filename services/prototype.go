@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -134,32 +135,31 @@ func (service *prototype) Close() {
 // Version numbers
 var majorVersion = 0
 var minorVersion = 9
-var patchVersion = 6
+var patchVersion = 7
 
 // Version string
 var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
 
 // Authorize clients for the DTS, returning information about the user
 // corresponding to the token in the header (or an error describing any issue
-// encountered). This returns either an auth.User (if authorized via the DTS Authenticator) or
-// an auth.Client (if authorized via the KBase auth2 server).
-func authorize(authorizationHeader string) (any, error) {
+// encountered).
+func authorize(authorizationHeader string) (auth.User, error) {
 	if !strings.Contains(authorizationHeader, "Bearer ") {
 		return auth.User{}, fmt.Errorf("invalid authorization header")
 	}
 	b64Token := authorizationHeader[len("Bearer "):]
 	accessTokenBytes, err := base64.StdEncoding.DecodeString(b64Token)
 	if err != nil {
-		return auth.Client{}, huma.Error401Unauthorized(err.Error())
+		return auth.User{}, huma.Error401Unauthorized(err.Error())
 	}
 	accessToken := strings.TrimSpace(string(accessTokenBytes))
 
-	var client auth.Client
+	var user auth.User
 
 	// first, check the access token against the DTS authenticator
-	authenticator, err := auth.NewAuthenticator()
+	accessTokenFile := filepath.Join(config.Service.DataDirectory, "access.dat")
+	authenticator, err := auth.NewAuthenticator(accessTokenFile, config.Service.Secret)
 	if err == nil {
-		var user auth.User
 		user, err = authenticator.GetUser(accessToken)
 		if err == nil {
 			return user, nil
@@ -172,19 +172,19 @@ func authorize(authorizationHeader string) (any, error) {
 		// maybe it's a KBase dev token, so check with the KBase auth server
 		authServer, err := auth.NewKBaseAuthServer(accessToken)
 		if err != nil {
-			return auth.Client{}, huma.Error401Unauthorized(err.Error())
+			return auth.User{}, huma.Error401Unauthorized(err.Error())
 		}
-		client, err = authServer.Client()
+		user, err = authServer.User()
 		if err != nil {
-			return client, huma.Error401Unauthorized(err.Error())
+			return user, huma.Error401Unauthorized(err.Error())
 		}
 	}
 
 	// the client needs at least one associated ORCID
-	if client.Orcid == "" {
-		return client, huma.Error403Forbidden("The DTS client has no associated ORCID!")
+	if user.Orcid == "" {
+		return user, huma.Error403Forbidden("The DTS client has no associated ORCID!")
 	}
-	return client, nil
+	return user, nil
 }
 
 type ServiceInfoOutput struct {
@@ -422,7 +422,7 @@ func searchDatabase(_ context.Context,
 	input *SearchDatabaseInput,
 	specific map[string]json.RawMessage) (*SearchResultsOutput, error) {
 
-	userOrClient, err := authorize(input.Authorization)
+	user, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -476,12 +476,7 @@ func searchDatabase(_ context.Context,
 	// FIXME: for now, if a user ORCID is not specified, use the user/client's ORCID
 	orcid := input.Orcid
 	if orcid == "" {
-		switch u := userOrClient.(type) {
-		case auth.User:
-			orcid = u.Orcid
-		case auth.Client:
-			orcid = u.Orcid
-		}
+		orcid = user.Orcid
 	}
 
 	slog.Info(fmt.Sprintf("Searching database %s for files...", input.Database))
@@ -571,7 +566,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		Limit         int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
 	}) (*FileMetadataOutput, error) {
 
-	userOrClient, err := authorize(input.Authorization)
+	user, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
@@ -595,15 +590,10 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		return nil, err
 	}
 
-	// FIXME: for now, if a user ORCID is not specified, use the client's ORCID
+	// FIXME: for now, if a user ORCID is not specified, use the authorized user's ORCID
 	orcid := input.Orcid
 	if orcid == "" {
-		switch u := userOrClient.(type) {
-		case auth.User:
-			orcid = u.Orcid
-		case auth.Client:
-			orcid = u.Orcid
-		}
+		orcid = user.Orcid
 	}
 
 	descriptors, err := db.Descriptors(orcid, ids)
@@ -656,35 +646,18 @@ func (service *prototype) createTransfer(ctx context.Context,
 		ContentType   string          `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
 	}) (*TransferOutput, error) {
 
-	userOrClient, err := authorize(input.Authorization)
+	user, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
-	}
-
-	// fetch information about the requesting user
-	user, isUser := userOrClient.(auth.User)
-	if !isUser {
-		client := userOrClient.(auth.Client)
-		user = auth.User{
-			Name:         client.Name,
-			Email:        client.Email,
-			Orcid:        client.Orcid,
-			Organization: client.Organization,
-		}
 	}
 
 	if input.Body.Orcid == "" {
 		return nil, huma.Error401Unauthorized("No user ORCID was provided")
 	}
-	if !isUser {
-		// override the client's ORCID
-		user.Orcid = input.Body.Orcid
-	} else {
-		// a user is requesting a transfer on behalf of another user
-		// FIXME: for now, we only extract the ORCID and keep everything else the same, but at length
-		// FIXME: we should fill in the other fields with the ORCID public record
-		user.Orcid = input.Body.Orcid
-	}
+	// override the client's ORCID
+	// FIXME: for now, we only extract the ORCID and keep everything else the same, but at length
+	// FIXME: we should fill in the other fields with the ORCID public record
+	user.Orcid = input.Body.Orcid
 
 	// inspect the list of files, making sure there are no duplicates
 	duplicates := DuplicateFileIds(input.Body)

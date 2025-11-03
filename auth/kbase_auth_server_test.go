@@ -200,12 +200,11 @@ func TestClient(t *testing.T) {
 	if len(devToken) > 0 {
 		server, _ := NewKBaseAuthServer(devToken)
 		assert.NotNil(server)
-		client, err := server.Client()
+		user, err := server.User()
 		assert.Nil(err)
 
-		assert.True(len(client.Username) > 0)
-		assert.True(len(client.Email) > 0)
-		assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), client.Orcid)
+		assert.True(len(user.Email) > 0)
+		assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), user.Orcid)
 	}
 
 	// test with the mock server
@@ -214,11 +213,10 @@ func TestClient(t *testing.T) {
 			cfg.BaseURL = mockKBaseServer.URL
 		})
 	assert.NotNil(server, "Authentication server not created with valid token")
-	client, err := server.Client()
-	assert.Nil(err, "Client() triggered an error with valid token")
+	user, err := server.User()
+	assert.Nil(err, "User() triggered an error with valid token")
 
-	assert.Equal("testuser", client.Username)
-	assert.Equal("Test User", client.Name)
-	assert.Equal("test@email.com", client.Email)
-	assert.Equal("testuser", client.Orcid)
+	assert.Equal("Test User", user.Name)
+	assert.Equal("test@email.com", user.Email)
+	assert.Equal("testuser", user.Orcid)
 }

@@ -47,8 +47,6 @@ type Authenticator struct {
 const (
 	// how often to reread the access token file, in minutes
 	defaultRereadInterval = time.Minute
-	// name of the access token file
-	defaultAccessTokenFile = "access.dat"
 )
 
 // Creates a new authenticator by reading an access token file and decrypting it with a secret.

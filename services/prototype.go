@@ -27,6 +27,7 @@ import (
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/journal"
 	"github.com/kbase/dts/tasks"
 )
 
@@ -72,6 +73,7 @@ func NewDTSPrototype() (TransferService, error) {
 	huma.Post(api, "/api/v1/transfers", service.createTransfer)
 	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
 	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)
+	huma.Get(api, "/api/v1/transfers/records", service.getTransferRecords)
 
 	return service, nil
 }
@@ -778,6 +780,32 @@ func (service *prototype) deleteTransfer(ctx context.Context,
 	}
 	return &TaskDeletionOutput{
 		Status: http.StatusAccepted,
+	}, nil
+}
+
+type TransferRecordsOutput struct {
+	Body []journal.Record
+}
+
+// handler method for querying the transfer journal over a time period
+func (service *prototype) getTransferRecords(ctx context.Context,
+	input *struct {
+		Authorization string    `header:"authorization" doc:"Authorization header with encoded access token"`
+		Start         time.Time `path:"start" example:"2025-01-02T15:04:05Z07:00" doc:"the start date for the requested transfers"`
+		End           time.Time `path:"end" example:"2025-02-01T11:00:00Z07:00" doc:"the end date for the requested transfers"`
+	}) (*TransferRecordsOutput, error) {
+
+	_, err := authorize(input.Authorization)
+	if err != nil {
+		return nil, err
+	}
+
+	records, err := journal.Records(input.Start, input.End)
+	if err != nil {
+		return nil, huma.Error404NotFound(err.Error())
+	}
+	return &TransferRecordsOutput{
+		Body: records,
 	}, nil
 }
 

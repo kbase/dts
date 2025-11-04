@@ -29,6 +29,8 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/kbase/dts/auth"
 )
 
 // a type with service configuration parameters
@@ -66,7 +68,7 @@ type serviceConfig struct {
 
 // global config variables
 var Service serviceConfig
-var Credentials map[string]credentialConfig
+var Credentials map[string]auth.Credential
 var Endpoints map[string]endpointConfig
 var Databases map[string]databaseConfig
 
@@ -77,10 +79,10 @@ var Databases map[string]databaseConfig
 // data around internally, but this is not yet complete. Once that is done, the
 // global variables above can be removed.
 type Config struct {
-	Service     serviceConfig               `yaml:"service"`
-	Credentials map[string]credentialConfig `yaml:"credentials"`
-	Databases   map[string]databaseConfig   `yaml:"databases"`
-	Endpoints   map[string]endpointConfig   `yaml:"endpoints"`
+	Service     serviceConfig              `yaml:"service"`
+	Credentials map[string]auth.Credential `yaml:"credentials"`
+	Databases   map[string]databaseConfig  `yaml:"databases"`
+	Endpoints   map[string]endpointConfig  `yaml:"endpoints"`
 }
 
 // This helper locates and reads the selected sections in a configuration file,
@@ -167,16 +169,6 @@ func (params serviceConfig) Validate() error {
 	return nil
 }
 
-func (credential credentialConfig) Validate(name string) error {
-	if credential.Id == "" {
-		return &InvalidCredentialConfigError{
-			Credential: name,
-			Message:    "Invalid credential ID",
-		}
-	}
-	return nil
-}
-
 func (endpoint endpointConfig) Validate(name string) error {
 	if endpoint.Id == uuid.Nil { // invalid endpoint UUID
 		return &InvalidEndpointConfigError{
@@ -233,15 +225,6 @@ func (c Config) Validate(service, credentials, databases, endpoints bool) error 
 	if service {
 		if err = c.Service.Validate(); err != nil {
 			return err
-		}
-	}
-
-	if credentials {
-		for name, credential := range c.Credentials {
-			err = credential.Validate(name)
-			if err != nil {
-				return err
-			}
 		}
 	}
 

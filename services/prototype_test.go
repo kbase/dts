@@ -59,6 +59,15 @@ service:
   manifest_dir: TESTING_DIR/manifests
   delete_after: 24
   endpoint: local-endpoint
+credentials:
+  globus:
+    id: ${GLOBUS_CLIENT_ID}
+    secret: ${GLOBUS_CLIENT_SECRET}
+  jdp:
+    secret: ${DTS_JDP_SECRET}
+  nmdc:
+    id: ${DTS_NMDC_USER}
+    secret: ${DTS_NMDC_PASSWORD}
 databases:
   source:
     name: Source Test Database
@@ -76,6 +85,7 @@ databases:
     name: JGI Data Portal
     organization: Joint Genome Institute
     endpoint: source-endpoint
+    credential: jdp
 endpoints:
   local-endpoint:
     name: Local endpoint

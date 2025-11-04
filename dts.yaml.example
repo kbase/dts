@@ -16,6 +16,9 @@ service:
   debug: true                # set to enable debug-level logging and other tools
 
 credentials:
+  jdp:
+    id: <credential ID (username, UUID, etc)>
+    secret: <secret/password>
   globus:
     id: <credential ID (username, UUID, etc)>
     secret: <secret/password>
@@ -42,6 +45,7 @@ databases: # databases between which files can be transferred
     name: JGI Data Portal                # descriptive name
     organization: Joint Genome Institute # Descriptive organization name
     endpoint: globus-jdp                 # name of associated endpoint
+    credential: jdp
   kbase:                                 # KBase configuration
     name: KBase Workspace Service (KSS)  # descriptive name
     organization: KBase                  # descriptive organization name

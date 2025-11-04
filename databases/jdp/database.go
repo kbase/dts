@@ -69,7 +69,7 @@ type StagingRequest struct {
 
 func NewDatabase(conf config.Config) (databases.Database, error) {
 	// make sure we have a shared secret or an SSO token
-	secret := conf.Databases["jdp"].Secret
+	secret := conf.Credentials[conf.Databases["jdp"].Credential].Secret
 	if secret == "" { // check for SSO token
 		return nil, fmt.Errorf("no shared secret was found for JDP authentication")
 	}

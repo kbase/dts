@@ -97,24 +97,23 @@ func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*
 }
 
 // returns a normalized user record for the current KBase user
-func (server KBaseAuthServer) Client() (Client, error) {
+func (server KBaseAuthServer) User() (User, error) {
 	kbUser, err := server.kbaseUser()
 	if err != nil {
-		return Client{}, err
+		return User{}, err
 	}
-	client := Client{
-		Name:     kbUser.Display,
-		Username: kbUser.Username,
-		Email:    kbUser.Email,
+	user := User{
+		Name:  kbUser.Display,
+		Email: kbUser.Email,
 	}
 	for _, pid := range kbUser.Idents {
 		// grab the first ORCID associated with the user
 		if pid.Provider == "OrcID" {
-			client.Orcid = pid.UserName
+			user.Orcid = pid.UserName
 			break
 		}
 	}
-	return client, nil
+	return user, nil
 }
 
 //-----------

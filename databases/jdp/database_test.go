@@ -32,20 +32,24 @@ service:
   max_connections: 100
   poll_interval: 60
   endpoint: globus-jdp
+credentials:
+  jdp:
+    secret: ${DTS_JDP_SECRET}
+  globus:
+    id: ${DTS_GLOBUS_CLIENT_ID}
+    secret: ${DTS_GLOBUS_CLIENT_SECRET}
 databases:
   jdp:
     name: JGI Data Portal
     organization: Joint Genome Institute
     endpoint: globus-jdp
-    secret: ${DTS_JDP_SECRET}
+    credential: jdp
 endpoints:
   globus-jdp:
     name: Globus NERSC DTN
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
 `
 
 // when valid JDP credentials are not available, use a mock database
@@ -285,17 +289,20 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
+
+	// create a mock JDP server (useful even when we have a real one)
+	mockJDPServer = createMockJDPServer()
+	if err != nil {
+		panic(err)
+	}
+
 	if isMockDatabase {
-		mockJDPServer = createMockJDPServer()
-		err := databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))
-		if err != nil {
-			panic(err)
-		}
+		err = databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))
 	} else {
-		err := databases.RegisterDatabase("jdp", DatabaseConstructor(configData))
-		if err != nil {
-			panic(err)
-		}
+		err = databases.RegisterDatabase("jdp", DatabaseConstructor(configData))
+	}
+	if err != nil {
+		panic(err)
 	}
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
 }
@@ -316,14 +323,18 @@ func TestNewDatabase(t *testing.T) {
 	assert.Nil(err, "JDP database creation encountered an error")
 }
 
-func TestNewDatabaseWithoutJDPSharedSecret(t *testing.T) {
+func TestNewDatabaseWithoutJDPCredential(t *testing.T) {
 	assert := assert.New(t)
-	const jdpConfigNoSecret string = `
+	const jdpConfigNoCredential string = `
 service:
   port: 8080
   max_connections: 100
   poll_interval: 60
   endpoint: globus-jdp
+credentials:
+  globus:
+    id: ${DTS_GLOBUS_CLIENT_ID}
+    secret: ${DTS_GLOBUS_CLIENT_SECRET}
 databases:
   jdp:
     name: JGI Data Portal
@@ -334,14 +345,12 @@ endpoints:
     name: Globus NERSC DTN
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
 `
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfigNoSecret)))
-	assert.Nil(err, "Failed to get config data for JDP database without shared secret")
+	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfigNoCredential)))
+	assert.Nil(err, "Failed to get config data for JDP database without credential")
 	jdpDb, err := NewDatabase(configData)
-	assert.Nil(jdpDb, "JDP database somehow created without shared secret available")
+	assert.Nil(jdpDb, "JDP database somehow created without credential")
 	assert.NotNil(err, "JDP database creation without shared secret encountered no error")
 }
 
@@ -353,19 +362,23 @@ service:
   max_connections: 100
   poll_interval: 60
   endpoint: globus-jdp
+credentials:
+  jdp:
+    secret: ${DTS_JDP_SECRET}
+  globus:
+    id: ${DTS_GLOBUS_CLIENT_ID}
+    secret: ${DTS_GLOBUS_CLIENT_SECRET}
 databases:
   jdp:
     name: JGI Data Portal
     organization: Joint Genome Institute
-    secret: ${DTS_JDP_SECRET}
+    credential: jdp
 endpoints:
   globus-jdp:
     name: Globus NERSC DTN
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
 `
 	// manually parse the config string to avoid validation errors because of the
 	// missing endpoint

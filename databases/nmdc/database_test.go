@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
@@ -26,12 +27,18 @@ service:
   max_connections: 100
   poll_interval: 60
   endpoint: globus-jdp
+credentials:
+  globus:
+    id: ${DTS_GLOBUS_CLIENT_ID}
+    secret: ${DTS_GLOBUS_CLIENT_SECRET}
+  nmdc:
+    id: ${DTS_NMDC_USER}
+    secret: ${DTS_NMDC_PASSWORD}
 databases:
   nmdc:
     name: National Microbiome Data Collaborative
     organization: DOE
-    user: ${DTS_NMDC_USER}
-    password: ${DTS_NMDC_PASSWORD}
+    credential: nmdc
     endpoints:
       nersc: globus-nmdc-nersc
       emsl: globus-nmdc-emsl
@@ -41,24 +48,18 @@ endpoints:
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
     root: /
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
   globus-nmdc-emsl:
     name: NMDC Bulk Data Cache
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
     root: /
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
   globus-jdp:
     name: Globus NERSC DTN
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    auth:
-      client_id: ${DTS_GLOBUS_CLIENT_ID}
-      client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+    credential: globus
 `
 
 const mockStudyResponse string = `{
@@ -395,9 +396,9 @@ func NewMockDatabase(baseUrl string) func() (databases.Database, error) {
 		return &Database{
 			BaseURL: baseUrl,
 			Auth: authorization{
-				Credential: credential{
-					User:     mockNmdcUser,
-					Password: mockNmdcPassword,
+				Credential: auth.Credential{
+					Id:     mockNmdcUser,
+					Secret: mockNmdcPassword,
 				},
 				Token:   mockNmdcSecret,
 				Type:    "basic",
@@ -527,23 +528,14 @@ func TestNewDatabase(t *testing.T) {
 		assert.Nil(err, "NMDC mock database creation encountered an error")
 	}
 
-	// test with missing user
+	// test with missing credential
 	badConfig, _ := config.NewConfig([]byte(configString))
 	nmdcConfig := badConfig.Databases["nmdc"]
-	nmdcConfig.User = ""
+	nmdcConfig.Credential = ""
 	badConfig.Databases["nmdc"] = nmdcConfig
 	db, err := NewDatabase(badConfig)
-	assert.Nil(db, "NMDC database created with missing user")
-	assert.NotNil(err, "NMDC database creation with missing user did not return an error")
-
-	// test with missing password
-	badConfig, _ = config.NewConfig([]byte(configString))
-	nmdcConfig = badConfig.Databases["nmdc"]
-	nmdcConfig.Password = ""
-	badConfig.Databases["nmdc"] = nmdcConfig
-	db, err = NewDatabase(badConfig)
-	assert.Nil(db, "NMDC database created with missing password")
-	assert.NotNil(err, "NMDC database creation with missing password did not return an error")
+	assert.Nil(db, "NMDC database created with missing credential")
+	assert.NotNil(err, "NMDC database creation with missing credential did not return an error")
 
 	// test with incorrectly specified endpoint
 	badConfig, _ = config.NewConfig([]byte(configString))
@@ -642,22 +634,22 @@ func TestGetAccessToken(t *testing.T) {
 	dbNmdc := db.(*Database)
 
 	// get a token for a valid user
-	cred := credential{
-		User:     mockNmdcUser,
-		Password: mockNmdcPassword,
+	cred := auth.Credential{
+		Id:     mockNmdcUser,
+		Secret: mockNmdcPassword,
 	}
-	auth, err := dbNmdc.getAccessToken(cred)
+	authorization, err := dbNmdc.getAccessToken(cred)
 	assert.Nil(err, "getAccessToken encountered an error")
-	assert.Equal(mockNmdcSecret, auth.Token, "getAccessToken returned incorrect token")
+	assert.Equal(mockNmdcSecret, authorization.Token, "getAccessToken returned incorrect token")
 
 	// get a token for an invalid user
-	cred = credential{
-		User:     "baduser",
-		Password: "badpassword",
+	cred = auth.Credential{
+		Id:     "baduser",
+		Secret: "badpassword",
 	}
-	auth, err = dbNmdc.getAccessToken(cred)
+	authorization, err = dbNmdc.getAccessToken(cred)
 	assert.NotNil(err, "getAccessToken with invalid credentials did not return an error")
-	assert.Equal("", auth.Token, "getAccessToken with invalid credentials returned a token")
+	assert.Equal("", authorization.Token, "getAccessToken with invalid credentials returned a token")
 }
 
 func TestRenewAccessTokenIfExpired(t *testing.T) {

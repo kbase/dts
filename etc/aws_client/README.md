@@ -7,6 +7,7 @@ The example runs using AWS and a local Minio instance, which must be running loc
 ```bash
 docker run -p 9000:9000 -p 9001:9001 -e "MINIO_ROOT_USER=minioadmin" -e "MINIO_ROOT_PASSWORD=minioadmin" minio/minio server /data --console-address ":9001"
 ```
+(Note that MinIO is no longer publishing built images, and there is a [lot of drama](https://github.com/minio/minio/issues/21647#issuecomment-3418675115)) 
 
 In a separate bash terminal, from this foler run:
 ```bash

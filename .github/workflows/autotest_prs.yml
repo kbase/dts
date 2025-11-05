@@ -2,7 +2,7 @@ name: autotest_prs
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop-add-aws ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -45,6 +45,14 @@ jobs:
         go install honnef.co/go/tools/cmd/staticcheck@latest
         staticcheck ./...
 
+    - name: Setup MinIO
+      uses: infleet/minio-action@v0.0.1
+      with:
+        port: "9000"
+        version: "latest"
+        username: "minioadmin"
+        password: "minioadmin"
+  
     - name: Building DTS
       run: go build -v ./...
 
@@ -53,6 +61,10 @@ jobs:
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
+
+    - name: Run AWS script
+      shell: bash
+      run: go run ./etc/aws_client/main.go
 
     - name: Uploading code coverage report to Codecov
       uses: codecov/codecov-action@v4

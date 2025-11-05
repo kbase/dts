@@ -73,6 +73,9 @@ type storeChannels struct {
 	RequestDescriptors chan uuid.UUID
 	ReturnDescriptors  chan []map[string]any
 
+	RequestPayloadSize chan uuid.UUID
+	ReturnPayloadSize  chan uint64
+
 	SetStatus     chan transferIdAndStatus
 	RequestStatus chan uuid.UUID
 	ReturnStatus  chan TransferStatus
@@ -92,6 +95,8 @@ func newStoreChannels() storeChannels {
 		ReturnSpec:         make(chan Specification),
 		RequestDescriptors: make(chan uuid.UUID, numClients),
 		ReturnDescriptors:  make(chan []map[string]any),
+		RequestPayloadSize: make(chan uuid.UUID, numClients),
+		ReturnPayloadSize:  make(chan uint64),
 		SetStatus:          make(chan transferIdAndStatus, numClients),
 		RequestStatus:      make(chan uuid.UUID, numClients),
 		ReturnStatus:       make(chan TransferStatus),
@@ -178,6 +183,16 @@ func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, err
 	}
 }
 
+func (s *storeState) GetPayloadSize(transferId uuid.UUID) (uint64, error) {
+	s.Channels.RequestPayloadSize <- transferId
+	select {
+	case size := <-s.Channels.ReturnPayloadSize:
+		return size, nil
+	case err := <-s.Channels.Error:
+		return 0, err
+	}
+}
+
 func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) error {
 	slog.Debug(fmt.Sprintf("store.SetStatus (%s, %d)", transferId.String(), status.Code))
 	s.Channels.SetStatus <- transferIdAndStatus{
@@ -241,6 +256,16 @@ func (s *storeState) process(decoder *gob.Decoder) {
 		case id := <-s.Channels.RequestDescriptors:
 			if transfer, found := transfers[id]; found {
 				s.Channels.ReturnDescriptors <- transfer.Descriptors
+			} else {
+				s.Channels.Error <- TransferNotFoundError{Id: id}
+			}
+		case id := <-s.Channels.RequestPayloadSize:
+			if transfer, found := transfers[id]; found {
+				var size uint64
+				for _, descriptor := range transfer.Descriptors {
+					size += uint64(descriptor["bytes"].(int))
+				}
+				s.Channels.ReturnPayloadSize <- size
 			} else {
 				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
@@ -318,8 +343,12 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 		},
 	}
 
+	var size uint64
+	for _, descriptor := range entry.Descriptors {
+		size += uint64(descriptor["bytes"].(int))
+	}
 	publish(Message{
-		Description:    "New transfer created.",
+		Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, entry.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
 		TransferId:     id,
 		TransferStatus: entry.Status,
 		Time:           time.Now(),

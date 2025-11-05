@@ -101,6 +101,15 @@ func Start(conf config.Config) error {
 
 	global.Running = true
 
+	// subscribe to the transfer feed to log events
+	subscription := Subscribe(32)
+	go func() {
+		for global.Running {
+			message := <-subscription.Channel
+			slog.Info(message.Description)
+		}
+	}()
+
 	return nil
 }
 

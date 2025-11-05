@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -114,8 +115,6 @@ func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) 
 	d.Channels.RequestTransfer <- spec
 	select {
 	case id := <-d.Channels.ReturnTransferId:
-		slog.Info(fmt.Sprintf("Created new transfer %s (%d file(s) requested)", id.String(),
-			len(spec.FileIds)))
 		return id, nil
 	case err := <-d.Channels.Error:
 		return uuid.UUID{}, err
@@ -135,7 +134,6 @@ func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatu
 
 func (d *dispatcherState) CancelTransfer(transferId uuid.UUID) error {
 	slog.Debug("dispatcher.CancelTransfer")
-	slog.Info(fmt.Sprintf("Canceling transfer %s", transferId.String()))
 	d.Channels.CancelTransfer <- transferId
 	err := <-d.Channels.Error
 	if err != nil {
@@ -163,9 +161,19 @@ func (d *dispatcherState) process() {
 				d.Channels.ReturnTransferId <- transferId
 			}
 		case transferId := <-d.Channels.CancelTransfer:
-			if err := d.cancel(transferId); err != nil {
-				d.Channels.Error <- err
+			err := d.cancel(transferId)
+			if err == nil {
+				status, err := store.GetStatus(transferId)
+				if err == nil {
+					publish(Message{
+						Description:    fmt.Sprintf("Canceling transfer %s", transferId),
+						TransferId:     transferId,
+						TransferStatus: status,
+						Time:           time.Now(),
+					})
+				}
 			}
+			d.Channels.Error <- err
 		case transferId := <-d.Channels.RequestStatus:
 			status, err := store.GetStatus(transferId)
 			if err != nil {

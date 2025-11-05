@@ -23,13 +23,13 @@ package transfers
 
 import (
 	"encoding/gob"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -219,22 +219,33 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 		if err != nil {
 			return nil, err
 		}
-		destination := config.Databases[spec.Destination].Endpoint
-		destinationEndpoint, err := endpoints.NewEndpoint(destination)
+		destinationEp, err := destinationEndpoint(spec.Destination)
 		if err != nil {
 			return nil, err
 		}
-		moveId, err := sourceEndpoint.Transfer(destinationEndpoint, files)
+		moveId, err := sourceEndpoint.Transfer(destinationEp, files)
 		if err != nil {
 			return nil, err
 		}
 
 		// update the transfer status
 		if status, err := store.GetStatus(transferId); err == nil {
+			payloadSize, err := store.GetPayloadSize(transferId)
+			if err != nil {
+				return nil, err
+			}
 			status.Code = TransferStatusActive
+			status.Message = fmt.Sprintf("Transfer %s: beginning transfer (%d file(s), %g GB)",
+				transferId.String(), status.NumFiles, float64(payloadSize)/float64(1024*1024*1024))
 			if err := store.SetStatus(transferId, status); err != nil {
 				return nil, err
 			}
+			publish(Message{
+				Description:    status.Message,
+				TransferId:     transferId,
+				TransferStatus: status,
+				Time:           time.Now(),
+			})
 		} else {
 			return nil, err
 		}
@@ -288,8 +299,10 @@ func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (
 	// take stock and update status as needed
 	if movesAllSucceeded {
 		newStatus.Code = TransferStatusFinalizing
+		newStatus.Message = fmt.Sprintf("Transfer %s: finalizing", transferId.String())
 	} else if atLeastOneMoveFailed {
 		newStatus.Code = TransferStatusFailed
+		newStatus.Message = fmt.Sprintf("Transfer %s: failed (%s)", transferId.String(), newStatus.Message)
 	}
 	if newStatus != oldStatus {
 		if err := store.SetStatus(transferId, newStatus); err != nil {

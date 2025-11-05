@@ -297,6 +297,11 @@ func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bo
 	}
 	if manifestStatus.Code == TransferStatusSucceeded || manifestStatus.Code == TransferStatusFailed {
 		newStatus.Code = manifestStatus.Code
+		if newStatus.Code == TransferStatusSucceeded {
+			newStatus.Message = fmt.Sprintf("Transfer %s: completed successfully", transferId.String())
+		} else {
+			newStatus.Message = fmt.Sprintf("Transfer %s: failed (%s)", transferId.String(), newStatus.Message)
+		}
 		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return true, err
 		}

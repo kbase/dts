@@ -186,6 +186,27 @@ func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
 	if err != nil {
 		return stagingEntry{}, err
 	}
+	status, err := store.GetStatus(id)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	payloadSize, err := store.GetPayloadSize(id)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	status.Code = TransferStatusStaging
+	status.Message = fmt.Sprintf("Transfer %s: staging %d file(s) (%g GB)",
+		id.String(), status.NumFiles, float64(payloadSize)/float64(1024*1024*1024))
+	err = store.SetStatus(id, status)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	publish(Message{
+		Description:    status.Message,
+		TransferId:     transferId,
+		TransferStatus: status,
+		Time:           time.Now(),
+	})
 	return stagingEntry{Id: id}, nil
 }
 
@@ -214,12 +235,12 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (
 	newStatus := oldStatus
 	switch stagingStatus {
 	case databases.StagingStatusSucceeded:
-		newStatus.Message = fmt.Sprintf("file staging succeeded for transfer %s", transferId.String())
+		newStatus.Message = fmt.Sprintf("Transfer %s: file staging succeeded", transferId.String())
 		newStatus.Code = TransferStatusActive
 		completed = true
 	case databases.StagingStatusFailed:
 		newStatus.Code = TransferStatusFailed
-		newStatus.Message = fmt.Sprintf("file staging failed for transfer %s", transferId.String())
+		newStatus.Message = fmt.Sprintf("Transfer %s: file staging failed", transferId.String())
 		completed = true
 	default: // still staging
 		newStatus.Code = TransferStatusStaging

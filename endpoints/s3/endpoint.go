@@ -51,11 +51,8 @@ type Endpoint struct {
 	Uploader *manager.Uploader
 	// endpoint UUID (obtained from config)
 	Id uuid.UUID
-	// List of completed transfers
-	TransfersList []struct {
-		Id     uuid.UUID
-		Status endpoints.TransferStatus
-	}
+	// Map of completed transfers
+	TransfersMap map[uuid.UUID]endpoints.TransferStatus
 }
 
 type EndpointConfig struct {
@@ -106,10 +103,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (*Endpoint, e
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)
 	newEndpoint.Bucket = bucket
 	newEndpoint.Id = id
-	newEndpoint.TransfersList = make([]struct {
-		Id     uuid.UUID
-		Status endpoints.TransferStatus
-	}, 0)
+	newEndpoint.TransfersMap = make(map[uuid.UUID]endpoints.TransferStatus)
 
 	return &newEndpoint, nil
 }
@@ -162,8 +156,8 @@ func (e *Endpoint) FilesStaged(files []any) (bool, error) {
 
 func (e *Endpoint) Transfers() ([]uuid.UUID, error) {
 	ids := make([]uuid.UUID, 0)
-	for _, transfer := range e.TransfersList {
-		ids = append(ids, transfer.Id)
+	for id := range e.TransfersMap {
+		ids = append(ids, id)
 	}
 	return ids, nil
 }
@@ -194,43 +188,30 @@ func (e *Endpoint) Transfer(dst Endpoint, files []endpoints.FileTransfer) (uuid.
 	taskId := uuid.New()
 
 	if numTransferred != numFiles {
-		e.TransfersList = append(e.TransfersList, struct {
-			Id     uuid.UUID
-			Status endpoints.TransferStatus
-		}{
-			Id: taskId,
-			Status: endpoints.TransferStatus{
-				Code:                endpoints.TransferStatusFailed,
-				Message:             fmt.Sprintf("Transferred %d out of %d files", numTransferred, numFiles),
-				NumFiles:            numFiles,
-				NumFilesTransferred: numTransferred,
-				NumFilesSkipped:     numFiles - numTransferred,
-			},
-		})
+		e.TransfersMap[taskId] = endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusFailed,
+			Message:             fmt.Sprintf("Transferred %d out of %d files", numTransferred, numFiles),
+			NumFiles:            numFiles,
+			NumFilesTransferred: numTransferred,
+			NumFilesSkipped:     numFiles - numTransferred,
+		}
 	} else {
-		e.TransfersList = append(e.TransfersList, struct {
-			Id     uuid.UUID
-			Status endpoints.TransferStatus
-		}{
-			Id: taskId,
-			Status: endpoints.TransferStatus{
-				Code:                endpoints.TransferStatusSucceeded,
-				Message:             "All files transferred successfully",
-				NumFiles:            numFiles,
-				NumFilesTransferred: numTransferred,
-				NumFilesSkipped:     0,
-			},
-		})
+		e.TransfersMap[taskId] = endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusSucceeded,
+			Message:             "All files transferred successfully",
+			NumFiles:            numFiles,
+			NumFilesTransferred: numTransferred,
+			NumFilesSkipped:     0,
+		}
 	}
 
 	return taskId, nil
 }
 
 func (e *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
-	for _, transfer := range e.TransfersList {
-		if transfer.Id == id {
-			return transfer.Status, nil
-		}
+	status, found := e.TransfersMap[id]
+	if found {
+		return status, nil
 	}
 	return endpoints.TransferStatus{}, fmt.Errorf("unknown transfer ID %s", id.String())
 }

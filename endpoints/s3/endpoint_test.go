@@ -195,10 +195,36 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	assert.True(staged)
 	assert.Nil(err)
 
+	// test FilesStaged with invalid descriptor
+	invalidDescriptor := "this is not a valid descriptor"
+	staged, err = minioEndpoint.FilesStaged([]any{invalidDescriptor})
+	assert.False(staged)
+	assert.NotNil(err)
+
+	// test FilesStaged with missing path in descriptor
+	missingPathDescriptor := map[string]any{
+		"id": "missing-path",
+	}
+	staged, err = minioEndpoint.FilesStaged([]any{missingPathDescriptor})
+	assert.False(staged)
+	assert.NotNil(err)
+
+	// test FilesStaged with non-string path in descriptor
+	nonStringPathDescriptor := map[string]any{
+		"id":   "non-string-path",
+		"path": 12345,
+	}
+	staged, err = minioEndpoint.FilesStaged([]any{nonStringPathDescriptor})
+	assert.False(staged)
+	assert.NotNil(err)
+
 	// cancels are not supported
 	err = minioEndpoint.Cancel(uuid.New())
 	assert.NotNil(err)
 
+	// status for unknown transfer ID
+	_, err = minioEndpoint.Status(uuid.New())
+	assert.NotNil(err)
 }
 
 // Test transfer from AWS to Minio

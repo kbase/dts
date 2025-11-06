@@ -5,6 +5,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,7 +66,7 @@ func AwsClient() {
 	buf := make([]byte, 1024)
 	for {
 		n, err := getObjOutput.Body.Read(buf)
-		if err != nil && err.Error() != "EOF" {
+		if err != nil && !errors.Is(err, io.EOF) {
 			log.Fatalf("unable to read object body, %v", err)
 		}
 		if n == 0 {
@@ -96,7 +98,7 @@ func MinioClient() {
 		o.UsePathStyle = true
 	})
 
-    // Create a bucket if it doesn't exist
+	// Create a bucket if it doesn't exist
 	buckets, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
 	if err != nil {
 		log.Fatalf("unable to list buckets, %v", err)
@@ -159,7 +161,7 @@ func MinioClient() {
 	buf := make([]byte, 1024)
 	for {
 		n, err := getObjOutput.Body.Read(buf)
-		if err != nil && err.Error() != "EOF" {
+		if err != nil && !errors.Is(err, io.EOF) {
 			log.Fatalf("unable to read object body, %v", err)
 		}
 		if n == 0 {

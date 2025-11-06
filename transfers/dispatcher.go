@@ -96,14 +96,12 @@ func (channels *dispatcherChannels) Close() {
 }
 
 func (d *dispatcherState) Start() error {
-	slog.Debug("dispatcher.Start()")
 	d.Channels = newDispatcherChannels(config.Service.MaxConnections)
 	go d.process()
 	return <-d.Channels.Error
 }
 
 func (d *dispatcherState) Stop() error {
-	slog.Debug("dispatcher.Stop")
 	d.Channels.Stop <- struct{}{}
 	err := <-d.Channels.Error
 	d.Channels.Close()
@@ -111,7 +109,6 @@ func (d *dispatcherState) Stop() error {
 }
 
 func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) {
-	slog.Debug("dispatcher.CreateTransfer")
 	d.Channels.RequestTransfer <- spec
 	select {
 	case id := <-d.Channels.ReturnTransferId:
@@ -122,7 +119,6 @@ func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) 
 }
 
 func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatus, error) {
-	slog.Debug("dispatcher.GetTransferStatus")
 	d.Channels.RequestStatus <- transferId
 	select {
 	case status := <-d.Channels.ReturnStatus:
@@ -133,7 +129,6 @@ func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatu
 }
 
 func (d *dispatcherState) CancelTransfer(transferId uuid.UUID) error {
-	slog.Debug("dispatcher.CancelTransfer")
 	d.Channels.CancelTransfer <- transferId
 	err := <-d.Channels.Error
 	if err != nil {

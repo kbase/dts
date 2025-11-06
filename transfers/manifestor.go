@@ -84,7 +84,6 @@ func (channels *manifestorChannels) Close() {
 }
 
 func (m *manifestorState) Start() error {
-	slog.Debug("manifestor.Start")
 	m.Channels = newManifestorChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process(nil)
@@ -92,7 +91,6 @@ func (m *manifestorState) Start() error {
 }
 
 func (m *manifestorState) Load(decoder *gob.Decoder) error {
-	slog.Debug("manifestor.Load")
 	m.Channels = newManifestorChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process(decoder)
@@ -101,7 +99,6 @@ func (m *manifestorState) Load(decoder *gob.Decoder) error {
 
 // stops the manifestor goroutine
 func (m *manifestorState) SaveAndStop(encoder *gob.Encoder) error {
-	slog.Debug("manifestor.Stop")
 	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
 	m.Channels.Close()
@@ -111,7 +108,6 @@ func (m *manifestorState) SaveAndStop(encoder *gob.Encoder) error {
 // starts generating a manifest for the given transfer, moving it subsequently to that transfer's
 // destination
 func (m *manifestorState) Generate(transferId uuid.UUID) error {
-	slog.Debug("manifestor.Generate")
 	m.Channels.RequestGeneration <- transferId
 	return <-m.Channels.Error
 }
@@ -119,7 +115,6 @@ func (m *manifestorState) Generate(transferId uuid.UUID) error {
 // cancels the generation/transfer of a manifest
 // destination
 func (m *manifestorState) Cancel(transferId uuid.UUID) error {
-	slog.Debug("manifestor.Cancel")
 	m.Channels.RequestCancellation <- transferId
 	return <-m.Channels.Error
 }

@@ -25,7 +25,6 @@ import (
 	"cmp"
 	"encoding/gob"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -127,21 +126,18 @@ type transferIdAndStatus struct {
 }
 
 func (s *storeState) Start() error {
-	slog.Debug("store.Start")
 	s.Channels = newStoreChannels()
 	go s.process(nil)
 	return <-s.Channels.Error
 }
 
 func (s *storeState) Load(decoder *gob.Decoder) error {
-	slog.Debug("store.Start")
 	s.Channels = newStoreChannels()
 	go s.process(decoder)
 	return <-s.Channels.Error
 }
 
 func (s *storeState) SaveAndStop(encoder *gob.Encoder) error {
-	slog.Debug("store.Stop")
 	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
 	s.Channels.Close()
@@ -151,7 +147,6 @@ func (s *storeState) SaveAndStop(encoder *gob.Encoder) error {
 // creates a new entry for a transfer within the store, populating it with relevant metadata and
 // returning a UUID, number of files, and/or error condition for the request
 func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, error) {
-	slog.Debug("store.NewTransfer")
 	s.Channels.RequestNewTransfer <- spec
 	select {
 	case id := <-s.Channels.ReturnNewTransfer:
@@ -162,7 +157,6 @@ func (s *storeState) NewTransfer(spec Specification) (uuid.UUID, error) {
 }
 
 func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, error) {
-	slog.Debug(fmt.Sprintf("store.GetSpecification (%s)", transferId.String()))
 	s.Channels.RequestSpec <- transferId
 	select {
 	case spec := <-s.Channels.ReturnSpec:
@@ -173,7 +167,6 @@ func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, erro
 }
 
 func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, error) {
-	slog.Debug(fmt.Sprintf("store.GetDescriptors (%s)", transferId.String()))
 	s.Channels.RequestDescriptors <- transferId
 	select {
 	case descriptors := <-s.Channels.ReturnDescriptors:
@@ -194,7 +187,6 @@ func (s *storeState) GetPayloadSize(transferId uuid.UUID) (uint64, error) {
 }
 
 func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) error {
-	slog.Debug(fmt.Sprintf("store.SetStatus (%s, %d)", transferId.String(), status.Code))
 	s.Channels.SetStatus <- transferIdAndStatus{
 		Id:     transferId,
 		Status: status,
@@ -203,7 +195,6 @@ func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) erro
 }
 
 func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
-	slog.Debug(fmt.Sprintf("store.GetStatus (%s)", transferId.String()))
 	s.Channels.RequestStatus <- transferId
 	select {
 	case status := <-s.Channels.ReturnStatus:
@@ -214,7 +205,6 @@ func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
 }
 
 func (s *storeState) Remove(transferId uuid.UUID) error {
-	slog.Debug(fmt.Sprintf("store.Remove (%s)", transferId.String()))
 	s.Channels.RequestRemoval <- transferId
 	return <-s.Channels.Error
 }

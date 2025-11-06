@@ -80,7 +80,6 @@ func (channels *moverChannels) Close() {
 
 // starts the mover
 func (m *moverState) Start() error {
-	slog.Debug("mover.Start")
 	m.Channels = newMoverChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process(nil)
@@ -89,7 +88,6 @@ func (m *moverState) Start() error {
 
 // loads the mover from saved data
 func (m *moverState) Load(decoder *gob.Decoder) error {
-	slog.Debug("mover.Start")
 	m.Channels = newMoverChannels()
 	m.Endpoints = make(map[string]endpoints.Endpoint)
 	go m.process(decoder)
@@ -98,7 +96,6 @@ func (m *moverState) Load(decoder *gob.Decoder) error {
 
 // stops the mover goroutine
 func (m *moverState) SaveAndStop(encoder *gob.Encoder) error {
-	slog.Debug("mover.Stop")
 	m.Channels.SaveAndStop <- encoder
 	err := <-m.Channels.Error
 	m.Channels.Close()
@@ -107,14 +104,12 @@ func (m *moverState) SaveAndStop(encoder *gob.Encoder) error {
 
 // starts moving files associated with the given transfer ID
 func (m *moverState) MoveFiles(transferId uuid.UUID) error {
-	slog.Debug("mover.MoveFiles")
 	m.Channels.RequestMove <- transferId
 	return <-m.Channels.Error
 }
 
 // cancels a file move operation
 func (m *moverState) Cancel(transferId uuid.UUID) error {
-	slog.Debug("mover.Cancel")
 	m.Channels.RequestCancellation <- transferId
 	return <-m.Channels.Error
 }

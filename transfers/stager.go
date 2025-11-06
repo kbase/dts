@@ -78,7 +78,6 @@ func (channels *stagerChannels) Close() {
 
 // starts the stager
 func (s *stagerState) Start() error {
-	slog.Debug("stager.Start")
 	s.Channels = newStagerChannels()
 	go s.process(nil)
 	return <-s.Channels.Error
@@ -86,7 +85,6 @@ func (s *stagerState) Start() error {
 
 // loads the stager from saved data
 func (s *stagerState) Load(decoder *gob.Decoder) error {
-	slog.Debug("stager.Load")
 	s.Channels = newStagerChannels()
 	go s.process(decoder)
 	return <-s.Channels.Error
@@ -94,7 +92,6 @@ func (s *stagerState) Load(decoder *gob.Decoder) error {
 
 // stops the stager goroutine
 func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
-	slog.Debug("stager.Stop")
 	s.Channels.SaveAndStop <- encoder
 	err := <-s.Channels.Error
 	s.Channels.Close()
@@ -103,14 +100,12 @@ func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
 
 // requests that files be staged for the transfer with the given ID
 func (s *stagerState) StageFiles(id uuid.UUID) error {
-	slog.Debug("stager.StageFiles")
 	s.Channels.RequestStaging <- id
 	return <-s.Channels.Error
 }
 
 // cancels a file staging operation
 func (s *stagerState) Cancel(transferId uuid.UUID) error {
-	slog.Debug("stager.Cancel")
 	s.Channels.RequestCancellation <- transferId
 	return <-s.Channels.Error
 }

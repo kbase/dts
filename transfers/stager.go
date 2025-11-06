@@ -142,7 +142,7 @@ func (s *stagerState) process(decoder *gob.Decoder) {
 			if err == nil {
 				stagings[transferId] = entry
 			}
-			s.Channels.Error <- nil
+			s.Channels.Error <- err
 		case transferId := <-s.Channels.RequestCancellation:
 			if _, found := stagings[transferId]; found {
 				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
@@ -182,22 +182,22 @@ func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
 	if err != nil {
 		return stagingEntry{}, err
 	}
-	id, err := db.StageFiles(spec.User.Orcid, spec.FileIds)
+	stagingId, err := db.StageFiles(spec.User.Orcid, spec.FileIds)
 	if err != nil {
 		return stagingEntry{}, err
 	}
-	status, err := store.GetStatus(id)
+	status, err := store.GetStatus(transferId)
 	if err != nil {
 		return stagingEntry{}, err
 	}
-	payloadSize, err := store.GetPayloadSize(id)
+	payloadSize, err := store.GetPayloadSize(transferId)
 	if err != nil {
 		return stagingEntry{}, err
 	}
 	status.Code = TransferStatusStaging
 	status.Message = fmt.Sprintf("Transfer %s: staging %d file(s) (%g GB)",
-		id.String(), status.NumFiles, float64(payloadSize)/float64(1024*1024*1024))
-	err = store.SetStatus(id, status)
+		transferId.String(), status.NumFiles, float64(payloadSize)/float64(1024*1024*1024))
+	err = store.SetStatus(transferId, status)
 	if err != nil {
 		return stagingEntry{}, err
 	}
@@ -207,7 +207,7 @@ func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
 		TransferStatus: status,
 		Time:           time.Now(),
 	})
-	return stagingEntry{Id: id}, nil
+	return stagingEntry{Id: stagingId}, nil
 }
 
 // update transfer status, returning true iff completed

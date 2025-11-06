@@ -2,7 +2,7 @@ name: autotest_prs
 
 on:
   push:
-    branches: [ main, develop-add-aws ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:

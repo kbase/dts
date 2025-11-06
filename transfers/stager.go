@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/journal"
 )
 
 //--------
@@ -256,6 +257,30 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (
 			TransferStatus: newStatus,
 			Time:           time.Now(),
 		})
+		if newStatus.Code == TransferStatusFailed { // write an entry to the journal
+			spec, err := store.GetSpecification(transferId)
+			if err == nil {
+				var size uint64
+				size, err = store.GetPayloadSize(transferId)
+				if err == nil {
+					err = journal.RecordTransfer(journal.Record{
+						Id:          transferId,
+						Source:      spec.Source,
+						Destination: spec.Destination,
+						Orcid:       spec.User.Orcid,
+						StartTime:   spec.TimeOfRequest,
+						StopTime:    time.Now(),
+						Status:      "failed",
+						PayloadSize: size,
+						NumFiles:    len(spec.FileIds),
+					})
+				}
+			}
+			if err != nil {
+				slog.Error(err.Error())
+			}
+
+		}
 	}
 
 	if newStatus.Code == TransferStatusActive {

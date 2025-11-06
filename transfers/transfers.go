@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -152,6 +153,8 @@ type Specification struct {
 	FileIds []string
 	// the name of source database from which files are transferred (as specified in the config file)
 	Source string
+	// the time at which the transfer is requested
+	TimeOfRequest time.Time
 	// information about the user requesting the task
 	User auth.User
 }
@@ -180,6 +183,8 @@ func Create(spec Specification) (uuid.UUID, error) {
 			return taskId, err
 		}
 	}
+
+	spec.TimeOfRequest = time.Now()
 
 	// create a new task and send it along for processing
 	return dispatcher.CreateTransfer(spec)
@@ -319,7 +324,7 @@ func validateDirectory(dirType, dir string) error {
 // * store: maintains metadata records and status info for ongoing and completed transfers
 
 // resolves the given destination (name) string, accounting for custom transfers
-func destinationEndpoint(destination string) (endpoints.Endpoint, error) {
+func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error) {
 	// everything's been validated at this point, so no need to check for errors
 	if strings.Contains(destination, ":") { // custom transfer spec
 		customSpec, _ := endpoints.ParseCustomSpec(destination)
@@ -332,11 +337,24 @@ func destinationEndpoint(destination string) (endpoints.Endpoint, error) {
 }
 
 // resolves the folder at the given destination in which transferred files are deposited
-func destinationFolder(destination string) string {
-	if customSpec, err := endpoints.ParseCustomSpec(destination); err == nil { // custom transfer?
-		return customSpec.Path
+func determineDestinationFolder(transferId uuid.UUID) (string, error) {
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return "", err
 	}
-	return ""
+	dtsFolder := "dts-" + transferId.String()
+	if customSpec, err := endpoints.ParseCustomSpec(spec.Destination); err == nil { // custom transfer?
+		return filepath.Join(customSpec.Path, dtsFolder), nil
+	}
+	destDb, err := databases.NewDatabase(spec.Destination)
+	if err != nil {
+		return "", err
+	}
+	username, err := destDb.LocalUser(spec.User.Orcid)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(username, dtsFolder), nil
 }
 
 // given a set of Frictionless DataResource descriptors, returns a map mapping the name of each

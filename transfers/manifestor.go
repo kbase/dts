@@ -25,7 +25,9 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/frictionlessdata/datapackage-go/datapackage"
@@ -34,6 +36,7 @@ import (
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/journal"
 )
 
 //------------
@@ -125,17 +128,23 @@ func (m *manifestorState) Cancel(transferId uuid.UUID) error {
 // everything past here runs in the manifestor's goroutine
 //----------------------------------------------------
 
+type manifestEntry struct {
+	ManifestTransferId uuid.UUID
+	Manifest           *datapackage.Package
+	Filename           string
+}
+
 // the goroutine itself (accepts optional decoder for loading saved data)
 func (m *manifestorState) process(decoder *gob.Decoder) {
 	// load or create transfer records
-	var transfers map[uuid.UUID]uuid.UUID
+	var transfers map[uuid.UUID]manifestEntry
 	if decoder != nil {
 		if err := decoder.Decode(&transfers); err != nil {
 			m.Channels.Error <- err
 			return
 		}
 	} else {
-		transfers = make(map[uuid.UUID]uuid.UUID)
+		transfers = make(map[uuid.UUID]manifestEntry)
 	}
 
 	running := true
@@ -145,14 +154,14 @@ func (m *manifestorState) process(decoder *gob.Decoder) {
 	for running {
 		select {
 		case transferId := <-m.Channels.RequestGeneration:
-			manifestXferId, err := m.generateAndSendManifest(transferId)
+			entry, err := m.generateAndSendManifest(transferId)
 			if err == nil {
-				transfers[transferId] = manifestXferId
+				transfers[transferId] = entry
 			}
 			m.Channels.Error <- err
 		case transferId := <-m.Channels.RequestCancellation:
-			if manifestXferId, found := transfers[transferId]; found {
-				err := m.cancel(manifestXferId)
+			if entry, found := transfers[transferId]; found {
+				err := m.cancel(entry.ManifestTransferId)
 				if err == nil {
 					delete(transfers, transferId)
 				}
@@ -162,13 +171,14 @@ func (m *manifestorState) process(decoder *gob.Decoder) {
 			}
 		case <-pulse:
 			// check the manifest transfers
-			for transferId, manifestXferId := range transfers {
-				completed, err := m.updateStatus(transferId, manifestXferId)
+			for transferId, entry := range transfers {
+				completed, err := m.updateStatus(transferId, entry)
 				if err != nil {
 					slog.Error(err.Error())
 					continue
 				}
 				if completed {
+					os.Remove(entry.Filename)
 					delete(transfers, transferId)
 				}
 			}
@@ -180,46 +190,54 @@ func (m *manifestorState) process(decoder *gob.Decoder) {
 	clock.Unsubscribe()
 }
 
-func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (uuid.UUID, error) {
+func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifestEntry, error) {
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
-		return uuid.UUID{}, err
+		return manifestEntry{}, err
 	}
 	manifest, err := m.generateManifest(transferId, spec)
 	if err != nil {
-		return uuid.UUID{}, err
+		return manifestEntry{}, err
 	}
 
-	manifestFile := filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transferId.String()))
-	if err := manifest.SaveDescriptor(manifestFile); err != nil {
-		return uuid.UUID{}, fmt.Errorf("creating manifest file: %s", err.Error())
+	filename := filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transferId.String()))
+	if err := manifest.SaveDescriptor(filename); err != nil {
+		return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
 	}
 
 	// begin transferring the manifest
 	source, err := endpoints.NewEndpoint(config.Service.Endpoint)
 	if err != nil {
-		return uuid.UUID{}, err
+		return manifestEntry{}, err
 	}
-	destination, err := destinationEndpoint(spec.Destination)
+	destination, err := determineDestinationEndpoint(spec.Destination)
 	if err != nil {
-		return uuid.UUID{}, err
+		return manifestEntry{}, err
+	}
+	destinationFolder, err := determineDestinationFolder(transferId)
+	if err != nil {
+		return manifestEntry{}, err
 	}
 	manifestXferId, err := source.Transfer(destination, []FileTransfer{
 		{
-			SourcePath:      manifestFile,
-			DestinationPath: filepath.Join(destinationFolder(spec.Destination), "manifest.json"),
+			SourcePath:      filename,
+			DestinationPath: filepath.Join(destinationFolder, "manifest.json"),
 		},
 	})
 	if err != nil {
-		return uuid.UUID{}, fmt.Errorf("transferring manifest file: %s", err.Error())
+		return manifestEntry{}, fmt.Errorf("transferring manifest file: %s", err.Error())
 	}
 
 	status, err := store.GetStatus(transferId)
 	if err != nil {
-		return uuid.UUID{}, err
+		return manifestEntry{}, err
 	}
 	status.Code = TransferStatusFinalizing
-	return manifestXferId, store.SetStatus(transferId, status)
+	return manifestEntry{
+		ManifestTransferId: manifestXferId,
+		Manifest:           manifest,
+		Filename:           filename,
+	}, store.SetStatus(transferId, status)
 }
 
 // generates a manifest for the transfer with the given ID and begins transferring it to its
@@ -280,7 +298,7 @@ func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specificat
 
 // update the status of the manifest transfer with the given ID, returning true if the transfer has
 // completed (successfully or unsuccessfully), false otherwise
-func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bool, error) {
+func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry) (bool, error) {
 	oldStatus, err := store.GetStatus(transferId)
 	if err != nil {
 		return false, err
@@ -291,7 +309,7 @@ func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bo
 	if err != nil {
 		return false, err
 	}
-	manifestStatus, err := source.Status(manifestXferId)
+	manifestStatus, err := source.Status(entry.ManifestTransferId)
 	if err != nil {
 		return false, err
 	}
@@ -304,6 +322,37 @@ func (m *manifestorState) updateStatus(transferId, manifestXferId uuid.UUID) (bo
 		}
 		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return true, err
+		}
+
+		// write a transfer record to the journal
+		spec, err := store.GetSpecification(transferId)
+		if err != nil {
+			return true, err
+		}
+		size, err := store.GetPayloadSize(transferId)
+		if err != nil {
+			return true, err
+		}
+		var statusString string
+		if strings.Contains(newStatus.Message, "success") {
+			statusString = "succeeded"
+		} else {
+			statusString = "failed"
+		}
+		err = journal.RecordTransfer(journal.Record{
+			Id:          transferId,
+			Source:      spec.Source,
+			Destination: spec.Destination,
+			Orcid:       spec.User.Orcid,
+			StartTime:   spec.TimeOfRequest,
+			StopTime:    time.Now(),
+			Status:      statusString,
+			PayloadSize: size,
+			NumFiles:    len(spec.FileIds),
+			Manifest:    entry.Manifest,
+		})
+		if err != nil {
+			slog.Error(err.Error())
 		}
 		publish(Message{
 			Description:    newStatus.Message,

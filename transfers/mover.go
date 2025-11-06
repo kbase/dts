@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/journal"
 )
 
 //-------
@@ -168,6 +169,28 @@ func (m *moverState) process(decoder *gob.Decoder) {
 						if err != nil {
 							slog.Error(err.Error())
 						}
+					} else { // failed -- write an entry to the journal
+						spec, err := store.GetSpecification(transferId)
+						if err == nil {
+							var size uint64
+							size, err = store.GetPayloadSize(transferId)
+							if err == nil {
+								err = journal.RecordTransfer(journal.Record{
+									Id:          transferId,
+									Source:      spec.Source,
+									Destination: spec.Destination,
+									Orcid:       spec.User.Orcid,
+									StartTime:   spec.TimeOfRequest,
+									StopTime:    time.Now(),
+									Status:      "failed",
+									PayloadSize: size,
+									NumFiles:    len(spec.FileIds),
+								})
+							}
+						}
+						if err != nil {
+							slog.Error(err.Error())
+						}
 					}
 					delete(moveOperations, transferId)
 				}
@@ -204,11 +227,15 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 		return nil, err
 	}
 	moves := make([]moveOperation, 0)
+	destinationFolder, err := determineDestinationFolder(transferId)
+	if err != nil {
+		return nil, err
+	}
 	for source, descriptorsForSource := range descriptorsForEndpoint {
 		files := make([]endpoints.FileTransfer, len(descriptorsForSource))
 		for i, descriptor := range descriptorsForSource {
 			path := descriptor["path"].(string)
-			destinationPath := filepath.Join(destinationFolder(spec.Destination), path)
+			destinationPath := filepath.Join(destinationFolder, path)
 			files[i] = endpoints.FileTransfer{
 				SourcePath:      path,
 				DestinationPath: destinationPath,
@@ -219,7 +246,7 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 		if err != nil {
 			return nil, err
 		}
-		destinationEp, err := destinationEndpoint(spec.Destination)
+		destinationEp, err := determineDestinationEndpoint(spec.Destination)
 		if err != nil {
 			return nil, err
 		}

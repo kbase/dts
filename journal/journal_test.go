@@ -129,7 +129,7 @@ func (t *SerialTests) TestRecordSuccessfulTransfer() {
 		Status:      "succeeded",
 		StartTime:   time.Now().Add(-time.Hour),
 		StopTime:    time.Now(),
-		PayloadSize: int64(12853294),
+		PayloadSize: uint64(12853294),
 		NumFiles:    12,
 		Manifest:    manifest,
 	}
@@ -170,7 +170,7 @@ func (t *SerialTests) TestRecordFailedTransfer() {
 		Status:      "failed",
 		StartTime:   time.Now(),
 		StopTime:    time.Now(),
-		PayloadSize: int64(12853294),
+		PayloadSize: uint64(12853294),
 		NumFiles:    12,
 	}
 	err = RecordTransfer(record)

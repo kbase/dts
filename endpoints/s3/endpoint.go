@@ -192,7 +192,7 @@ func (e *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	if found && status != nil {
 		return status.TransferStatus, nil
 	}
-	return endpoints.TransferStatus{}, fmt.Errorf("unknown transfer ID %s", id.String())
+	return endpoints.TransferStatus{}, endpoints.TransferNotFoundError{Id: id}
 }
 
 func (e *Endpoint) Cancel(id uuid.UUID) error {
@@ -203,7 +203,7 @@ func (e *Endpoint) Cancel(id uuid.UUID) error {
 		status.mu.Unlock()
 		return nil
 	}
-	return fmt.Errorf("unknown transfer ID %s", id.String())
+	return endpoints.TransferNotFoundError{Id: id}
 }
 
 //-----------

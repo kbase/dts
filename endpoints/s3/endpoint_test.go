@@ -240,6 +240,12 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	// status for unknown transfer ID
 	_, err = minioEndpoint.Status(uuid.New())
 	assert.NotNil(err)
+	assert.IsType(endpoints.TransferNotFoundError{}, err)
+
+	// cancel for unknown transfer ID
+	err = minioEndpoint.Cancel(uuid.New())
+	assert.NotNil(err)
+	assert.IsType(endpoints.TransferNotFoundError{}, err)
 }
 
 // Test transfer from AWS to Minio

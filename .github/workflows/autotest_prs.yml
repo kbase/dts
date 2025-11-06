@@ -62,7 +62,7 @@ jobs:
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
-    - name: Run AWS script
+    - name: Run AWS script # example script for using the aws go sdk
       shell: bash
       working-directory: ./etc/aws_client
       run: |

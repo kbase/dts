@@ -26,6 +26,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
@@ -92,6 +93,24 @@ func setup(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("unable to create test bucket, %v", err)
+			}
+		} else {
+			// empty the bucket
+			listOutput, err := s3Client.ListObjectsV2(context.TODO(), &awsS3.ListObjectsV2Input{
+				Bucket: aws.String(minioTestBucket),
+			})
+			if err != nil {
+				t.Fatalf("unable to list objects in test bucket, %v", err)
+			}
+			for _, obj := range listOutput.Contents {
+				_, err = s3Client.DeleteObject(context.TODO(), &awsS3.DeleteObjectInput{
+					Bucket: aws.String(minioTestBucket),
+					Key:    obj.Key,
+				})
+				if err != nil {
+					t.Fatalf("unable to delete object %s from test bucket, %v",
+						aws.ToString(obj.Key), err)
+				}
 			}
 		}
 	}
@@ -218,10 +237,6 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	assert.False(staged)
 	assert.NotNil(err)
 
-	// cancels are not supported
-	err = minioEndpoint.Cancel(uuid.New())
-	assert.NotNil(err)
-
 	// status for unknown transfer ID
 	_, err = minioEndpoint.Status(uuid.New())
 	assert.NotNil(err)
@@ -264,6 +279,26 @@ func TestAWSToMinioTransfer(t *testing.T) {
 
 	// check transfer status
 	status, err := awsEndpoint.Status(transferID)
+	assert.Nil(err)
+
+	// the transfer should not have completed yet, so the code should be Inactive or Active
+	assert.True(status.Code == endpoints.TransferStatusInactive ||
+		status.Code == endpoints.TransferStatusActive)
+
+	// now wait for it to complete
+	timeout := 30 // seconds
+	for timeout > 0 {
+		status, err = awsEndpoint.Status(transferID)
+		assert.Nil(err)
+		if status.Code == endpoints.TransferStatusSucceeded ||
+			status.Code == endpoints.TransferStatusFailed {
+			break
+		} else { // not yet finished
+			timeout--
+			time.Sleep(1 * time.Second)
+		}
+	}
+	assert.True(timeout > 0, "transfer did not complete within expected time")
 	assert.Nil(err)
 	assert.Equal(endpoints.TransferStatusSucceeded, status.Code)
 
@@ -317,6 +352,29 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	// check transfer status
 	status, err := minioSrcEndpoint.Status(transferID)
 	assert.Nil(err)
+
+	// the transfer should not have completed yet, so the code should be Inactive or Active
+	assert.True(status.Code == endpoints.TransferStatusInactive ||
+		status.Code == endpoints.TransferStatusActive)
+	assert.Equal(2, status.NumFiles)
+	assert.Greater(2, status.NumFilesTransferred)
+	assert.Equal(0, status.NumFilesSkipped)
+
+	// now wait for it to complete
+	timeout := 30 // seconds
+	for timeout > 0 {
+		status, err = minioSrcEndpoint.Status(transferID)
+		assert.Nil(err)
+		if status.Code == endpoints.TransferStatusSucceeded ||
+			status.Code == endpoints.TransferStatusFailed {
+			break
+		} else { // not yet finished
+			timeout--
+			time.Sleep(1 * time.Second)
+		}
+	}
+	assert.True(timeout > 0, "transfer did not complete within expected time")
+	assert.Nil(err)
 	assert.Equal(endpoints.TransferStatusSucceeded, status.Code)
 	assert.Equal(2, status.NumFiles)
 	assert.Equal(2, status.NumFilesTransferred)
@@ -349,6 +407,29 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	// check transfer status
 	failedStatus, err := minioSrcEndpoint.Status(failedTransferID)
 	assert.Nil(err)
+
+	// the transfer should not have completed yet, so the code should be Inactive or Active
+	assert.True(failedStatus.Code == endpoints.TransferStatusInactive ||
+		failedStatus.Code == endpoints.TransferStatusActive)
+	assert.Equal(2, failedStatus.NumFiles)
+	assert.Greater(2, failedStatus.NumFilesTransferred)
+	assert.Greater(1, failedStatus.NumFilesSkipped)
+
+	// now wait for it to complete
+	timeout = 30 // seconds
+	for timeout > 0 {
+		failedStatus, err = minioSrcEndpoint.Status(failedTransferID)
+		assert.Nil(err)
+		if failedStatus.Code == endpoints.TransferStatusSucceeded ||
+			failedStatus.Code == endpoints.TransferStatusFailed {
+			break
+		} else { // not yet finished
+			timeout--
+			time.Sleep(1 * time.Second)
+		}
+	}
+	assert.True(timeout > 0, "transfer did not complete within expected time")
+	assert.Nil(err)
 	assert.Equal(endpoints.TransferStatusFailed, failedStatus.Code)
 	assert.Equal(2, failedStatus.NumFiles)
 	assert.Equal(1, failedStatus.NumFilesTransferred)
@@ -364,12 +445,71 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	assert.False(exists)
 	assert.Nil(err)
 
-	// check that there are two transfers in the source Minio endpoint
+	// try to copy all three files and then cancel the transfer
+	allFilesTransfer := []endpoints.FileTransfer{
+		{
+			SourcePath:      "testfile1.txt",
+			DestinationPath: "testfile1_copied_yet_again.txt",
+		},
+		{
+			SourcePath:      "testfile2.txt",
+			DestinationPath: "testfile2_copied_yet_again.txt",
+		},
+		{
+			SourcePath:      "dir1/testfile3.txt",
+			DestinationPath: "testfile3_copied.txt",
+		},
+	}
+	cancelTransferID, err := minioSrcEndpoint.Transfer(*minioDestEndpoint, allFilesTransfer)
+	assert.NotEqual(uuid.Nil, cancelTransferID)
+	assert.Nil(err)
+
+	// now cancel it
+	err = minioSrcEndpoint.Cancel(cancelTransferID)
+	assert.Nil(err)
+
+	// give it a moment to cancel
+	time.Sleep(2 * time.Second)
+
+	// check transfer status
+	cancelStatus, err := minioSrcEndpoint.Status(cancelTransferID)
+	assert.Nil(err)
+	assert.Equal(endpoints.TransferStatusFailed, cancelStatus.Code)
+
+	// verify that at most two files were transferred
+	numTransferred := 0
+	for _, file := range allFilesTransfer {
+		exists, err = minioDestEndpoint.fileExists(file.DestinationPath)
+		assert.Nil(err)
+		if exists {
+			numTransferred++
+		}
+	}
+	assert.Equal(numTransferred, cancelStatus.NumFilesTransferred)
+	assert.Greater(3, cancelStatus.NumFilesTransferred)
+	assert.Equal(3, cancelStatus.NumFilesSkipped+numTransferred)
+	assert.Equal(3, cancelStatus.NumFiles)
+
+	// check that there are three transfers in the source Minio endpoint
 	transfers, err := minioSrcEndpoint.Transfers()
 	assert.Nil(err)
-	assert.Equal(2, len(transfers))
-	assert.Equal(transferID, transfers[0])
-	assert.Equal(failedTransferID, transfers[1])
+	assert.Equal(3, len(transfers))
+	// check that the lists contain the correct transfer IDs
+	foundIDs := map[uuid.UUID]bool{
+		transferID:       false,
+		failedTransferID: false,
+		cancelTransferID: false,
+	}
+	for _, id := range transfers {
+		_, found := foundIDs[id]
+		assert.True(found)
+		if found {
+			foundIDs[id] = true
+		}
+	}
+	for id, found := range foundIDs {
+		assert.True(found, "transfer ID %s not found in list", id.String())
+	}
 }
 
 func TestMain(m *testing.M) {

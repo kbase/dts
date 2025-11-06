@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
@@ -39,6 +40,15 @@ import (
 // This file implements an AWS S3 endpoint. It should be usable with any S3-compatible
 // storage system, such as Minio.
 
+// S3 transfer status
+type TransferStatus struct {
+	mu sync.Mutex
+	// transfer status information
+	endpoints.TransferStatus
+	// flag to cancel the transfer
+	cancelRequested bool
+}
+
 // this type satisfies the endpoints.Endpoint interface for AWS S3 endpoints
 type Endpoint struct {
 	// bucket identifier
@@ -52,7 +62,7 @@ type Endpoint struct {
 	// endpoint UUID (obtained from config)
 	Id uuid.UUID
 	// Map of completed transfers
-	TransfersMap map[uuid.UUID]endpoints.TransferStatus
+	TransfersMap map[uuid.UUID]*TransferStatus
 }
 
 type EndpointConfig struct {
@@ -103,7 +113,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (*Endpoint, e
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)
 	newEndpoint.Bucket = bucket
 	newEndpoint.Id = id
-	newEndpoint.TransfersMap = make(map[uuid.UUID]endpoints.TransferStatus)
+	newEndpoint.TransfersMap = make(map[uuid.UUID]*TransferStatus)
 
 	return &newEndpoint, nil
 }
@@ -163,61 +173,37 @@ func (e *Endpoint) Transfers() ([]uuid.UUID, error) {
 }
 
 func (e *Endpoint) Transfer(dst Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
-	numFiles := len(files)
-	numTransferred := 0
-
-	for _, file := range files {
-		// get the object from the source endpoint
-		buffer, _, err := e.getObject(file.SourcePath)
-		if err != nil {
-			// skip this file
-			continue
-		}
-
-		// put the object into the destination endpoint
-		err = dst.putObject(file.DestinationPath, bytes.NewReader(buffer.Bytes()))
-		if err != nil {
-			// skip this file
-			continue
-		}
-
-		numTransferred++
-	}
-
-	// generate a transfer task ID
 	taskId := uuid.New()
-
-	if numTransferred != numFiles {
-		e.TransfersMap[taskId] = endpoints.TransferStatus{
-			Code:                endpoints.TransferStatusFailed,
-			Message:             fmt.Sprintf("Transferred %d out of %d files", numTransferred, numFiles),
-			NumFiles:            numFiles,
-			NumFilesTransferred: numTransferred,
-			NumFilesSkipped:     numFiles - numTransferred,
-		}
-	} else {
-		e.TransfersMap[taskId] = endpoints.TransferStatus{
-			Code:                endpoints.TransferStatusSucceeded,
-			Message:             "All files transferred successfully",
-			NumFiles:            numFiles,
-			NumFilesTransferred: numTransferred,
+	e.TransfersMap[taskId] = &TransferStatus{
+		TransferStatus: endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusInactive,
+			Message:             "Transfer pending",
+			NumFiles:            len(files),
+			NumFilesTransferred: 0,
 			NumFilesSkipped:     0,
-		}
+		},
 	}
-
+	go e.transferFiles(e.TransfersMap[taskId], dst, files)
 	return taskId, nil
 }
 
 func (e *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	status, found := e.TransfersMap[id]
-	if found {
-		return status, nil
+	if found && status != nil {
+		return status.TransferStatus, nil
 	}
 	return endpoints.TransferStatus{}, fmt.Errorf("unknown transfer ID %s", id.String())
 }
 
 func (e *Endpoint) Cancel(id uuid.UUID) error {
-	return fmt.Errorf("transfer cancellation not supported for S3 endpoints")
+	status, found := e.TransfersMap[id]
+	if found && status != nil {
+		status.mu.Lock()
+		status.cancelRequested = true
+		status.mu.Unlock()
+		return nil
+	}
+	return fmt.Errorf("unknown transfer ID %s", id.String())
 }
 
 //-----------
@@ -260,4 +246,87 @@ func (e *Endpoint) putObject(key string, buffer *bytes.Reader) error {
 		Body:   buffer,
 	})
 	return err
+}
+
+func (t *TransferStatus) handleCancel() bool {
+	if t.cancelRequested {
+		t.mu.Lock()
+		t.TransferStatus = endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusFailed,
+			Message:             "Transfer canceled",
+			NumFiles:            t.NumFiles,
+			NumFilesTransferred: t.NumFilesTransferred,
+			NumFilesSkipped:     t.NumFiles - t.NumFilesTransferred,
+		}
+		t.mu.Unlock()
+	}
+	return t.cancelRequested
+}
+
+// transfers a set of files from this endpoint to the given destination endpoint
+func (e *Endpoint) transferFiles(t *TransferStatus, dst Endpoint, files []endpoints.FileTransfer) error {
+	t.mu.Lock()
+	t.TransferStatus = endpoints.TransferStatus{
+		Code:                endpoints.TransferStatusActive,
+		Message:             "Transfer in progress",
+		NumFiles:            len(files),
+		NumFilesTransferred: 0,
+		NumFilesSkipped:     0,
+	}
+	t.mu.Unlock()
+
+	for _, file := range files {
+		// get the object from the source endpoint
+		if t.handleCancel() {
+			return nil
+		}
+		buffer, _, err := e.getObject(file.SourcePath)
+		if err != nil {
+			// skip this file
+			t.mu.Lock()
+			t.NumFilesSkipped++
+			t.mu.Unlock()
+			continue
+		}
+
+		// put the object into the destination endpoint
+		if t.handleCancel() {
+			return nil
+		}
+		err = dst.putObject(file.DestinationPath, bytes.NewReader(buffer.Bytes()))
+		if err != nil {
+			// skip this file
+			t.mu.Lock()
+			t.NumFilesSkipped++
+			t.mu.Unlock()
+			continue
+		}
+
+		t.mu.Lock()
+		t.NumFilesTransferred++
+		t.mu.Unlock()
+	}
+	if t.NumFilesTransferred < t.NumFiles {
+		t.mu.Lock()
+		t.TransferStatus = endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusFailed,
+			Message:             "Some files failed to transfer",
+			NumFiles:            t.NumFiles,
+			NumFilesTransferred: t.NumFilesTransferred,
+			NumFilesSkipped:     t.NumFilesSkipped,
+		}
+		t.mu.Unlock()
+	} else {
+		t.mu.Lock()
+		t.TransferStatus = endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusSucceeded,
+			Message:             "Transfer completed successfully",
+			NumFiles:            t.NumFiles,
+			NumFilesTransferred: t.NumFilesTransferred,
+			NumFilesSkipped:     t.NumFilesSkipped,
+		}
+		t.mu.Unlock()
+	}
+
+	return nil
 }

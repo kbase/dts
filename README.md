@@ -40,14 +40,27 @@ go build
 
 ### Running Unit Tests
 
-DTS comes with several unit tests that demonstrate its capabilities, and you can
-run these tests as you would any other Go project:
+DTS comes with several unit tests that demonstrate its capabilities. Some tests
+require a Minio test instance to be running. You can start one with docker
+or podman:
+
+```
+docker run -d -p 9000:9000 -p 9001:9001 -e "MINIO_ROOT_USER=minioadmin" -e "MINIO_ROOT_PASSWORD=minioadmin" minio/minio server /data --console-address ":9001"
+```
+
+Then, and you can run these tests as you would any other Go project:
 
 ```
 go test ./...
 ```
 
 You can add a `-v` flag to see output from the tests.
+
+To spin down Minio:
+```
+docker container stop abc1234
+```
+(where `abc1234` is the container ID returned when you started the Minio)
 
 Because DTS is primarily an orchestrator of network resources, its unit tests
 must be able to connect to and utilize these resources. Accordingly, you must

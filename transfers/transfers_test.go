@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// These tests must be run serially, since tasks are coordinated by a
+// These tests must be run serially, since transfers are coordinated by a
 // single instance.
 
 package transfers
@@ -43,12 +43,6 @@ import (
 
 // this runner runs all tests for all the singletons in this package
 func TestRunner(t *testing.T) {
-	/*
-		dispatcherTests := DispatcherTests{Test: t}
-		print("dispatcher start/stop\n")
-		dispatcherTests.TestStartAndStop()
-	*/
-
 	transfers := TransferTests{Test: t}
 	transfers.TestStartAndStop()
 	transfers.TestCreate()
@@ -78,7 +72,7 @@ func (t *TransferTests) TestCreate() {
 	saveFilename := filepath.Join(conf.Service.DataDirectory, "dts.gob")
 	os.Remove(saveFilename)
 
-	// subscribe to the transfer mechanism's feed and collect messages describing the task's journey
+	// subscribe to the transfer mechanism's feed and collect messages describing the transfer's journey
 	// through the aether
 	var messages []Message
 	subscription := Subscribe(32)

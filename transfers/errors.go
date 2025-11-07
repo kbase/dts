@@ -29,14 +29,14 @@ import (
 	"github.com/kbase/dts/config"
 )
 
-// indicates that Start() has been called when tasks are being processed
+// indicates that Start() has been called when transfers are being processed
 type AlreadyRunningError struct{}
 
 func (t AlreadyRunningError) Error() string {
 	return "transfer orchestration is already running and cannot be started again"
 }
 
-// indicates that Stop() has been called when tasks are not being processed
+// indicates that Stop() has been called when transfers are not being processed
 type NotRunningError struct{}
 
 func (t NotRunningError) Error() string {

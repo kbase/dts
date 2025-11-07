@@ -62,15 +62,15 @@ type dispatcherState struct {
 
 type dispatcherChannels struct {
 	RequestTransfer  chan Specification // used by client to create a new transfer
-	ReturnTransferId chan uuid.UUID     // returns task ID to client
+	ReturnTransferId chan uuid.UUID     // returns transfer ID to client
 
 	CancelTransfer chan uuid.UUID // used by client to cancel a transfer
 
 	RequestStatus chan uuid.UUID      // used by client to request transfer status
-	ReturnStatus  chan TransferStatus // returns task status to client
+	ReturnStatus  chan TransferStatus // returns transfer status to client
 
 	Error chan error    // internal -> client error propagation
-	Stop  chan struct{} // used by client to stop task management
+	Stop  chan struct{} // used by client to stop transfer management
 }
 
 func newDispatcherChannels(maxConnections int) dispatcherChannels {
@@ -201,7 +201,7 @@ func (d *dispatcherState) start() error {
 		return manifestor.Start()
 	}
 
-	slog.Debug(fmt.Sprintf("found previous tasks in %s", saveFilename))
+	slog.Debug(fmt.Sprintf("found previous transfers in %s", saveFilename))
 	defer saveFile.Close()
 	decoder := gob.NewDecoder(saveFile)
 	var databaseStates databases.DatabaseSaveStates

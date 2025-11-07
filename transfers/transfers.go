@@ -114,7 +114,7 @@ func Start(conf config.Config) error {
 	return nil
 }
 
-// Stops processing tasks. Adding new tasks and requesting task statuses are
+// Stops processing transfers. Adding new transfers and requesting transfer statuses are
 // disallowed in a stopped state.
 func Stop() error {
 	var err error
@@ -135,14 +135,14 @@ func Stop() error {
 	return err
 }
 
-// Returns true if tasks are currently being processed, false if not.
+// Returns true if transfers are currently being processed, false if not.
 func Running() bool {
 	return global.Running
 }
 
-// this type holds a specification used to create a valid transfer task
+// this type holds a specification used to create a valid transfer transfer
 type Specification struct {
-	// a Markdown description of the transfer task
+	// a Markdown description of the transfer transfer
 	Description string
 	// the name of destination database to which files are transferred (as specified in the config
 	// file) OR a custom destination spec (<provider>:<id>:<credential>)
@@ -155,49 +155,46 @@ type Specification struct {
 	Source string
 	// the time at which the transfer is requested
 	TimeOfRequest time.Time
-	// information about the user requesting the task
+	// information about the user requesting the transfer
 	User auth.User
 }
 
-// Creates a new transfer task associated with the user with the specified Orcid
-// ID to the manager's set, returning a UUID for the task. The task is defined
-// by specifying the names of the source and destination databases and a set of
-// file IDs associated with the source.
+// Creates a new transfer associated with the user with the specified Orcid ID to the manager's set,
+// returning a UUID for the transfer. The transfer is defined by specifying the names of the source
+// and destination databases and a set of file IDs associated with the source.
 func Create(spec Specification) (uuid.UUID, error) {
-	var taskId uuid.UUID
-
 	// have we requested files to be transferred?
 	if len(spec.FileIds) == 0 {
-		return taskId, &NoFilesRequestedError{}
+		return uuid.UUID{}, &NoFilesRequestedError{}
 	}
 
 	// verify the source and destination strings
 	_, err := databases.NewDatabase(spec.Source) // source must refer to a database
 	if err != nil {
-		return taskId, err
+		return uuid.UUID{}, err
 	}
 
 	// destination can be a database OR a custom location
 	if _, err = databases.NewDatabase(spec.Destination); err != nil {
 		if _, err = endpoints.ParseCustomSpec(spec.Destination); err != nil {
-			return taskId, err
+			return uuid.UUID{}, err
 		}
 	}
 
 	spec.TimeOfRequest = time.Now()
 
-	// create a new task and send it along for processing
+	// create a new transfer and send it along for processing
 	return dispatcher.CreateTransfer(spec)
 }
 
-// Given a task UUID, returns its transfer status (or a non-nil error
+// Given a transfer ID, returns its transfer status (or a non-nil error
 // indicating any issues encountered).
 func Status(transferId uuid.UUID) (TransferStatus, error) {
 	return dispatcher.GetTransferStatus(transferId)
 }
 
-// Requests that the task with the given UUID be canceled. Clients should check
-// the status of the task separately.
+// Requests that the transfer with the given UUID be canceled. Clients should check
+// the status of the transfer separately.
 func Cancel(transferId uuid.UUID) error {
 	return dispatcher.CancelTransfer(transferId)
 }

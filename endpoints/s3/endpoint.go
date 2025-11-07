@@ -39,6 +39,13 @@ import (
 
 // This file implements an AWS S3 endpoint. It should be usable with any S3-compatible
 // storage system, such as Minio.
+//
+// NOTE: This hasn't been tested with large files. The Upload and Download Managers
+// used here should support multipart transfers, but this needs to be verified.
+//
+// NOTE: If we expect multiple simultaneous transfer requests, we may need to set
+// up a queue system and limit the number of concurrent transfers. Each goroutine
+// could have concurrent multipart transfers happening internally.
 
 // S3 transfer status
 type TransferStatus struct {
@@ -81,7 +88,7 @@ type EndpointConfig struct {
 }
 
 // creates a new S3 endpoint from the provided configuration information
-func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (*Endpoint, error) {
+func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (endpoints.Endpoint, error) {
 
 	var newEndpoint Endpoint
 
@@ -133,18 +140,14 @@ func (e *Endpoint) Provider() string {
 	return "s3: " + e.Bucket + "." + baseUrl
 }
 
-func (e *Endpoint) RootDir() string {
+func (e *Endpoint) Root() string {
 	return e.Bucket + "/"
 }
 
-func (e *Endpoint) FilesStaged(files []any) (bool, error) {
+func (e *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	staged := true
-	for _, f := range files {
-		descriptor, ok := f.(map[string]any)
-		if !ok {
-			return false, fmt.Errorf("invalid descriptor format")
-		}
-		pathVal, found := descriptor["path"]
+	for _, d := range descriptors {
+		pathVal, found := d["path"]
 		if !found {
 			return false, fmt.Errorf("descriptor missing 'path' field")
 		}
@@ -172,7 +175,11 @@ func (e *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-func (e *Endpoint) Transfer(dst Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (e *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+	s3Dest, ok := dst.(*Endpoint)
+	if !ok {
+		return uuid.Nil, fmt.Errorf("destination endpoint is not an S3 endpoint")
+	}
 	taskId := uuid.New()
 	e.TransfersMap[taskId] = &TransferStatus{
 		TransferStatus: endpoints.TransferStatus{
@@ -183,7 +190,7 @@ func (e *Endpoint) Transfer(dst Endpoint, files []endpoints.FileTransfer) (uuid.
 			NumFilesSkipped:     0,
 		},
 	}
-	go e.transferFiles(e.TransfersMap[taskId], dst, files)
+	go e.transferFiles(e.TransfersMap[taskId], *s3Dest, files)
 	return taskId, nil
 }
 

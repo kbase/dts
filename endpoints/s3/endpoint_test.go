@@ -144,18 +144,20 @@ func TestNewAWSS3Endpoint(t *testing.T) {
 	awsEndpoint, err := NewEndpoint(awsTestBucket, uuid.New(), cfg)
 	assert.NotNil(awsEndpoint)
 	assert.Nil(err)
-	assert.Equal(awsTestBucket+"/", awsEndpoint.RootDir())
+	assert.Equal(awsTestBucket+"/", awsEndpoint.Root())
 	assert.Equal("s3: "+awsTestBucket+".s3."+awsTestRegion+".amazonaws.com", awsEndpoint.Provider())
-	staged, err := awsEndpoint.FilesStaged([]any{})
+	staged, err := awsEndpoint.FilesStaged([]map[string]any{})
 	assert.True(staged)
 	assert.Nil(err)
-	staged, err = awsEndpoint.FilesStaged([]any{map[string]any{
-		"id":   "example",
-		"path": "some/nonexistent/file.txt",
-	}})
+	staged, err = awsEndpoint.FilesStaged([]map[string]any{
+		{
+			"id":   "example",
+			"path": "some/nonexistent/file.txt",
+		},
+	})
 	assert.False(staged)
 	assert.Nil(err)
-	staged, err = awsEndpoint.FilesStaged([]any{map[string]any{
+	staged, err = awsEndpoint.FilesStaged([]map[string]any{{
 		"id":   "NASA POWER License",
 		"path": "LICENSE.txt",
 	}})
@@ -176,12 +178,12 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), cfg)
 	assert.NotNil(minioEndpoint)
 	assert.Nil(err)
-	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.RootDir())
+	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.Root())
 	expectedProvider := "s3: " + minioTestEndpointURL + "/" + minioTestBuckets[0]
 	assert.Equal(expectedProvider, minioEndpoint.Provider())
 
 	// test FilesStaged with existing files
-	descriptors := make([]any, 0)
+	descriptors := make([]map[string]any, 0)
 	testFiles := []string{
 		"testfile1.txt",
 		"testfile2.txt",
@@ -210,21 +212,15 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	assert.Nil(err)
 
 	// test FilesStaged with an empty list
-	staged, err = minioEndpoint.FilesStaged([]any{})
+	staged, err = minioEndpoint.FilesStaged([]map[string]any{})
 	assert.True(staged)
 	assert.Nil(err)
-
-	// test FilesStaged with invalid descriptor
-	invalidDescriptor := "this is not a valid descriptor"
-	staged, err = minioEndpoint.FilesStaged([]any{invalidDescriptor})
-	assert.False(staged)
-	assert.NotNil(err)
 
 	// test FilesStaged with missing path in descriptor
 	missingPathDescriptor := map[string]any{
 		"id": "missing-path",
 	}
-	staged, err = minioEndpoint.FilesStaged([]any{missingPathDescriptor})
+	staged, err = minioEndpoint.FilesStaged([]map[string]any{missingPathDescriptor})
 	assert.False(staged)
 	assert.NotNil(err)
 
@@ -233,7 +229,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 		"id":   "non-string-path",
 		"path": 12345,
 	}
-	staged, err = minioEndpoint.FilesStaged([]any{nonStringPathDescriptor})
+	staged, err = minioEndpoint.FilesStaged([]map[string]any{nonStringPathDescriptor})
 	assert.False(staged)
 	assert.NotNil(err)
 
@@ -279,7 +275,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 			DestinationPath: "LICENSE_copied.txt",
 		},
 	}
-	transferID, err := awsEndpoint.Transfer(*minioEndpoint, filesToTransfer)
+	transferID, err := awsEndpoint.Transfer(minioEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -309,7 +305,9 @@ func TestAWSToMinioTransfer(t *testing.T) {
 	assert.Equal(endpoints.TransferStatusSucceeded, status.Code)
 
 	// verify that the file exists in the Minio bucket
-	exists, err := minioEndpoint.fileExists("LICENSE_copied.txt")
+	s3Endpoint, ok := minioEndpoint.(*Endpoint)
+	assert.True(ok)
+	exists, err := s3Endpoint.fileExists("LICENSE_copied.txt")
 	assert.True(exists)
 	assert.Nil(err)
 
@@ -351,7 +349,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile2_copied.txt",
 		},
 	}
-	transferID, err := minioSrcEndpoint.Transfer(*minioDestEndpoint, filesToTransfer)
+	transferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -387,11 +385,14 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	assert.Equal(0, status.NumFilesSkipped)
 
 	// verify that the files exist in the destination Minio bucket
-	exists, err := minioDestEndpoint.fileExists("testfile1_copied.txt")
+	s3Endpoint, ok := minioDestEndpoint.(*Endpoint)
+	assert.True(ok)
+
+	exists, err := s3Endpoint.fileExists("testfile1_copied.txt")
 	assert.True(exists)
 	assert.Nil(err)
 
-	exists, err = minioDestEndpoint.fileExists("testfile2_copied.txt")
+	exists, err = s3Endpoint.fileExists("testfile2_copied.txt")
 	assert.True(exists)
 	assert.Nil(err)
 
@@ -406,7 +407,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile1_copied_again.txt",
 		},
 	}
-	failedTransferID, err := minioSrcEndpoint.Transfer(*minioDestEndpoint, nonexistentFileTransfer)
+	failedTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, nonexistentFileTransfer)
 	assert.NotEqual(uuid.Nil, failedTransferID)
 	assert.Nil(err)
 
@@ -442,12 +443,15 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	assert.Equal(1, failedStatus.NumFilesSkipped)
 
 	// verify that the existing file was transferred
-	exists, err = minioDestEndpoint.fileExists("testfile1_copied_again.txt")
+	s3Endpoint, ok = minioDestEndpoint.(*Endpoint)
+	assert.True(ok)
+
+	exists, err = s3Endpoint.fileExists("testfile1_copied_again.txt")
 	assert.True(exists)
 	assert.Nil(err)
 
 	// verify that the nonexistent file was not transferred
-	exists, err = minioDestEndpoint.fileExists("nonexistent_copied.txt")
+	exists, err = s3Endpoint.fileExists("nonexistent_copied.txt")
 	assert.False(exists)
 	assert.Nil(err)
 
@@ -466,7 +470,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile3_copied.txt",
 		},
 	}
-	cancelTransferID, err := minioSrcEndpoint.Transfer(*minioDestEndpoint, allFilesTransfer)
+	cancelTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, allFilesTransfer)
 	assert.NotEqual(uuid.Nil, cancelTransferID)
 	assert.Nil(err)
 
@@ -485,7 +489,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 	// verify that at most two files were transferred
 	numTransferred := 0
 	for _, file := range allFilesTransfer {
-		exists, err = minioDestEndpoint.fileExists(file.DestinationPath)
+		exists, err = s3Endpoint.fileExists(file.DestinationPath)
 		assert.Nil(err)
 		if exists {
 			numTransferred++

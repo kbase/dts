@@ -1,0 +1,287 @@
+// Copyright (c) 2023 The KBase Project and its Contributors
+// Copyright (c) 2023 Cohere Consulting, LLC
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package transfers
+
+import (
+	"encoding/gob"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/journal"
+)
+
+//--------
+// Stager
+//--------
+
+// The stager coordinates the staging of files at a source database in preparation for transfer. It
+// responds to requests from the dispatcher to stage files associated with a given transfer ID. The
+// dispatcher then monitors the staging process, updating the status of the transfer via the store
+// as needed. When a set of files has been staged, the stager sends a request to the mover to move
+// the files to their destination.
+//
+// The stager is started and stopped by the dispatcher.
+
+// stager global state
+var stager stagerState
+
+type stagerState struct {
+	Channels  stagerChannels
+	Databases map[string]databases.Database
+}
+
+type stagerChannels struct {
+	RequestStaging      chan uuid.UUID
+	RequestCancellation chan uuid.UUID
+	Error               chan error
+	SaveAndStop         chan *gob.Encoder
+}
+
+func newStagerChannels() stagerChannels {
+	return stagerChannels{
+		RequestStaging:      make(chan uuid.UUID),
+		RequestCancellation: make(chan uuid.UUID),
+		Error:               make(chan error),
+		SaveAndStop:         make(chan *gob.Encoder),
+	}
+}
+
+func (channels *stagerChannels) Close() {
+	close(channels.RequestStaging)
+	close(channels.RequestCancellation)
+	close(channels.Error)
+	close(channels.SaveAndStop)
+}
+
+// starts the stager
+func (s *stagerState) Start() error {
+	s.Channels = newStagerChannels()
+	go s.process(nil)
+	return <-s.Channels.Error
+}
+
+// loads the stager from saved data
+func (s *stagerState) Load(decoder *gob.Decoder) error {
+	s.Channels = newStagerChannels()
+	go s.process(decoder)
+	return <-s.Channels.Error
+}
+
+// stops the stager goroutine
+func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
+	s.Channels.SaveAndStop <- encoder
+	err := <-s.Channels.Error
+	s.Channels.Close()
+	return err
+}
+
+// requests that files be staged for the transfer with the given ID
+func (s *stagerState) StageFiles(id uuid.UUID) error {
+	s.Channels.RequestStaging <- id
+	return <-s.Channels.Error
+}
+
+// cancels a file staging operation
+func (s *stagerState) Cancel(transferId uuid.UUID) error {
+	s.Channels.RequestCancellation <- transferId
+	return <-s.Channels.Error
+}
+
+//----------------------------------------------------
+// everything past here runs in the stager's goroutine
+//----------------------------------------------------
+
+// the goroutine itself
+func (s *stagerState) process(decoder *gob.Decoder) {
+	// load or create staging records
+	var stagings map[uuid.UUID]stagingEntry
+	if decoder != nil {
+		if err := decoder.Decode(&stagings); err != nil {
+			s.Channels.Error <- err
+			return
+		}
+	} else {
+		stagings = make(map[uuid.UUID]stagingEntry)
+	}
+
+	running := true
+	pulse := clock.Subscribe()
+	s.Channels.Error <- nil
+
+	for running {
+		select {
+		case transferId := <-s.Channels.RequestStaging:
+			entry, err := s.stageFiles(transferId)
+			if err == nil {
+				stagings[transferId] = entry
+			}
+			s.Channels.Error <- err
+		case transferId := <-s.Channels.RequestCancellation:
+			if _, found := stagings[transferId]; found {
+				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
+				s.Channels.Error <- nil
+			} else {
+				s.Channels.Error <- TransferNotFoundError{Id: transferId}
+			}
+		case <-pulse:
+			// check the staging status and advance to a transfer if it's finished, purging its record
+			for transferId, staging := range stagings {
+				if completed, err := s.updateStatus(transferId, staging); err == nil {
+					if completed {
+						delete(stagings, transferId)
+					}
+				} else {
+					slog.Error(err.Error())
+				}
+			}
+		case encoder := <-s.Channels.SaveAndStop:
+			s.Channels.Error <- encoder.Encode(stagings)
+			running = false
+		}
+	}
+	clock.Unsubscribe()
+}
+
+type stagingEntry struct {
+	Id uuid.UUID // staging ID (distinct from transfer ID)
+}
+
+func (s *stagerState) stageFiles(transferId uuid.UUID) (stagingEntry, error) {
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	db, err := databases.NewDatabase(spec.Source)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	stagingId, err := db.StageFiles(spec.User.Orcid, spec.FileIds)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	status, err := store.GetStatus(transferId)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	payloadSize, err := store.GetPayloadSize(transferId)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	status.Code = TransferStatusStaging
+	status.Message = fmt.Sprintf("Transfer %s: staging %d file(s) (%g GB)",
+		transferId.String(), status.NumFiles, float64(payloadSize)/float64(1024*1024*1024))
+	err = store.SetStatus(transferId, status)
+	if err != nil {
+		return stagingEntry{}, err
+	}
+	publish(Message{
+		Description:    status.Message,
+		TransferId:     transferId,
+		TransferStatus: status,
+		Time:           time.Now(),
+	})
+	return stagingEntry{Id: stagingId}, nil
+}
+
+// update transfer status, returning true iff completed
+func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (bool, error) {
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return false, err
+	}
+	source, err := databases.NewDatabase(spec.Source)
+	if err != nil {
+		return false, err
+	}
+
+	stagingStatus, err := source.StagingStatus(staging.Id)
+	if err != nil {
+		return false, err
+	}
+
+	oldStatus, err := store.GetStatus(transferId)
+	if err != nil {
+		return false, err
+	}
+
+	completed := false
+	newStatus := oldStatus
+	switch stagingStatus {
+	case databases.StagingStatusSucceeded:
+		newStatus.Message = fmt.Sprintf("Transfer %s: file staging succeeded", transferId.String())
+		newStatus.Code = TransferStatusActive
+		completed = true
+	case databases.StagingStatusFailed:
+		newStatus.Code = TransferStatusFailed
+		newStatus.Message = fmt.Sprintf("Transfer %s: file staging failed", transferId.String())
+		completed = true
+	default: // still staging
+		newStatus.Code = TransferStatusStaging
+	}
+
+	if newStatus.Code != oldStatus.Code {
+		if err := store.SetStatus(transferId, newStatus); err != nil {
+			return completed, err
+		}
+		publish(Message{
+			Description:    newStatus.Message,
+			TransferId:     transferId,
+			TransferStatus: newStatus,
+			Time:           time.Now(),
+		})
+		if newStatus.Code == TransferStatusFailed { // write an entry to the journal
+			spec, err := store.GetSpecification(transferId)
+			if err == nil {
+				var size uint64
+				size, err = store.GetPayloadSize(transferId)
+				if err == nil {
+					err = journal.RecordTransfer(journal.Record{
+						Id:          transferId,
+						Source:      spec.Source,
+						Destination: spec.Destination,
+						Orcid:       spec.User.Orcid,
+						StartTime:   spec.TimeOfRequest,
+						StopTime:    time.Now(),
+						Status:      "failed",
+						PayloadSize: size,
+						NumFiles:    len(spec.FileIds),
+					})
+				}
+			}
+			if err != nil {
+				slog.Error(err.Error())
+			}
+
+		}
+	}
+
+	if newStatus.Code == TransferStatusActive {
+		if err := mover.MoveFiles(transferId); err != nil {
+			return completed, err
+		}
+	}
+	return completed, nil
+}

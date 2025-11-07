@@ -54,7 +54,7 @@ type Record struct {
 	// status of the transfer ("succeeded", "failed", or "canceled")
 	Status string `json:"status"`
 	// size of the transfer's payload in bytes
-	PayloadSize int64 `json:"payload_size"`
+	PayloadSize uint64 `json:"payload_size"`
 	// number of files in the transfer's payload
 	NumFiles int `json:"num_files"`
 	// manifest containing metadata for the transfer's payload (stored separate from record)

@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -270,7 +271,8 @@ func (t *TransferStatus) handleCancel() bool {
 	return t.cancelRequested
 }
 
-// transfers a set of files from this endpoint to the given destination endpoint
+// transfers a set of files from this endpoint to the given destination endpoint.
+// typically invoked as a goroutine
 func (e *Endpoint) transferFiles(t *TransferStatus, dst Endpoint, files []endpoints.FileTransfer) error {
 	t.mu.Lock()
 	t.TransferStatus = endpoints.TransferStatus{
@@ -292,6 +294,9 @@ func (e *Endpoint) transferFiles(t *TransferStatus, dst Endpoint, files []endpoi
 			// skip this file
 			t.mu.Lock()
 			t.NumFilesSkipped++
+			slog.Warn("S3 transfer: error getting object",
+				slog.String("source_path", file.SourcePath),
+				slog.String("error", err.Error()))
 			t.mu.Unlock()
 			continue
 		}
@@ -305,6 +310,9 @@ func (e *Endpoint) transferFiles(t *TransferStatus, dst Endpoint, files []endpoi
 			// skip this file
 			t.mu.Lock()
 			t.NumFilesSkipped++
+			slog.Warn("S3 transfer: error putting object",
+				slog.String("destination_path", file.DestinationPath),
+				slog.String("error", err.Error()))
 			t.mu.Unlock()
 			continue
 		}

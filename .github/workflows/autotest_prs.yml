@@ -45,7 +45,7 @@ jobs:
         go install honnef.co/go/tools/cmd/staticcheck@latest
         staticcheck ./...
 
-    - name: Setup MinIO
+    - name: Set up MinIO
       uses: infleet/minio-action@v0.0.1
       with:
         port: "9000"
@@ -62,7 +62,7 @@ jobs:
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
-    - name: Run AWS script # example script for using the aws go sdk
+    - name: Run AWS example script # example script for using the aws go sdk
       shell: bash
       working-directory: ./etc/aws_client
       run: |

@@ -23,6 +23,8 @@ package endpoints
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 // indicates that an endpoint is sought but not found
@@ -78,4 +80,13 @@ func (e IncompatibleDestinationError) Error() string {
 	}
 	return fmt.Sprintf("The source endpoint '%s' (%s) cannot transfer files to the destination endpoint '%s' (%s)",
 		e.Source, e.SourceProvider, e.Destination, e.DestinationProvider)
+}
+
+// indicates that an invalid transfer id has been specified
+type TransferNotFoundError struct {
+	Id uuid.UUID
+}
+
+func (e TransferNotFoundError) Error() string {
+	return fmt.Sprintf("The transfer ID '%s' was not found.", e.Id.String())
 }

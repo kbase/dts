@@ -45,6 +45,14 @@ jobs:
         go install honnef.co/go/tools/cmd/staticcheck@latest
         staticcheck ./...
 
+    - name: Set up MinIO
+      uses: infleet/minio-action@v0.0.1
+      with:
+        port: "9000"
+        version: "latest"
+        username: "minioadmin"
+        password: "minioadmin"
+  
     - name: Building DTS
       run: go build -v ./...
 
@@ -53,6 +61,12 @@ jobs:
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
+
+    - name: Run AWS example script # example script for using the aws go sdk
+      shell: bash
+      working-directory: ./etc/aws_client
+      run: |
+        go run ./...
 
     - name: Uploading code coverage report to Codecov
       uses: codecov/codecov-action@v4

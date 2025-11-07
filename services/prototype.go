@@ -28,7 +28,7 @@ import (
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/journal"
-	"github.com/kbase/dts/tasks"
+	"github.com/kbase/dts/transfers"
 )
 
 // This type implements the TransferService interface, allowing file transfers
@@ -95,8 +95,8 @@ func (service *prototype) Start(conf config.Config) error {
 	defer listener.Close()
 	listener = netutil.LimitListener(listener, conf.Service.MaxConnections)
 
-	// start tasks processing
-	err = tasks.Start(conf)
+	// start processing transfers
+	err = transfers.Start(conf)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (service *prototype) Start(conf config.Config) error {
 
 // gracefully shuts down the service without interrupting active connections
 func (service *prototype) Shutdown(ctx context.Context) error {
-	tasks.Stop()
+	transfers.Stop()
 	if service.Server != nil {
 		return service.Server.Shutdown(ctx)
 	}
@@ -124,7 +124,7 @@ func (service *prototype) Shutdown(ctx context.Context) error {
 
 // closes down the service abruptly, freeing all resources
 func (service *prototype) Close() {
-	tasks.Stop()
+	transfers.Stop()
 	if service.Server != nil {
 		service.Server.Close()
 	}
@@ -136,8 +136,8 @@ func (service *prototype) Close() {
 
 // Version numbers
 var majorVersion = 0
-var minorVersion = 9
-var patchVersion = 7
+var minorVersion = 10
+var patchVersion = 0
 
 // Version string
 var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
@@ -684,7 +684,7 @@ func (service *prototype) createTransfer(ctx context.Context,
 		}
 	}
 
-	taskId, err := tasks.Create(tasks.Specification{
+	taskId, err := transfers.Create(transfers.Specification{
 		User:         user,
 		Source:       input.Body.Source,
 		Destination:  input.Body.Destination,
@@ -695,7 +695,7 @@ func (service *prototype) createTransfer(ctx context.Context,
 	if err != nil {
 		slog.Error(err.Error())
 		switch err.(type) {
-		case *tasks.NoFilesRequestedError:
+		case *transfers.NoFilesRequestedError:
 			return nil, huma.Error400BadRequest(err.Error())
 		case *databases.NotFoundError:
 			return nil, huma.Error404NotFound(err.Error())
@@ -747,7 +747,7 @@ func (service *prototype) getTransferStatus(ctx context.Context,
 	}
 
 	// fetch the status for the job using the appropriate task data
-	status, err := tasks.Status(input.Id)
+	status, err := transfers.Status(input.Id)
 	if err != nil {
 		return nil, huma.Error404NotFound(err.Error())
 	}
@@ -774,7 +774,7 @@ func (service *prototype) deleteTransfer(ctx context.Context,
 	}) (*TaskDeletionOutput, error) {
 
 	// request that the task be canceled
-	err := tasks.Cancel(input.Id)
+	err := transfers.Cancel(input.Id)
 	if err != nil {
 		return nil, err
 	}

@@ -93,9 +93,8 @@ func (ep *Endpoint) Root() string {
 	return ep.root
 }
 
-func (ep *Endpoint) FilesStaged(files []any) (bool, error) {
-	for _, resource := range files {
-		descriptor := resource.(map[string]any)
+func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
+	for _, descriptor := range descriptors {
 		absPath := filepath.Join(ep.root, descriptor["path"].(string))
 		_, err := os.Stat(absPath)
 		if err != nil {
@@ -191,7 +190,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// first, we check that all requested files are staged on this endpoint
-	requestedFiles := make([]any, len(files))
+	requestedFiles := make([]map[string]any, len(files))
 	for i, file := range files {
 		requestedFiles[i] = map[string]any{
 			"path": file.SourcePath, // only the Path field is required

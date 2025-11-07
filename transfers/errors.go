@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package tasks
+package transfers
 
 import (
 	"fmt"
@@ -29,34 +29,32 @@ import (
 	"github.com/kbase/dts/config"
 )
 
-// indicates that a task is sought but not found
-type NotFoundError struct {
-	Id uuid.UUID
-}
-
-func (t NotFoundError) Error() string {
-	return fmt.Sprintf("The task %s was not found.", t.Id.String())
-}
-
-// indicates that Start() has been called when tasks are being processed
+// indicates that Start() has been called when transfers are being processed
 type AlreadyRunningError struct{}
 
 func (t AlreadyRunningError) Error() string {
-	return "Tasks are already running and cannot be started again."
+	return "transfer orchestration is already running and cannot be started again"
 }
 
-// indicates that Stop() has been called when tasks are not being processed
+// indicates that Stop() has been called when transfers are not being processed
 type NotRunningError struct{}
 
 func (t NotRunningError) Error() string {
-	return "Tasks are not currently being processed."
+	return "transfers are not currently being processed"
+}
+
+// indicates that no databases are currently available
+type NoDatabasesAvailable struct{}
+
+func (t NoDatabasesAvailable) Error() string {
+	return "no databases are currently available for transfer"
 }
 
 // indicates that a transfer has been requested with no files(!)
 type NoFilesRequestedError struct{}
 
 func (t NoFilesRequestedError) Error() string {
-	return "Requested transfer task includes no file IDs!"
+	return "requested transfer includes no file IDs"
 }
 
 // indicates that a payload has been requested that is too large
@@ -65,6 +63,25 @@ type PayloadTooLargeError struct {
 }
 
 func (e PayloadTooLargeError) Error() string {
-	return fmt.Sprintf("Requested payload is too large: %g GB (limit is %g GB).",
+	return fmt.Sprintf("requested transfer payload is too large: %g GB (limit is %g GB)",
 		e.Size, config.Service.MaxPayloadSize)
+}
+
+// indicates an error encountered in saving transfer data to a persistent file for loading later
+type SaveFileError struct {
+	Filename string
+	Message  string
+}
+
+func (e SaveFileError) Error() string {
+	return fmt.Sprintf("%s (save file: %s)", e.Message, e.Filename)
+}
+
+// indicates that the transfer with a given ID is not found
+type TransferNotFoundError struct {
+	Id uuid.UUID
+}
+
+func (e TransferNotFoundError) Error() string {
+	return fmt.Sprintf("transfer not found: %s", e.Id.String())
 }

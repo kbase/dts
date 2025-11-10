@@ -31,6 +31,8 @@ import (
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awsS3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
+	"github.com/kbase/dts/databases"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -113,6 +115,8 @@ func setup(t *testing.T) {
 		"file1.txt":      "This is the content of file 1.",
 		"file2.txt":      "This is the content of file 2.",
 		"dir1/file3.txt": "This is the content of file 3.",
+		"dir1/file4.txt": "This is the content of file 4.",
+		"dir2/file5.txt": "This is the content of file 5.",
 	}
 
 	for key, content := range testObjects {
@@ -154,6 +158,96 @@ func TestNewMinioS3Database(t *testing.T) {
 	db, err := NewDatabase(minioTestBucket, cfg)
 	assert.NoError(err)
 	assert.NotNil(db)
+	s3db := db.(*Database)
+
+	// test support functions
+	exists, err := s3db.fileExists("file1.txt")
+	assert.NoError(err)
+	assert.True(exists)
+
+	files, err := s3db.listFilesWithPrefix("dir1/")
+	assert.NoError(err)
+	assert.Equal(2, len(files))
+
+	descriptor, err := s3db.s3ObjectToDescriptor("file1.txt")
+	assert.NoError(err)
+	assert.Equal("file1.txt", descriptor["name"])
+	assert.Equal("file1.txt", descriptor["path"])
+	assert.Equal(int64(len("This is the content of file 1.")), descriptor["bytes"])
+	assert.Equal("application/octet-stream", descriptor["mediatype"])
+
+	// test specific search parameters (none currently supported)
+	params := db.SpecificSearchParameters()
+	assert.Equal(0, len(params))
+
+	// test search
+	searchParams := databases.SearchParameters{
+		Query: "dir1/",
+	}
+	results, err := db.Search("test-orcid", searchParams)
+	assert.NoError(err)
+	assert.Equal(2, len(results.Descriptors))
+	expectedNames := map[string]string{
+		"file3.txt": "dir1/file3.txt",
+		"file4.txt": "dir1/file4.txt",
+	}
+	for _, desc := range results.Descriptors {
+		name := desc["name"].(string)
+		path := desc["path"].(string)
+		expectedPath, ok := expectedNames[name]
+		assert.True(ok, "unexpected file name: %s", name)
+		assert.Equal(expectedPath, path)
+	}
+
+	// test descriptors
+	fileIds := []string{"file1.txt", "dir2/file5.txt"}
+	descriptors, err := db.Descriptors("test-orcid", fileIds)
+	assert.NoError(err)
+	assert.Equal(2, len(descriptors))
+	expectedDescriptors := map[string]string{
+		"file1.txt": "file1.txt",
+		"file5.txt": "dir2/file5.txt",
+	}
+	for _, desc := range descriptors {
+		name := desc["name"].(string)
+		path := desc["path"].(string)
+		expectedPath, ok := expectedDescriptors[name]
+		assert.True(ok, "unexpected file name: %s", name)
+		assert.Equal(expectedPath, path)
+		assert.Equal(int64(len("This is the content of file X.")), desc["bytes"])
+		assert.Equal("application/octet-stream", desc["mediatype"])
+	}
+
+	// test staging
+	stagingID, err := db.StageFiles("test-orcid", fileIds)
+	assert.NoError(err)
+	assert.NotEqual(uuid.Nil, stagingID)
+
+	// test staging status
+	status, err := db.StagingStatus(stagingID)
+	assert.NoError(err)
+	assert.Equal(databases.StagingStatusSucceeded, status)
+
+	status, err = db.StagingStatus(uuid.New())
+	assert.Error(err)
+	assert.Equal(databases.StagingStatusUnknown, status)
+
+	// test save and load
+	savedState, err := db.Save()
+	assert.NoError(err)
+	assert.Equal("s3", savedState.Name)
+	assert.NotEmpty(savedState.Data)
+
+	newDb, err := NewDatabase(minioTestBucket, cfg)
+	assert.NoError(err)
+	err = newDb.Load(savedState)
+	assert.NoError(err)
+
+	// verify that staging requests were preserved
+	newS3Db := newDb.(*Database)
+	status, err = newS3Db.StagingStatus(stagingID)
+	assert.NoError(err)
+	assert.Equal(databases.StagingStatusSucceeded, status)
 }
 
 func TestMain(m *testing.M) {

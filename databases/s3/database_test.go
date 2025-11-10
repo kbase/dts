@@ -139,9 +139,76 @@ func TestNewAWSS3Database(t *testing.T) {
 	cfg := Config{
 		Region: awsTestRegion,
 	}
-	db, err := NewDatabase(minioTestBucket, cfg)
+	db, err := NewDatabase(awsTestBucket, cfg)
 	assert.NoError(err)
 	assert.NotNil(db)
+
+	// test support functions
+	s3db := db.(*Database)
+
+	exists, err := s3db.fileExists("LICENSE.txt")
+	assert.NoError(err)
+	assert.True(exists)
+	exists, err = s3db.fileExists("NON_EXISTENT_FILE.txt")
+	assert.NoError(err)
+	assert.False(exists)
+
+	// test search
+	searchParams := databases.SearchParameters{
+		Query: "LICENS",
+	}
+	results, err := db.Search("test-orcid", searchParams)
+	assert.NoError(err)
+	assert.Greater(len(results.Descriptors), 0)
+	found := false
+	for _, desc := range results.Descriptors {
+		if desc["name"] == "LICENSE.txt" {
+			found = true
+			break
+		}
+	}
+	assert.True(found, "LICENSE.txt not found in search results")
+
+	// test descriptors
+	fileIds := []string{"LICENSE.txt"}
+	descriptors, err := db.Descriptors("test-orcid", fileIds)
+	assert.NoError(err)
+	assert.Equal(1, len(descriptors))
+	assert.Equal("LICENSE.txt", descriptors[0]["name"])
+	assert.Equal("LICENSE.txt", descriptors[0]["path"])
+	assert.Greater(descriptors[0]["bytes"].(int64), int64(0))
+	assert.Equal("text/plain", descriptors[0]["mediatype"])
+
+	// test staging
+	stagingID, err := db.StageFiles("test-orcid", fileIds)
+	assert.NoError(err)
+	assert.NotEqual(uuid.Nil, stagingID)
+
+	// test staging status
+	status, err := db.StagingStatus(stagingID)
+	assert.NoError(err)
+	assert.Equal(databases.StagingStatusSucceeded, status)
+
+	status, err = db.StagingStatus(uuid.New())
+	assert.Error(err)
+	assert.Equal(databases.StagingStatusUnknown, status)
+
+	// test save and load
+	savedState, err := db.Save()
+	assert.NoError(err)
+	assert.Equal("s3", savedState.Name)
+	assert.NotEmpty(savedState.Data)
+
+	newDb, err := NewDatabase(minioTestBucket, cfg)
+	assert.NoError(err)
+	err = newDb.Load(savedState)
+	assert.NoError(err)
+
+	// verify that staging requests were preserved
+	newS3Db := newDb.(*Database)
+	status, err = newS3Db.StagingStatus(stagingID)
+	assert.NoError(err)
+	assert.Equal(databases.StagingStatusSucceeded, status)
 }
 
 func TestNewMinioS3Database(t *testing.T) {

@@ -73,7 +73,7 @@ type StagingRequest struct {
 	Paths []string `json:"paths"`
 	// ORCID of user requesting staging
 	Orcid string `json:"orcid"`
-	// time of staging request
+	// Time of staging request
 	RequestTime string `json:"request_time"`
 }
 
@@ -214,15 +214,16 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 
 // returns whether a file exists in the S3 bucket
 func (db *Database) fileExists(key string) (bool, error) {
-	contents, err := db.Client.ListObjectsV2(context.TODO(), &awsS3.ListObjectsV2Input{
+	_, err := db.Client.HeadObject(context.TODO(), &awsS3.HeadObjectInput{
 		Bucket: aws.String(db.Bucket),
-		Prefix: aws.String(key),
+		Key:    aws.String(key),
 	})
 	if err != nil {
-		return false, fmt.Errorf("error checking for file %s in bucket %s: %v", key, db.Bucket, err)
-	}
-	if len(contents.Contents) == 0 {
-		return false, nil
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "Not Found") {
+			return false, nil
+		} else {
+			return false, fmt.Errorf("error checking existence of S3 object %s: %v", key, err)
+		}
 	}
 	return true, nil
 }
@@ -254,8 +255,9 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)
 	}
 
+	parts := strings.Split(key, "/")
 	descriptor := map[string]any{
-		"name":      strings.Split(key, "/")[len(strings.Split(key, "/"))-1],
+		"name":      parts[len(parts)-1],
 		"path":      key,
 		"mediatype": aws.ToString(headOutput.ContentType),
 		"bytes":     aws.ToInt64(headOutput.ContentLength),

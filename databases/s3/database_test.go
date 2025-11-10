@@ -24,6 +24,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -51,10 +52,10 @@ var minioTestBucket = "test-database-bucket"
 
 // connect to the minio test server, create a test bucket, and populate it with
 // some test data
-func setup(t *testing.T) {
+func setup() {
 	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		t.Fatalf("unable to load SDK config, %v", err)
+		panic(fmt.Sprintf("unable to load SDK config, %v", err))
 	}
 
 	// override config for minio
@@ -73,7 +74,7 @@ func setup(t *testing.T) {
 	// create the test bucket if it doesn't already exist
 	existingBuckets, err := s3Client.ListBuckets(context.TODO(), &awsS3.ListBucketsInput{})
 	if err != nil {
-		t.Fatalf("unable to list buckets, %v", err)
+		panic(fmt.Sprintf("unable to list buckets, %v", err))
 	}
 
 	bucketExists := false
@@ -89,7 +90,7 @@ func setup(t *testing.T) {
 			Bucket: &minioTestBucket,
 		})
 		if err != nil {
-			t.Fatalf("unable to create test bucket, %v", err)
+			panic(fmt.Sprintf("unable to create test bucket, %v", err))
 		}
 	} else {
 		// clean out any existing objects in the bucket
@@ -97,7 +98,7 @@ func setup(t *testing.T) {
 			Bucket: &minioTestBucket,
 		})
 		if err != nil {
-			t.Fatalf("unable to list objects in test bucket, %v", err)
+			panic(fmt.Sprintf("unable to list objects in test bucket, %v", err))
 		}
 		for _, obj := range listOutput.Contents {
 			_, err = s3Client.DeleteObject(context.TODO(), &awsS3.DeleteObjectInput{
@@ -105,7 +106,7 @@ func setup(t *testing.T) {
 				Key:    obj.Key,
 			})
 			if err != nil {
-				t.Fatalf("unable to delete object %s from test bucket, %v", *obj.Key, err)
+				panic(fmt.Sprintf("unable to delete object %s from test bucket, %v", *obj.Key, err))
 			}
 		}
 	}
@@ -128,7 +129,7 @@ func setup(t *testing.T) {
 			ContentLength: &contentLength,
 		})
 		if err != nil {
-			t.Fatalf("unable to put object %s into test bucket, %v", key, err)
+			panic(fmt.Sprintf("unable to put object %s into test bucket, %v", key, err))
 		}
 	}
 }
@@ -318,6 +319,6 @@ func TestNewMinioS3Database(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	setup(&testing.T{})
+	setup()
 	os.Exit(m.Run())
 }

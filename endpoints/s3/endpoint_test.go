@@ -24,6 +24,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -53,10 +54,10 @@ var minioTestBuckets = []string{"dts-test-source-bucket", "dts-test-dest-bucket"
 
 // connect to the Minio test server, create a test bucket, and populate it with some
 // test data
-func setup(t *testing.T) {
+func setup() {
 	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		t.Fatalf("unable to load SDK config, %v", err)
+		panic(fmt.Sprintf("unable to load SDK config, %v", err))
 	}
 
 	// override config for Minio
@@ -75,7 +76,7 @@ func setup(t *testing.T) {
 	// create the test buckets if they don't exist
 	existingBuckets, err := s3Client.ListBuckets(context.TODO(), &awsS3.ListBucketsInput{})
 	if err != nil {
-		t.Fatalf("unable to list buckets, %v", err)
+		panic(fmt.Sprintf("unable to list buckets, %v", err))
 	}
 
 	for _, minioTestBucket := range minioTestBuckets {
@@ -92,7 +93,7 @@ func setup(t *testing.T) {
 				Bucket: aws.String(minioTestBucket),
 			})
 			if err != nil {
-				t.Fatalf("unable to create test bucket, %v", err)
+				panic(fmt.Sprintf("unable to create test bucket, %v", err))
 			}
 		} else {
 			// empty the bucket
@@ -100,7 +101,7 @@ func setup(t *testing.T) {
 				Bucket: aws.String(minioTestBucket),
 			})
 			if err != nil {
-				t.Fatalf("unable to list objects in test bucket, %v", err)
+				panic(fmt.Sprintf("unable to list objects in test bucket, %v", err))
 			}
 			for _, obj := range listOutput.Contents {
 				_, err = s3Client.DeleteObject(context.TODO(), &awsS3.DeleteObjectInput{
@@ -108,8 +109,8 @@ func setup(t *testing.T) {
 					Key:    obj.Key,
 				})
 				if err != nil {
-					t.Fatalf("unable to delete object %s from test bucket, %v",
-						aws.ToString(obj.Key), err)
+					panic(fmt.Sprintf("unable to delete object %s from test bucket, %v",
+						aws.ToString(obj.Key), err))
 				}
 			}
 		}
@@ -131,7 +132,7 @@ func setup(t *testing.T) {
 			ContentLength: &fileLength,
 		})
 		if err != nil {
-			t.Fatalf("unable to put test file %s, %v", key, err)
+			panic(fmt.Sprintf("unable to put test file %s, %v", key, err))
 		}
 	}
 }
@@ -523,6 +524,6 @@ func TestMinioToMinioTransfer(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	setup(&testing.T{})
+	setup()
 	os.Exit(m.Run())
 }

@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -220,15 +221,16 @@ func (e *Endpoint) Cancel(id uuid.UUID) error {
 
 // returns whether the given file exists in the bucket
 func (e *Endpoint) fileExists(key string) (bool, error) {
-	contents, err := e.Client.ListObjectsV2(context.TODO(), &awsS3.ListObjectsV2Input{
+	_, err := e.Client.HeadObject(context.TODO(), &awsS3.HeadObjectInput{
 		Bucket: aws.String(e.Bucket),
-		Prefix: aws.String(key),
+		Key:    aws.String(key),
 	})
 	if err != nil {
-		return false, err
-	}
-	if len(contents.Contents) == 0 {
-		return false, nil
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "Not Found") {
+			return false, nil
+		} else {
+			return false, fmt.Errorf("error checking existence of S3 object %s: %v", key, err)
+		}
 	}
 	return true, nil
 }

@@ -16,6 +16,7 @@ require (
 	github.com/frictionlessdata/datapackage-go v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/stretchr/testify v1.10.0
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/net v0.38.0

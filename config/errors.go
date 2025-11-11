@@ -51,12 +51,3 @@ type InvalidEndpointConfigError struct {
 func (e InvalidEndpointConfigError) Error() string {
 	return fmt.Sprintf("Endpoint %s is not properly configured: %s", e.Endpoint, e.Message)
 }
-
-// indicates that a database is not configured properly
-type InvalidDatabaseConfigError struct {
-	Database, Message string
-}
-
-func (e InvalidDatabaseConfigError) Error() string {
-	return fmt.Sprintf("Database %s is not properly configured: %s", e.Database, e.Message)
-}

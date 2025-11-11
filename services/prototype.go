@@ -233,10 +233,11 @@ func (service *prototype) getDatabases(ctx context.Context,
 	}
 	for dbName, db := range config.Databases {
 		if databases.HaveDatabase(dbName) { // check to see whether we successfully registered it
+			dbMap := db.(map[string]any)
 			output.Body = append(output.Body, DatabaseResponse{
 				Id:           dbName,
-				Name:         db.Name,
-				Organization: db.Organization,
+				Name:         dbMap["name"].(string),
+				Organization: dbMap["organization"].(string),
 			})
 		}
 	}
@@ -263,11 +264,12 @@ func (service *prototype) getDatabase(ctx context.Context,
 	if !ok {
 		return nil, huma.Error404NotFound(fmt.Sprintf("Database %s not found", input.Id))
 	}
+	dbMap := db.(map[string]any)
 	return &DatabaseOutput{
 		Body: DatabaseResponse{
 			Id:           input.Id,
-			Name:         db.Name,
-			Organization: db.Organization,
+			Name:         dbMap["name"].(string),
+			Organization: dbMap["organization"].(string),
 		},
 	}, nil
 }

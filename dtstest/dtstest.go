@@ -210,6 +210,7 @@ type stagingRequest struct {
 // This type implements a databases.Database test fixture
 type Database struct {
 	Name        string
+	EndptName   string
 	Endpt       endpoints.Endpoint
 	descriptors map[string]map[string]any
 	Staging     map[uuid.UUID]stagingRequest
@@ -219,12 +220,20 @@ type Database struct {
 func RegisterDatabase(databaseName string, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
 	newDatabaseFunc := func() (databases.Database, error) {
-		endpoint, err := endpoints.NewEndpoint(config.Databases[databaseName].Endpoint)
+		endpts, err := databases.DatabaseEndpointNames(databaseName)
+		if err != nil {
+			return nil, err
+		}
+		if len(endpts) != 1 {
+			return nil, fmt.Errorf("cannot determine endpoint for database '%s'", databaseName)
+		}
+		endpoint, err := endpoints.NewEndpoint(endpts[0])
 		if err != nil {
 			return nil, err
 		}
 		db := Database{
 			Name:        databaseName,
+			EndptName:   endpts[0],
 			Endpt:       endpoint,
 			descriptors: descriptors,
 			Staging:     make(map[uuid.UUID]stagingRequest),
@@ -265,6 +274,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		}
 	}
 	return descriptors, nil
+}
+
+func (db *Database) EndpointNames() ([]string, error) {
+	return []string{db.EndptName}, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

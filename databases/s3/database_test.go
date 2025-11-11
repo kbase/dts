@@ -34,14 +34,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awsS3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert/yaml"
 )
 
 const (
 	awsTestRegion         = "us-west-2"
 	awsTestBucket         = "nasa-power"
+	awsEndpoint           = "aws-s3-test"
 	minioTestEndpointURL  = "http://localhost:9000"
+	minioEndpoint         = "minio-test"
 	minioTestAccessKey    = "minioadmin"
 	minioTestSecretKey    = "minioadmin"
 	minioTestSessionToken = ""
@@ -51,9 +55,28 @@ const (
 
 var minioTestBucket = "test-database-bucket"
 
+const configYaml string = `
+minio-test:
+  name: minio-test
+  id: 12345678-9abc-def0-1234-56789abcdef0
+  provider: s3
+  credential: minio-test-credential
+aws-s3-test:
+  name: aws-s3-test
+  id: 98765432-1fed-cba0-9876-54321fedcba0
+  provider: s3
+  credential: aws-s3-test-credential
+`
+
 // connect to the minio test server, create a test bucket, and populate it with
 // some test data
 func setup() {
+	// mock the endpoints configuration
+	err := yaml.Unmarshal([]byte(configYaml), &config.Endpoints)
+	if err != nil {
+		panic(fmt.Sprintf("unable to unmarshal config YAML, %v", err))
+	}
+
 	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		panic(fmt.Sprintf("unable to load SDK config, %v", err))
@@ -139,7 +162,8 @@ func TestNewAWSS3Database(t *testing.T) {
 	assert := assert.New(t)
 
 	cfg := Config{
-		Region: awsTestRegion,
+		Region:   awsTestRegion,
+		Endpoint: awsEndpoint,
 	}
 	db, err := NewDatabase(awsTestBucket, cfg)
 	assert.NoError(err)
@@ -223,6 +247,7 @@ func TestNewMinioS3Database(t *testing.T) {
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
 		UsePathStyle: minioTestUsePathStyle,
+		Endpoint:     minioEndpoint,
 	}
 	db, err := NewDatabase(minioTestBucket, cfg)
 	assert.NoError(err)

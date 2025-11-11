@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 
@@ -50,6 +51,13 @@ endpoints:
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
     credential: globus
+`
+
+const jdpDbConfig string = `
+endpoint: globus-jdp
+credential:
+  secret: ${DTS_JDP_SECRET}
+delete_after: 86400
 `
 
 // when valid JDP credentials are not available, use a mock database
@@ -285,7 +293,8 @@ func setTestEnvVars(yaml string) string {
 func setup() {
 	dtstest.EnableDebugLogging()
 	config.Init([]byte(setTestEnvVars(jdpConfig)))
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+	var jdpConfig Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &jdpConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -299,7 +308,12 @@ func setup() {
 	if isMockDatabase {
 		err = databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))
 	} else {
-		err = databases.RegisterDatabase("jdp", DatabaseConstructor(configData))
+		var confMap map[string]any
+		err = mapstructure.Decode(jdpConfig, &confMap)
+		if err != nil {
+			panic("Couldn't decode config to map: " + err.Error())
+		}
+		err = databases.RegisterDatabase("jdp", DatabaseConstructor(confMap))
 	}
 	if err != nil {
 		panic(err)
@@ -316,8 +330,9 @@ func breakdown() {
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	conf, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
-	assert.Nil(err, "Couldn't create config in setup")
+	var conf Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &conf)
+	assert.Nil(err, "Failed to unmarshal JDP database config")
 	jdpDb, err := NewDatabase(conf)
 	assert.NotNil(jdpDb, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
@@ -326,30 +341,15 @@ func TestNewDatabase(t *testing.T) {
 func TestNewDatabaseWithoutJDPCredential(t *testing.T) {
 	assert := assert.New(t)
 	const jdpConfigNoCredential string = `
-service:
-  port: 8080
-  max_connections: 100
-  poll_interval: 60
-  endpoint: globus-jdp
-credentials:
-  globus:
-    id: ${DTS_GLOBUS_CLIENT_ID}
-    secret: ${DTS_GLOBUS_CLIENT_SECRET}
-databases:
-  jdp:
-    name: JGI Data Portal
-    organization: Joint Genome Institute
-    endpoint: globus-jdp
-endpoints:
-  globus-jdp:
-    name: Globus NERSC DTN
-    id: ${DTS_GLOBUS_TEST_ENDPOINT}
-    provider: globus
-    credential: globus
+name: JGI Data Portal
+organization: Joint Genome Institute
+endpoint: globus-jdp
 `
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfigNoCredential)))
+	var conf Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfigNoCredential)), &conf)
+	assert.Nil(err, "Failed to unmarshal JDP database config without credential")
 	assert.Nil(err, "Failed to get config data for JDP database without credential")
-	jdpDb, err := NewDatabase(configData)
+	jdpDb, err := NewDatabase(conf)
 	assert.Nil(jdpDb, "JDP database somehow created without credential")
 	assert.NotNil(err, "JDP database creation without shared secret encountered no error")
 }
@@ -357,34 +357,16 @@ endpoints:
 func TestNewDatabaseWithMissingEndpoint(t *testing.T) {
 	assert := assert.New(t)
 	const jdpConfigMissingEndpoint string = `
-service:
-  port: 8080
-  max_connections: 100
-  poll_interval: 60
-  endpoint: globus-jdp
-credentials:
-  jdp:
-    secret: ${DTS_JDP_SECRET}
-  globus:
-    id: ${DTS_GLOBUS_CLIENT_ID}
-    secret: ${DTS_GLOBUS_CLIENT_SECRET}
-databases:
-  jdp:
-    name: JGI Data Portal
-    organization: Joint Genome Institute
-    credential: jdp
-endpoints:
-  globus-jdp:
-    name: Globus NERSC DTN
-    id: ${DTS_GLOBUS_TEST_ENDPOINT}
-    provider: globus
-    credential: globus
+name: JGI Data Portal
+organization: Joint Genome Institute
+credential:
+  secret: ${DTS_JDP_SECRET}
 `
 	// manually parse the config string to avoid validation errors because of the
 	// missing endpoint
 	bytes := []byte(setTestEnvVars(jdpConfigMissingEndpoint))
 	bytes = []byte(os.ExpandEnv(string(bytes)))
-	var configData config.Config
+	var configData Config
 	err := yaml.Unmarshal(bytes, &configData)
 	assert.Nil(err, "Failed to unmarshal config data for JDP database with missing endpoint")
 	jdpDb, err := NewDatabase(configData)
@@ -394,9 +376,13 @@ endpoints:
 
 func TestNewDatabaseFunc(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+	var configData Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 	assert.Nil(err, "Failed to get config data for JDP database")
-	createFunc := DatabaseConstructor(configData)
+	var confMap map[string]any
+	err = mapstructure.Decode(configData, &confMap)
+	assert.Nil(err, "Failed to decode config data for JDP database")
+	createFunc := DatabaseConstructor(confMap)
 	jdpDb, err := createFunc()
 	assert.NotNil(jdpDb, "JDP database not created by factory function")
 	assert.Nil(err, "JDP database creation by factory function encountered an error")
@@ -404,7 +390,8 @@ func TestNewDatabaseFunc(t *testing.T) {
 
 func TestSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+	var configData Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 	assert.Nil(err, "Failed to get config data for JDP database")
 	db, err := NewDatabase(configData)
 	assert.NotNil(db, "JDP database not created")
@@ -423,7 +410,8 @@ func TestSearch(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+		var configData Config
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -530,9 +518,12 @@ func TestLocalUser(t *testing.T) {
 
 func TestSaveLoad(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
-	assert.Nil(err, "Failed to get config data for JDP database")
-	db, _ := NewDatabase(configData)
+	var configData Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
+	assert.Nil(err, "Failed to unmarshal JDP database config for save/load test")
+	db, err := NewDatabase(configData)
+	assert.NotNil(db, "JDP database not created for save/load test")
+	assert.Nil(err, "JDP database creation for save/load test encountered an error")
 
 	// save the database state
 	state, err := db.Save()
@@ -551,9 +542,12 @@ func TestSearchByIMGTaxonOID(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+		var configData Config
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 		assert.Nil(err, "Failed to get config data for JDP database")
-		db, _ := NewDatabase(configData)
+		db, err := NewDatabase(configData)
+		assert.NotNil(db, "JDP database not created")
+		assert.Nil(err, "JDP database creation encountered an error")
 		params := databases.SearchParameters{
 			Query: "2582580701",
 			Pagination: struct {
@@ -685,8 +679,9 @@ func TestDescriptors(t *testing.T) {
 	assert := assert.New(t)
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
-		configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
-		assert.Nil(err, "Failed to get config data for JDP database")
+		var configData Config
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
+		assert.Nil(err, "Failed to unmarshal JDP database config for save/load test")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
 			Query: "prochlorococcus",
@@ -733,7 +728,8 @@ func TestDescriptors(t *testing.T) {
 
 func TestAddSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	configData, err := config.NewConfig([]byte(setTestEnvVars(jdpConfig)))
+	var configData Config
+	err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 	assert.Nil(err, "Failed to get config data for JDP database")
 	db, err := NewDatabase(configData)
 	assert.NotNil(db, "JDP database not created")

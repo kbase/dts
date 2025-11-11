@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert/yaml"
 
 	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
@@ -60,6 +62,17 @@ endpoints:
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
     credential: globus
+`
+
+const nmdcDbConfig string = `
+name: National Microbiome Data Collaborative
+organization: DOE
+credential:
+  id: ${DTS_NMDC_USER}
+  secret: ${DTS_NMDC_PASSWORD}
+endpoints:
+  nersc: globus-nmdc-nersc
+  emsl: globus-nmdc-emsl
 `
 
 const mockStudyResponse string = `{
@@ -413,7 +426,7 @@ func NewMockDatabase(baseUrl string) func() (databases.Database, error) {
 }
 
 // function for setting mock database options
-func mockDatabaseOptions(cfg *DatabaseConfig) {
+func mockDatabaseOptions(cfg *Config) {
 	cfg.BaseURL = mockNmdcServer.URL + "/" // add trailing slash to match default URL format
 }
 
@@ -450,12 +463,19 @@ func setup() {
 	configString, isValid := setTestEnvVars(nmdcConfig)
 	areValidCredentials = isValid
 	config.Init([]byte(configString))
-	conf, err := config.NewConfig([]byte(configString))
+	var conf Config
+	configDbString, _ := setTestEnvVars(nmdcDbConfig)
+	err := yaml.Unmarshal([]byte(configDbString), &conf)
 	if err != nil {
 		panic("Couldn't read test configuration: " + err.Error())
 	}
 	if areValidCredentials {
-		err := databases.RegisterDatabase("nmdc", DatabaseConstructor(conf))
+		var confMap map[string]any
+		err = mapstructure.Decode(conf, &confMap)
+		if err != nil {
+			panic("Couldn't decode config to map: " + err.Error())
+		}
+		err := databases.RegisterDatabase("nmdc", DatabaseConstructor(confMap))
 		if err != nil {
 			panic("Couldn't register NMDC database: " + err.Error())
 		}
@@ -490,8 +510,9 @@ func breakdown() {
 // Get an instance of the NMDC database for a specific test
 func getNmdcDatabase(t *testing.T) databases.Database {
 	assert := assert.New(t)
-	configString, _ := setTestEnvVars(nmdcConfig)
-	conf, err := config.NewConfig([]byte(configString))
+	configString, _ := setTestEnvVars(nmdcDbConfig)
+	var conf Config
+	err := yaml.Unmarshal([]byte(configString), &conf)
 	assert.Nil(err, "Couldn't read test configuration")
 	var db databases.Database
 	db, err = NewDatabase(conf)
@@ -503,11 +524,13 @@ func getNmdcDatabase(t *testing.T) databases.Database {
 // Get an instance of the NMDC mock database for a specific test
 func getMockNmdcDatabase(t *testing.T) databases.Database {
 	assert := assert.New(t)
-	configString, _ := setTestEnvVars(nmdcConfig)
-	conf, err := config.NewConfig([]byte(configString))
+	configString, _ := setTestEnvVars(nmdcDbConfig)
+	var conf Config
+	err := yaml.Unmarshal([]byte(configString), &conf)
 	assert.Nil(err, "Couldn't read test configuration")
 	var db databases.Database
-	db, err = NewDatabase(conf, mockDatabaseOptions)
+	mockDatabaseOptions(&conf)
+	db, err = NewDatabase(conf)
 	assert.NotNil(db, "NMDC mock database not created")
 	assert.Nil(err, "NMDC mock database creation encountered an error")
 	return db
@@ -515,46 +538,47 @@ func getMockNmdcDatabase(t *testing.T) databases.Database {
 
 func TestNewDatabase(t *testing.T) {
 	assert := assert.New(t)
-	configString, _ := setTestEnvVars(nmdcConfig)
-	conf, err := config.NewConfig([]byte(configString))
+	configString, _ := setTestEnvVars(nmdcDbConfig)
+	var conf Config
+	err := yaml.Unmarshal([]byte(configString), &conf)
 	assert.Nil(err, "Couldn't read test configuration")
 	if areValidCredentials {
 		db, err := NewDatabase(conf)
 		assert.NotNil(db, "NMDC database not created")
 		assert.Nil(err, "NMDC database creation encountered an error")
 	} else {
-		db, err := NewDatabase(conf, mockDatabaseOptions)
+		mockDatabaseOptions(&conf)
+		db, err := NewDatabase(conf)
 		assert.NotNil(db, "NMDC mock database not created")
 		assert.Nil(err, "NMDC mock database creation encountered an error")
 	}
 
 	// test with missing credential
-	badConfig, _ := config.NewConfig([]byte(configString))
-	nmdcConfig := badConfig.Databases["nmdc"]
-	nmdcConfig.Credential = ""
-	badConfig.Databases["nmdc"] = nmdcConfig
+	badConfig := conf
+	badConfig.Credential = auth.Credential{}
 	db, err := NewDatabase(badConfig)
 	assert.Nil(db, "NMDC database created with missing credential")
 	assert.NotNil(err, "NMDC database creation with missing credential did not return an error")
 
 	// test with incorrectly specified endpoint
-	badConfig, _ = config.NewConfig([]byte(configString))
-	nmdcConfig = badConfig.Databases["nmdc"]
-	nmdcConfig.Endpoint = "some-bad-endpoint"
-	badConfig.Databases["nmdc"] = nmdcConfig
+	badConfig = conf
+	badConfig.Endpoints = struct {
+		Nersc string "yaml:\"nersc\""
+		Emsl  string "yaml:\"emsl\""
+	}{}
 	db, err = NewDatabase(badConfig)
 	assert.Nil(db, "NMDC database created with incorrectly specified endpoint")
 	assert.NotNil(err, "NMDC database creation with incorrectly specified endpoint did not return an error")
 
 	// test without nersc and emsl endpoints
-	badConfig, _ = config.NewConfig([]byte(configString))
-	nmdcConfig = badConfig.Databases["nmdc"]
-	nmdcConfig.Endpoint = ""
-	nmdcConfig.Endpoints = map[string]string{
-		"nersc":    "globus-nmdc-nersc",
-		"not-emsl": "globus-nmdc-not-emsl",
+	badConfig = conf
+	badConfig.Endpoints = struct {
+		Nersc string "yaml:\"nersc\""
+		Emsl  string "yaml:\"emsl\""
+	}{
+		Nersc: "globus-nmdc-nersc",
+		Emsl:  "globus-nmdc-not-emsl",
 	}
-	badConfig.Databases["nmdc"] = nmdcConfig
 	db, err = NewDatabase(badConfig)
 	assert.Nil(db, "NMDC database not created with nersc and emsl endpoints")
 	assert.NotNil(err, "NMDC database creation with nersc and emsl endpoints encountered an error")

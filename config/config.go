@@ -70,7 +70,7 @@ type serviceConfig struct {
 var Service serviceConfig
 var Credentials map[string]auth.Credential
 var Endpoints map[string]endpointConfig
-var Databases map[string]databaseConfig
+var Databases map[string]any
 
 // This struct performs the unmarshalling from the YAML config file and then
 // copies its fields to the globals above.
@@ -81,7 +81,7 @@ var Databases map[string]databaseConfig
 type Config struct {
 	Service     serviceConfig              `yaml:"service"`
 	Credentials map[string]auth.Credential `yaml:"credentials"`
-	Databases   map[string]databaseConfig  `yaml:"databases"`
+	Databases   map[string]any             `yaml:"databases"`
 	Endpoints   map[string]endpointConfig  `yaml:"endpoints"`
 }
 
@@ -185,39 +185,6 @@ func (endpoint endpointConfig) Validate(name string) error {
 	return nil
 }
 
-func (db databaseConfig) Validate(name string) error {
-	if db.Endpoint == "" && len(db.Endpoints) == 0 {
-		return &InvalidDatabaseConfigError{
-			Database: name,
-			Message:  "No endpoints specified",
-		}
-	} else if db.Endpoint != "" && len(db.Endpoints) > 0 {
-		return &InvalidDatabaseConfigError{
-			Database: name,
-			Message:  "EITHER endpoint OR endpoints may be specified, but not both",
-		}
-	} else if db.Endpoint != "" {
-		// does the endpoint exist in our configuration?
-		if _, found := Endpoints[db.Endpoint]; !found {
-			return &InvalidDatabaseConfigError{
-				Database: name,
-				Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", name, db.Endpoint),
-			}
-		}
-	} else {
-		// do all functional endpoints exist in our configuration?
-		for functionalName, endpointName := range db.Endpoints {
-			if _, found := Endpoints[endpointName]; !found {
-				return &InvalidDatabaseConfigError{
-					Database: name,
-					Message:  fmt.Sprintf("Invalid %s endpoint for database %s: %s", functionalName, name, endpointName),
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
 func (c Config) Validate(service, credentials, databases, endpoints bool) error {
@@ -246,12 +213,6 @@ func (c Config) Validate(service, credentials, databases, endpoints bool) error 
 		if len(c.Databases) == 0 {
 			return &InvalidServiceConfigError{
 				Message: "No databases configured",
-			}
-		}
-		for name, database := range c.Databases {
-			err = database.Validate(name)
-			if err != nil {
-				return err
 			}
 		}
 	}

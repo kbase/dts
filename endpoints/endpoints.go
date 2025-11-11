@@ -102,6 +102,12 @@ func RegisterEndpointProvider(provider string, createEp func(name string) (Endpo
 	}
 }
 
+// returns whether an endpoint with the given name has been configured for use
+func EndpointExists(endpointName string) bool {
+	_, found := config.Endpoints[endpointName]
+	return found
+}
+
 // creates an endpoint based on the configured type, or returns an existing
 // instance
 func NewEndpoint(endpointName string) (Endpoint, error) {

@@ -43,6 +43,15 @@ func (t NotRunningError) Error() string {
 	return "transfers are not currently being processed"
 }
 
+// Indicates an invalid confuration for databases
+type InvalidDatabaseConfigError struct {
+	Database, Message string
+}
+
+func (e InvalidDatabaseConfigError) Error() string {
+	return fmt.Sprintf("Invalid configuration for database '%s': %s", e.Database, e.Message)
+}
+
 // indicates that no databases are currently available
 type NoDatabasesAvailable struct{}
 

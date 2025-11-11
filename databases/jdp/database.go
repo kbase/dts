@@ -39,10 +39,12 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
-	"github.com/kbase/dts/config"
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 // file database appropriate for handling JDP searches and transfers
@@ -58,6 +60,18 @@ type Database struct {
 	StagingRequests map[uuid.UUID]StagingRequest
 	// time after which staging requests are pruned
 	DeleteAfter time.Duration
+	// Endpoint name
+	EndpointName string
+}
+
+// configuration parameters for a JDP database
+type Config struct {
+	// JDP-compatible endpoint name
+	Endpoint string `yaml:"endpoint"`
+	// credentials for the JDP database
+	Credential auth.Credential `yaml:"credential"`
+	// time after which information about a completed transfer is deleted (seconds)
+	DeleteAfter int `yaml:"delete_after"`
 }
 
 type StagingRequest struct {
@@ -67,18 +81,17 @@ type StagingRequest struct {
 	Time time.Time
 }
 
-func NewDatabase(conf config.Config) (databases.Database, error) {
+func NewDatabase(conf Config) (databases.Database, error) {
 	// make sure we have a shared secret or an SSO token
-	secret := conf.Credentials[conf.Databases["jdp"].Credential].Secret
-	if secret == "" { // check for SSO token
+	if conf.Credential.Secret == "" {
 		return nil, fmt.Errorf("no shared secret was found for JDP authentication")
 	}
 
-	// make sure we are using only a single endpoint
-	if conf.Databases["jdp"].Endpoint == "" {
-		return nil, &databases.InvalidEndpointsError{
+	// does the endpoint exist in our configuration?
+	if !endpoints.EndpointExists(conf.Endpoint) {
+		return nil, &databases.InvalidDatabaseConfigError{
 			Database: "jdp",
-			Message:  "The JGI data portal should only have a single endpoint configured.",
+			Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", "jdp", conf.Endpoint),
 		}
 	}
 
@@ -88,15 +101,20 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	return &Database{
 		BaseURL: defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),
-		Secret:          secret,
+		Secret:          conf.Credential.Secret,
 		StagingRequests: make(map[uuid.UUID]StagingRequest),
-		DeleteAfter:     time.Duration(conf.Service.DeleteAfter) * time.Second,
+		DeleteAfter:     time.Duration(conf.DeleteAfter) * time.Second,
+		EndpointName:    conf.Endpoint,
 	}, nil
 }
 
-func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+func DatabaseConstructor(conf map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
-		return NewDatabase(conf)
+		var jdpConf Config
+		if err := mapstructure.Decode(conf, &jdpConf); err != nil {
+			return nil, err
+		}
+		return NewDatabase(jdpConf)
 	}
 }
 
@@ -216,6 +234,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		descriptors[i] = descriptorsByFileId[fileIds[i]]
 	}
 	return descriptors, nil
+}
+
+func (db *Database) EndpointNames() ([]string, error) {
+	return []string{db.EndpointName}, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

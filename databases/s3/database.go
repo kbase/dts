@@ -36,8 +36,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	awsS3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 // S3 object store database
@@ -53,6 +55,8 @@ type Database struct {
 	StagingRequests map[uuid.UUID]StagingRequest
 	// Time after which staging requests are pruned
 	DeleteAfter time.Duration
+	// Endpoint name
+	EndpointName string
 }
 
 // S3 database configuration
@@ -71,6 +75,8 @@ type Config struct {
 	UsePathStyle bool `yaml:"use_path_style,omitempty"`
 	// Time after which staging requests are deleted (s) (optional; default: 7 days)
 	DeleteAfter int `yaml:"delete_after,omitempty"`
+	// Endpoint name
+	Endpoint string `yaml:"endpoint"`
 }
 
 type StagingRequest struct {
@@ -86,6 +92,12 @@ type StagingRequest struct {
 func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 
 	var newDb Database
+
+	// make sure the endpoint is valid
+	if !endpoints.EndpointExists(cfg.Endpoint) {
+		return nil, fmt.Errorf("invalid endpoint '%s' in S3 database configuration", cfg.Endpoint)
+	}
+	newDb.EndpointName = cfg.Endpoint
 
 	awsCfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
@@ -123,9 +135,16 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 	return &newDb, nil
 }
 
-func DatabaseConstructor(bucket string, config Config) func() (databases.Database, error) {
+func DatabaseConstructor(config map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
-		return NewDatabase(bucket, config)
+		var s3Conf struct {
+			Bucket string
+			Config
+		}
+		if err := mapstructure.Decode(config, &s3Conf); err != nil {
+			return nil, err
+		}
+		return NewDatabase(s3Conf.Bucket, s3Conf.Config)
 	}
 }
 
@@ -159,6 +178,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 	}
 
 	return descriptors, nil
+}
+
+func (db *Database) EndpointNames() ([]string, error) {
+	return []string{db.EndpointName}, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

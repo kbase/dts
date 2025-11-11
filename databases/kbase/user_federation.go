@@ -31,8 +31,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"github.com/kbase/dts/config"
 )
 
 //=======================
@@ -56,10 +54,15 @@ type KBaseUserFederation struct {
 	ErrorChan  chan error    // passes errors out
 }
 
-func newKBaseUserFederation(conf config.Config) (KBaseUserFederation, error) {
+// configuration information for the KBase user federation subsystem
+type KBaseUserFederationConfig struct {
+	DataDirectory string `yaml:"data_directory"`
+}
+
+func newKBaseUserFederation(conf KBaseUserFederationConfig) (KBaseUserFederation, error) {
 	kbaseFed := KBaseUserFederation{}
 	kbaseFed.Started = false
-	kbaseFed.FilePath = filepath.Join(conf.Service.DataDirectory, kbaseUserTableFile)
+	kbaseFed.FilePath = filepath.Join(conf.DataDirectory, kbaseUserTableFile)
 	return kbaseFed, nil
 }
 

@@ -24,6 +24,10 @@ func (td *TestDatabase) Descriptors(orcid string, fileIds []string) ([]map[strin
 	return []map[string]any{}, nil
 }
 
+func (td *TestDatabase) EndpointNames() ([]string, error) {
+	return []string{"test-endpoint"}, nil
+}
+
 func (td *TestDatabase) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
 	return uuid.New(), nil
 }

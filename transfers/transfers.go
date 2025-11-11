@@ -38,6 +38,7 @@ import (
 	"github.com/kbase/dts/databases/jdp"
 	"github.com/kbase/dts/databases/kbase"
 	"github.com/kbase/dts/databases/nmdc"
+	"github.com/kbase/dts/databases/s3"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/local"
@@ -231,23 +232,34 @@ func registerEndpointProviders() error {
 	return nil
 }
 
+var constructorMap map[string]func(config map[string]any) func() (databases.Database, error) = map[string]func(config map[string]any) func() (databases.Database, error){
+	"jdp":   jdp.DatabaseConstructor,
+	"kbase": kbase.DatabaseConstructor,
+	"nmdc":  nmdc.DatabaseConstructor,
+	"s3":    s3.DatabaseConstructor,
+}
+
 // registers databases; if at least one database is available, no error is propagated
 func registerDatabases(conf config.Config) error {
-	if _, found := conf.Databases["jdp"]; found {
-		if err := databases.RegisterDatabase("jdp", jdp.DatabaseConstructor(conf)); err != nil {
-			slog.Error(err.Error())
+	for dbName, dbConf := range conf.Databases {
+		dbMap, ok := dbConf.(map[string]any)
+		if !ok {
+			return &InvalidDatabaseConfigError{
+				Database: dbName,
+				Message:  fmt.Sprintf("database \"%s\" configuration is not a map", dbName),
+			}
 		}
-	}
-	if _, found := conf.Databases["kbase"]; found {
-		if err := databases.RegisterDatabase("kbase", kbase.DatabaseConstructor(conf)); err != nil {
-			slog.Error(err.Error())
+		// add credentials information to the config map
+		if _, found := dbMap["credential"]; found {
+			dbMap["credential"] = config.Credentials[dbMap["credential"].(string)]
 		}
-	}
-	if _, found := conf.Databases["nmdc"]; found {
-		if err := databases.RegisterDatabase("nmdc", nmdc.DatabaseConstructor(conf)); err != nil {
-			slog.Error(err.Error())
+		// add a transaction pruning time, if not specified
+		if _, found := dbMap["delete_after"]; !found {
+			dbMap["delete_after"] = conf.Service.DeleteAfter
 		}
+		databases.RegisterDatabase(dbName, constructorMap[dbName](dbMap))
 	}
+	// ensure at least one database is available
 	if len(databases.RegisteredDatabases()) == 0 {
 		return &NoDatabasesAvailable{}
 	}
@@ -330,7 +342,14 @@ func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error
 		clientId, _ := uuid.Parse(credential.Id)
 		return globus.NewEndpoint("Custom endpoint", endpointId, customSpec.Path, clientId, credential.Secret)
 	}
-	return endpoints.NewEndpoint(config.Databases[destination].Endpoint)
+	endpts, err := databases.DatabaseEndpointNames(destination)
+	if err != nil {
+		return nil, err
+	}
+	if len(endpts) != 1 {
+		return nil, fmt.Errorf("cannot determine destination endpoint for database '%s'", destination)
+	}
+	return endpoints.NewEndpoint(endpts[0])
 }
 
 // resolves the folder at the given destination in which transferred files are deposited
@@ -362,7 +381,14 @@ func determineDestinationFolder(transferId uuid.UUID) (string, error) {
 func descriptorsByEndpoint(spec Specification,
 	descriptors []map[string]any) (map[string][]map[string]any, error) {
 	descriptorsForEndpoint := make(map[string][]map[string]any)
-	if len(config.Databases[spec.Source].Endpoints) > 1 { // more than one endpoint possible!
+	endpts, err := databases.DatabaseEndpointNames(spec.Source)
+	if err != nil {
+		return nil, err
+	}
+	if len(endpts) == 0 {
+		return nil, fmt.Errorf("no endpoints found for source database '%s'", spec.Source)
+	}
+	if len(endpts) > 1 { // more than one endpoint possible!
 		distinctEndpoints := make(map[string]any)
 		for _, descriptor := range descriptors {
 			var endpoint string
@@ -389,7 +415,7 @@ func descriptorsByEndpoint(spec Specification,
 			descriptorsForEndpoint[endpoint] = endpointDescriptors
 		}
 	} else { // assign all descriptors to the single endpoint
-		descriptorsForEndpoint[config.Databases[spec.Source].Endpoint] = descriptors
+		descriptorsForEndpoint[endpts[0]] = descriptors
 	}
 	return descriptorsForEndpoint, nil
 }

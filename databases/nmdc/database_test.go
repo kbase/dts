@@ -12,7 +12,7 @@ import (
 
 	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/assert/yaml"
+	"gopkg.in/yaml.v3"
 
 	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"

@@ -43,7 +43,7 @@ func (t NotRunningError) Error() string {
 	return "transfers are not currently being processed"
 }
 
-// Indicates an invalid confuration for databases
+// Indicates an invalid configuration for databases
 type InvalidDatabaseConfigError struct {
 	Database, Message string
 }

@@ -234,10 +234,18 @@ func (service *prototype) getDatabases(ctx context.Context,
 	for dbName, db := range config.Databases {
 		if databases.HaveDatabase(dbName) { // check to see whether we successfully registered it
 			dbMap := db.(map[string]any)
+			name, ok := dbMap["name"].(string)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid name field", dbName)
+			}
+			organization, ok := dbMap["organization"].(string)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid organization field", dbName)
+			}
 			output.Body = append(output.Body, DatabaseResponse{
 				Id:           dbName,
-				Name:         dbMap["name"].(string),
-				Organization: dbMap["organization"].(string),
+				Name:         name,
+				Organization: organization,
 			})
 		}
 	}

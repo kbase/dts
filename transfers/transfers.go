@@ -251,13 +251,33 @@ func registerDatabases(conf config.Config) error {
 		}
 		// add credentials information to the config map
 		if _, found := dbMap["credential"]; found {
-			dbMap["credential"] = config.Credentials[dbMap["credential"].(string)]
+			credString, ok := dbMap["credential"].(string)
+			if !ok {
+				return &InvalidDatabaseConfigError{
+					Database: dbName,
+					Message:  "credential field is not a string",
+				}
+			}
+			if _, credFound := config.Credentials[credString]; !credFound {
+				return &InvalidDatabaseConfigError{
+					Database: dbName,
+					Message:  fmt.Sprintf("credential '%s' not found", credString),
+				}
+			}
+			dbMap["credential"] = config.Credentials[credString]
 		}
 		// add a transaction pruning time, if not specified
 		if _, found := dbMap["delete_after"]; !found {
 			dbMap["delete_after"] = conf.Service.DeleteAfter
 		}
-		databases.RegisterDatabase(dbName, constructorMap[dbName](dbMap))
+		constructor, ok := constructorMap[dbName]
+		if !ok {
+			return &InvalidDatabaseConfigError{
+				Database: dbName,
+				Message:  fmt.Sprintf("no constructor found for database '%s'", dbName),
+			}
+		}
+		databases.RegisterDatabase(dbName, constructor(dbMap))
 	}
 	// ensure at least one database is available
 	if len(databases.RegisteredDatabases()) == 0 {

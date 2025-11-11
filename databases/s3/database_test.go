@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
@@ -243,6 +244,23 @@ func TestNewMinioS3Database(t *testing.T) {
 	assert.Equal("file1.txt", descriptor["path"])
 	assert.Equal(int64(len("This is the content of file 1.")), descriptor["bytes"])
 	assert.Equal("application/octet-stream", descriptor["mediatype"])
+
+	s3db.StagingRequests[uuid.New()] = StagingRequest{
+		Paths:       []string{"file1.txt"},
+		Orcid:       "test-orcid",
+		RequestTime: time.Now().Format(time.RFC3339),
+	}
+	s3db.pruneStagingRequests()
+	assert.Equal(1, len(s3db.StagingRequests))
+	
+	// artificially age the staging request and prune again
+	for id, req := range s3db.StagingRequests {
+		req.RequestTime = "2000-01-01T00:00:00Z"
+		s3db.StagingRequests[id] = req
+	}
+	s3db.pruneStagingRequests()
+	assert.Equal(0, len(s3db.StagingRequests))
+
 
 	// test specific search parameters (none currently supported)
 	params := db.SpecificSearchParameters()

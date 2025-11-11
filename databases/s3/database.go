@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,6 +51,8 @@ type Database struct {
 	Downloader *manager.Downloader
 	// Staging requests
 	StagingRequests map[uuid.UUID]StagingRequest
+	// Time after which staging requests are pruned
+	DeleteAfter time.Duration
 }
 
 // S3 database configuration
@@ -66,6 +69,8 @@ type Config struct {
 	BaseUrl string `yaml:"endpoint,omitempty"`
 	// Whether to use path-style addressing (optional; default: false)
 	UsePathStyle bool `yaml:"use_path_style,omitempty"`
+	// Time after which staging requests are deleted (s) (optional; default: 7 days)
+	DeleteAfter int `yaml:"delete_after,omitempty"`
 }
 
 type StagingRequest struct {
@@ -109,6 +114,11 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 	newDb.Bucket = bucket
 	newDb.Downloader = manager.NewDownloader(newDb.Client)
 	newDb.StagingRequests = make(map[uuid.UUID]StagingRequest)
+	if cfg.DeleteAfter > 0 {
+		newDb.DeleteAfter = time.Duration(cfg.DeleteAfter) * time.Second
+	} else {
+		newDb.DeleteAfter = 7 * 24 * time.Hour // default: 7 days
+	}
 
 	return &newDb, nil
 }
@@ -173,6 +183,7 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
+	db.pruneStagingRequests()
 	// check if staging request exists
 	_, ok := db.StagingRequests[id]
 	if !ok {
@@ -255,9 +266,8 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)
 	}
 
-	parts := strings.Split(key, "/")
 	descriptor := map[string]any{
-		"name":      parts[len(parts)-1],
+		"name":      filepath.Base(key),
 		"path":      key,
 		"mediatype": aws.ToString(headOutput.ContentType),
 		"bytes":     aws.ToInt64(headOutput.ContentLength),
@@ -272,4 +282,18 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		descriptor["encoding"] = aws.ToString(headOutput.ContentEncoding)
 	}
 	return descriptor, nil
+}
+
+// removes staging requests that are older than the configured delete duration
+func (db *Database) pruneStagingRequests() {
+	now := time.Now()
+	for id, req := range db.StagingRequests {
+		reqTime, err := time.Parse(time.RFC3339, req.RequestTime)
+		if err != nil {
+			continue // skip invalid times
+		}
+		if now.Sub(reqTime) > db.DeleteAfter {
+			delete(db.StagingRequests, id)
+		}
+	}
 }

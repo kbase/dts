@@ -252,7 +252,7 @@ func TestNewMinioS3Database(t *testing.T) {
 	}
 	s3db.pruneStagingRequests()
 	assert.Equal(1, len(s3db.StagingRequests))
-	
+
 	// artificially age the staging request and prune again
 	for id, req := range s3db.StagingRequests {
 		req.RequestTime = "2000-01-01T00:00:00Z"
@@ -260,7 +260,6 @@ func TestNewMinioS3Database(t *testing.T) {
 	}
 	s3db.pruneStagingRequests()
 	assert.Equal(0, len(s3db.StagingRequests))
-
 
 	// test specific search parameters (none currently supported)
 	params := db.SpecificSearchParameters()

@@ -253,9 +253,9 @@ func TestCustomDeleteAfterDuration(t *testing.T) {
 	assert := assert.New(t)
 
 	cfg := Config{
-		Region:              awsTestRegion,
-		Endpoint:            awsEndpoint,
-		DeleteAfter:         1,
+		Region:      awsTestRegion,
+		Endpoint:    awsEndpoint,
+		DeleteAfter: 1,
 	}
 	db, err := NewDatabase(awsTestBucket, cfg)
 	assert.NoError(err)
@@ -372,7 +372,7 @@ func TestNewMinioS3Database(t *testing.T) {
 		assert.Equal("application/octet-stream", desc["mediatype"])
 	}
 
-    // test staging non-existent file
+	// test staging non-existent file
 	invalidFileIds := []string{"non_existent_file.txt"}
 	_, err = db.StageFiles("test-orcid", invalidFileIds)
 	assert.NotNil(err, "Staging non-existent file should return an error")

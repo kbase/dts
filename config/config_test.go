@@ -203,17 +203,6 @@ func TestInitRejectsBadDatabaseBaseURL(t *testing.T) {
 	assert.NotNil(t, err, "Config with bad database URL didn't trigger an error.")
 }
 
-// tests whether config.Init rejects a configuration with no databases
-func TestInitRejectsNoDatabases(t *testing.T) {
-	yaml := VALID_SERVICE + VALID_ENDPOINTS + `
-databases: {}
-`
-	yaml = setTestEnvVars(yaml)
-	b := []byte(yaml)
-	err := Init(b)
-	assert.NotNil(t, err, "Config with no databases didn't trigger an error.")
-}
-
 // tests whether config.Init rejects a configuration with a database that has
 // a credential entry that is not present in the credentials section
 func TestInitRejectsDatabaseWithInvalidCredentialEntry(t *testing.T) {

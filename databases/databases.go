@@ -55,7 +55,7 @@ type Database interface {
 	Descriptors(orcid string, fileIds []string) ([]map[string]any, error)
 	// Returns a list of endpoint names that can be used as sources or destinations
 	// for transfer with this database
-	EndpointNames() ([]string, error)
+	EndpointNames() []string
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
@@ -192,16 +192,6 @@ func NewDatabase(dbName string) (Database, error) {
 		}
 	}
 	return db, err
-}
-
-// Returns a list of endpoints that can be used as sources or destinations
-// for transfer with the given database.
-func DatabaseEndpointNames(dbName string) ([]string, error) {
-	db, err := NewDatabase(dbName)
-	if err != nil {
-		return nil, err
-	}
-	return db.EndpointNames()
 }
 
 // saves the internal states of all resident databases, returning a map to

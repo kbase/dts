@@ -233,7 +233,10 @@ func (service *prototype) getDatabases(ctx context.Context,
 	}
 	for dbName, db := range config.Databases {
 		if databases.HaveDatabase(dbName) { // check to see whether we successfully registered it
-			dbMap := db.(map[string]any)
+			dbMap, ok := db.(map[string]any)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid type", dbName)
+			}
 			name, ok := dbMap["name"].(string)
 			if !ok {
 				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid name field", dbName)

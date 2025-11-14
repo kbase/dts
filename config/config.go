@@ -66,11 +66,14 @@ type serviceConfig struct {
 	DoubleCheckStaging bool `json:"double_check_staging" yaml:"double_check_staging"`
 }
 
+// config types
+type databaseConfig any
+
 // global config variables
 var Service serviceConfig
 var Credentials map[string]auth.Credential
 var Endpoints map[string]endpointConfig
-var Databases map[string]any
+var Databases map[string]databaseConfig
 
 // This struct performs the unmarshalling from the YAML config file and then
 // copies its fields to the globals above.
@@ -81,7 +84,7 @@ var Databases map[string]any
 type Config struct {
 	Service     serviceConfig              `yaml:"service"`
 	Credentials map[string]auth.Credential `yaml:"credentials"`
-	Databases   map[string]any             `yaml:"databases"`
+	Databases   map[string]databaseConfig  `yaml:"databases"`
 	Endpoints   map[string]endpointConfig  `yaml:"endpoints"`
 }
 
@@ -187,7 +190,7 @@ func (endpoint endpointConfig) Validate(name string) error {
 
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
-func (c Config) Validate(service, credentials, databases, endpoints bool) error {
+func (c Config) Validate(service, credentials, endpoints bool) error {
 	var err error
 	if service {
 		if err = c.Service.Validate(); err != nil {
@@ -209,13 +212,6 @@ func (c Config) Validate(service, credentials, databases, endpoints bool) error 
 		}
 	}
 
-	if databases {
-		if len(c.Databases) == 0 {
-			return &InvalidServiceConfigError{
-				Message: "No databases configured",
-			}
-		}
-	}
 	return err
 }
 
@@ -237,6 +233,6 @@ func InitSelected(yamlData []byte, service, credentials, databases, endpoints bo
 	if err != nil {
 		return Config{}, err
 	}
-	err = conf.Validate(service, credentials, databases, endpoints)
+	err = conf.Validate(service, credentials, endpoints)
 	return conf, err
 }

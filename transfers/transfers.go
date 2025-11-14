@@ -249,7 +249,7 @@ func registerDatabases(conf config.Config) error {
 				Message:  fmt.Sprintf("database \"%s\" configuration is not a map", dbName),
 			}
 		}
-		// add credentials information to the config map
+		// expand credentials within the config map
 		if _, found := dbMap["credential"]; found {
 			credString, ok := dbMap["credential"].(string)
 			if !ok {
@@ -337,6 +337,16 @@ func validateDirectory(dirType, dir string) error {
 	return nil
 }
 
+// Returns a list of endpoints that can be used as sources or destinations
+// for transfer with the given database.
+func databaseEndpointNames(dbName string) ([]string, error) {
+	db, err := databases.NewDatabase(dbName)
+	if err != nil {
+		return nil, err
+	}
+	return db.EndpointNames(), nil
+}
+
 //------------------------
 // Transfer Orchestration
 //------------------------
@@ -362,7 +372,7 @@ func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error
 		clientId, _ := uuid.Parse(credential.Id)
 		return globus.NewEndpoint("Custom endpoint", endpointId, customSpec.Path, clientId, credential.Secret)
 	}
-	endpts, err := databases.DatabaseEndpointNames(destination)
+	endpts, err := databaseEndpointNames(destination)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +411,7 @@ func determineDestinationFolder(transferId uuid.UUID) (string, error) {
 func descriptorsByEndpoint(spec Specification,
 	descriptors []map[string]any) (map[string][]map[string]any, error) {
 	descriptorsForEndpoint := make(map[string][]map[string]any)
-	endpts, err := databases.DatabaseEndpointNames(spec.Source)
+	endpts, err := databaseEndpointNames(spec.Source)
 	if err != nil {
 		return nil, err
 	}

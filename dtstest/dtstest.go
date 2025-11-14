@@ -216,11 +216,21 @@ type Database struct {
 	Staging     map[uuid.UUID]stagingRequest
 }
 
+// Returns a list of endpoints that can be used as sources or destinations
+// for transfer with the given database.
+func DatabaseEndpointNames(dbName string) ([]string, error) {
+	db, err := databases.NewDatabase(dbName)
+	if err != nil {
+		return nil, err
+	}
+	return db.EndpointNames(), nil
+}
+
 // Registers a database test fixture with the given name in the configuration.
 func RegisterDatabase(databaseName string, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
 	newDatabaseFunc := func() (databases.Database, error) {
-		endpts, err := databases.DatabaseEndpointNames(databaseName)
+		endpts, err := DatabaseEndpointNames(databaseName)
 		if err != nil {
 			return nil, err
 		}
@@ -276,8 +286,8 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 	return descriptors, nil
 }
 
-func (db *Database) EndpointNames() ([]string, error) {
-	return []string{db.EndptName}, nil
+func (db *Database) EndpointNames() []string {
+	return []string{db.EndptName}
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

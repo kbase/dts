@@ -180,8 +180,8 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 	return descriptors, nil
 }
 
-func (db *Database) EndpointNames() ([]string, error) {
-	return []string{db.EndpointName}, nil
+func (db *Database) EndpointNames() []string {
+	return []string{db.EndpointName}
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

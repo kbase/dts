@@ -221,12 +221,12 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 	return slices.Concat(dataObjectDescriptors, biosampleDescriptors), nil
 }
 
-func (db Database) EndpointNames() ([]string, error) {
+func (db Database) EndpointNames() []string {
 	var endpoints []string
 	for _, endpoint := range db.EndpointForHost {
 		endpoints = append(endpoints, endpoint)
 	}
-	return endpoints, nil
+	return endpoints
 }
 
 func (db Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

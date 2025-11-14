@@ -69,7 +69,7 @@ Did you call config.Init()? `)
 	// register database fixtures
 	for databaseName := range config.Databases {
 		if strings.Contains(databaseName, "test") {
-			RegisterDatabase(databaseName, descriptors)
+			RegisterDatabase(databaseName, config.Databases[databaseName], descriptors)
 		}
 	}
 
@@ -216,27 +216,31 @@ type Database struct {
 	Staging     map[uuid.UUID]stagingRequest
 }
 
-// Returns a list of endpoints that can be used as sources or destinations
-// for transfer with the given database.
-func DatabaseEndpointNames(dbName string) ([]string, error) {
-	db, err := databases.NewDatabase(dbName)
-	if err != nil {
-		return nil, err
-	}
-	return db.EndpointNames(), nil
-}
-
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, descriptors map[string]map[string]any) error {
+func RegisterDatabase(databaseName string, config any, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
+	cfgMap, ok := config.(map[string]any)
+	if !ok {
+		return fmt.Errorf("database %s has invalid configuration type", databaseName)
+	}
+	var endpts []string
+	if eps, found := cfgMap["endpoints"]; found {
+		endpts, ok = eps.([]string)
+		if !ok {
+			return fmt.Errorf("database %s has invalid endpoints field", databaseName)
+		}
+	} else {
+		if eps, found := cfgMap["endpoint"]; found {
+			endpt, ok := eps.(string)
+			if !ok {
+				return fmt.Errorf("database %s has invalid endpoint field", databaseName)
+			}
+			endpts = []string{endpt}
+		} else {
+			return fmt.Errorf("database %s has no endpoint(s) field", databaseName)
+		}
+	}
 	newDatabaseFunc := func() (databases.Database, error) {
-		endpts, err := DatabaseEndpointNames(databaseName)
-		if err != nil {
-			return nil, err
-		}
-		if len(endpts) != 1 {
-			return nil, fmt.Errorf("cannot determine endpoint for database '%s'", databaseName)
-		}
 		endpoint, err := endpoints.NewEndpoint(endpts[0])
 		if err != nil {
 			return nil, err

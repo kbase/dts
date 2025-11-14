@@ -271,13 +271,11 @@ func registerDatabases(conf config.Config) error {
 			dbMap["delete_after"] = conf.Service.DeleteAfter
 		}
 		constructor, ok := constructorMap[dbName]
-		if !ok {
-			return &InvalidDatabaseConfigError{
-				Database: dbName,
-				Message:  fmt.Sprintf("no constructor found for database '%s'", dbName),
-			}
+		// if no constructor found, assume the database is already registered
+		// (e.g., a test database)
+		if ok {
+			databases.RegisterDatabase(dbName, constructor(dbMap))
 		}
-		databases.RegisterDatabase(dbName, constructor(dbMap))
 	}
 	// ensure at least one database is available
 	if len(databases.RegisteredDatabases()) == 0 {

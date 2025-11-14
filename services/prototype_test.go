@@ -186,15 +186,15 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
-	err = dtstest.RegisterDatabase("source", testDescriptors)
+	err = dtstest.RegisterDatabase("source", config.Databases["source"], testDescriptors)
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
-	err = dtstest.RegisterDatabase("destination1", nil)
+	err = dtstest.RegisterDatabase("destination1", config.Databases["destination1"], nil)
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
-	err = dtstest.RegisterDatabase("destination2", nil)
+	err = dtstest.RegisterDatabase("destination2", config.Databases["destination2"], nil)
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}

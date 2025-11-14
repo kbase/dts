@@ -593,6 +593,10 @@ func TestSearch(t *testing.T) {
 		db = getMockNmdcDatabase(t)
 	}
 
+	endpointNames := db.EndpointNames()
+	assert.Contains(endpointNames, mockNerscEndpoint, "NMDC database missing NERSC endpoint")
+	assert.Contains(endpointNames, mockEmslEndpoint, "NMDC database missing EMSL endpoint")
+
 	params := databases.SearchParameters{
 		Query:    "",
 		Specific: nmdcSearchParams,

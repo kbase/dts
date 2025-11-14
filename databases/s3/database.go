@@ -138,8 +138,8 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 func DatabaseConstructor(config map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
 		var s3Conf struct {
-			Bucket string
-			Config
+			Bucket string `yaml:"bucket"`
+			Config `yaml:",inline" mapstructure:",squash"`
 		}
 		if err := mapstructure.Decode(config, &s3Conf); err != nil {
 			return nil, err

@@ -336,6 +336,8 @@ func TestNewDatabase(t *testing.T) {
 	jdpDb, err := NewDatabase(conf)
 	assert.NotNil(jdpDb, "JDP database not created")
 	assert.Nil(err, "JDP database creation encountered an error")
+	endpointName := jdpDb.EndpointNames()
+	assert.Equal([]string{"globus-jdp"}, endpointName, "JDP database returned incorrect endpoint name")
 }
 
 func TestNewDatabaseWithoutJDPCredential(t *testing.T) {

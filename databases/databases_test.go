@@ -139,6 +139,10 @@ func (t *SerialTests) TestDatabaseRegistration() {
 	db, err := NewDatabase("testdb")
 	assert.NotNil(db, "Creating registered database failed")
 	assert.Nil(err, "Creating registered database reported an error")
+
+	dbs := RegisteredDatabases()
+	assert.Contains(dbs, "testdb", "Registered databases list does not contain testdb")
+	assert.Equal(len(dbs), 1, "Registered databases list has incorrect length")
 }
 
 func (t *SerialTests) TestDuplicateDatabaseRegistration() {

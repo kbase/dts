@@ -237,6 +237,47 @@ func TestNewAWSS3Database(t *testing.T) {
 	assert.Equal(databases.StagingStatusSucceeded, status)
 }
 
+func TestInvalidEndpoint(t *testing.T) {
+	assert := assert.New(t)
+
+	cfg := Config{
+		Region:   awsTestRegion,
+		Endpoint: "invalid-endpoint",
+	}
+	db, err := NewDatabase(awsTestBucket, cfg)
+	assert.Nil(db)
+	assert.NotNil(err)
+}
+
+func TestCustomDeleteAfterDuration(t *testing.T) {
+	assert := assert.New(t)
+
+	cfg := Config{
+		Region:              awsTestRegion,
+		Endpoint:            awsEndpoint,
+		DeleteAfter:         1,
+	}
+	db, err := NewDatabase(awsTestBucket, cfg)
+	assert.NoError(err)
+	assert.NotNil(db)
+	s3db := db.(*Database)
+	assert.Equal(1*time.Second, s3db.DeleteAfter)
+}
+
+func TestDatabaseConstructor(t *testing.T) {
+	assert := assert.New(t)
+
+	confMap := map[string]any{
+		"bucket":   awsTestBucket,
+		"region":   awsTestRegion,
+		"endpoint": awsEndpoint,
+	}
+	constructor := DatabaseConstructor(confMap)
+	db, err := constructor()
+	assert.NoError(err)
+	assert.NotNil(db)
+}
+
 func TestNewMinioS3Database(t *testing.T) {
 	assert := assert.New(t)
 
@@ -253,6 +294,9 @@ func TestNewMinioS3Database(t *testing.T) {
 	assert.NoError(err)
 	assert.NotNil(db)
 	s3db := db.(*Database)
+
+	endpointName := db.EndpointNames()
+	assert.Equal([]string{"minio-test"}, endpointName, "MinIO database returned incorrect endpoint name")
 
 	// test support functions
 	exists, err := s3db.fileExists("file1.txt")
@@ -328,6 +372,11 @@ func TestNewMinioS3Database(t *testing.T) {
 		assert.Equal("application/octet-stream", desc["mediatype"])
 	}
 
+    // test staging non-existent file
+	invalidFileIds := []string{"non_existent_file.txt"}
+	_, err = db.StageFiles("test-orcid", invalidFileIds)
+	assert.NotNil(err, "Staging non-existent file should return an error")
+
 	// test staging
 	stagingID, err := db.StageFiles("test-orcid", fileIds)
 	assert.NoError(err)
@@ -358,6 +407,13 @@ func TestNewMinioS3Database(t *testing.T) {
 	status, err = newS3Db.StagingStatus(stagingID)
 	assert.NoError(err)
 	assert.Equal(databases.StagingStatusSucceeded, status)
+
+	err = newS3Db.Finalize("test-orcid", stagingID)
+	assert.NoError(err)
+
+	localUser, err := newS3Db.LocalUser("test-orcid")
+	assert.Error(err)
+	assert.Equal("", localUser)
 }
 
 func TestMain(m *testing.M) {

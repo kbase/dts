@@ -33,6 +33,8 @@ func TestNewDatabase(t *testing.T) {
 	db, err := NewDatabase(conf)
 	assert.NotNil(db, "KBase database not created")
 	assert.Nil(err, "KBase database creation encountered an error")
+	endpointName := db.EndpointNames()
+	assert.Equal([]string{"globus-kbase"}, endpointName, "KBase database returned incorrect endpoint name")
 }
 
 func TestSpecificSearchParameters(t *testing.T) {

@@ -38,11 +38,12 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/auth"
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/credit"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 // file database appropriate for handling searches and transfers
@@ -58,70 +59,65 @@ type Database struct {
 	EndpointForHost map[string]string
 }
 
-type DatabaseConfig struct {
+type Config struct {
+	// Credentials for database
+	Credential auth.Credential `yaml:"credential"`
+	// NMDC-compatible endpoints
+	Endpoints struct {
+		Nersc string `yaml:"nersc"`
+		Emsl  string `yaml:"emsl"`
+	} `yaml:"endpoints"`
 	// Base URL for NMDC API
-	BaseURL string
+	BaseURL string `yaml:"base_url,omitempty"`
 }
 
-type DatabaseOption func(*DatabaseConfig)
+func NewDatabase(conf Config) (databases.Database, error) {
 
-func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Database, error) {
-	cfg := DatabaseConfig{
-		BaseURL: defaultBaseApiURL,
-	}
-
-	for _, opt := range options {
-		opt(&cfg)
-	}
-
-	nmdcCredential := conf.Credentials[conf.Databases["nmdc"].Credential]
-	if nmdcCredential.Id == "" {
+	if conf.Credential.Id == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC user was provided for authentication",
 		}
 	}
-	if nmdcCredential.Secret == "" {
+	if conf.Credential.Secret == "" {
 		return nil, &databases.UnauthorizedError{
 			Database: "nmdc",
 			Message:  "No NMDC password was provided for authentication",
 		}
 	}
 
-	if conf.Databases["nmdc"].Endpoint != "" {
+	// make sure the endpoints are valid
+	if !endpoints.EndpointExists(conf.Endpoints.Nersc) {
 		return nil, &databases.InvalidEndpointsError{
 			Database: "nmdc",
-			Message:  "NMDC requires 'nersc' and 'emsl' endpoints to be specified",
+			Message:  fmt.Sprintf("Nersc endpoint '%s' is not configured", conf.Endpoints.Nersc),
 		}
 	}
-	// check for "nersc" and "emsl" Globus endpoints
-	for _, functionalName := range []string{"nersc", "emsl"} {
-		// was this functional name assigned to an endpoint?
-		if _, found := conf.Databases["nmdc"].Endpoints[functionalName]; !found {
-			return nil, &databases.InvalidEndpointsError{
-				Database: "nmdc",
-				Message:  fmt.Sprintf("Could not find '%s' endpoint for NMDC database", functionalName),
-			}
+	if !endpoints.EndpointExists(conf.Endpoints.Emsl) {
+		return nil, &databases.InvalidEndpointsError{
+			Database: "nmdc",
+			Message:  fmt.Sprintf("Emsl endpoint '%s' is not configured", conf.Endpoints.Emsl),
 		}
 	}
 
 	// fetch functional endpoint names and map URLs to them
 	// (see https://nmdc-documentation.readthedocs.io/en/latest/howto_guides/globus.html)
-	nerscEndpoint := conf.Databases["nmdc"].Endpoints["nersc"]
-	emslEndpoint := conf.Databases["nmdc"].Endpoints["emsl"]
-
 	// NOTE: we prevent redirects from HTTPS -> HTTP!
+	baseUrl := defaultBaseApiURL
+	if conf.BaseURL != "" {
+		baseUrl = conf.BaseURL
+	}
 	db := &Database{
-		BaseURL: cfg.BaseURL,
+		BaseURL: baseUrl,
 		Client:  databases.SecureHttpClient(time.Second * 20),
 		EndpointForHost: map[string]string{
-			"https://data.microbiomedata.org/data/": nerscEndpoint,
-			"https://nmdcdemo.emsl.pnnl.gov/":       emslEndpoint,
+			"https://data.microbiomedata.org/data/": conf.Endpoints.Nersc,
+			"https://nmdcdemo.emsl.pnnl.gov/":       conf.Endpoints.Emsl,
 		},
 	}
 
 	// get an API access token
-	auth, err := db.getAccessToken(nmdcCredential)
+	auth, err := db.getAccessToken(conf.Credential)
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +126,13 @@ func NewDatabase(conf config.Config, options ...DatabaseOption) (databases.Datab
 	return db, nil
 }
 
-func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+func DatabaseConstructor(conf map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
-		return NewDatabase(conf)
+		var nmdcConf Config
+		if err := mapstructure.Decode(conf, &nmdcConf); err != nil {
+			return nil, err
+		}
+		return NewDatabase(nmdcConf)
 	}
 }
 
@@ -219,6 +219,14 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 		return nil, err
 	}
 	return slices.Concat(dataObjectDescriptors, biosampleDescriptors), nil
+}
+
+func (db Database) EndpointNames() []string {
+	var endpoints []string
+	for _, endpoint := range db.EndpointForHost {
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints
 }
 
 func (db Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

@@ -69,7 +69,7 @@ Did you call config.Init()? `)
 	// register database fixtures
 	for databaseName := range config.Databases {
 		if strings.Contains(databaseName, "test") {
-			RegisterDatabase(databaseName, descriptors)
+			RegisterDatabase(databaseName, config.Databases[databaseName], descriptors)
 		}
 	}
 
@@ -210,21 +210,44 @@ type stagingRequest struct {
 // This type implements a databases.Database test fixture
 type Database struct {
 	Name        string
+	EndptName   string
 	Endpt       endpoints.Endpoint
 	descriptors map[string]map[string]any
 	Staging     map[uuid.UUID]stagingRequest
 }
 
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, descriptors map[string]map[string]any) error {
+func RegisterDatabase(databaseName string, config any, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
+	cfgMap, ok := config.(map[string]any)
+	if !ok {
+		return fmt.Errorf("database %s has invalid configuration type", databaseName)
+	}
+	var endpts []string
+	if eps, found := cfgMap["endpoints"]; found {
+		endpts, ok = eps.([]string)
+		if !ok {
+			return fmt.Errorf("database %s has invalid endpoints field", databaseName)
+		}
+	} else {
+		if eps, found := cfgMap["endpoint"]; found {
+			endpt, ok := eps.(string)
+			if !ok {
+				return fmt.Errorf("database %s has invalid endpoint field", databaseName)
+			}
+			endpts = []string{endpt}
+		} else {
+			return fmt.Errorf("database %s has no endpoint(s) field", databaseName)
+		}
+	}
 	newDatabaseFunc := func() (databases.Database, error) {
-		endpoint, err := endpoints.NewEndpoint(config.Databases[databaseName].Endpoint)
+		endpoint, err := endpoints.NewEndpoint(endpts[0])
 		if err != nil {
 			return nil, err
 		}
 		db := Database{
 			Name:        databaseName,
+			EndptName:   endpts[0],
 			Endpt:       endpoint,
 			descriptors: descriptors,
 			Staging:     make(map[uuid.UUID]stagingRequest),
@@ -265,6 +288,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		}
 	}
 	return descriptors, nil
+}
+
+func (db *Database) EndpointNames() []string {
+	return []string{db.EndptName}
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

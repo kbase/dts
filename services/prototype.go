@@ -233,10 +233,22 @@ func (service *prototype) getDatabases(ctx context.Context,
 	}
 	for dbName, db := range config.Databases {
 		if databases.HaveDatabase(dbName) { // check to see whether we successfully registered it
+			dbMap, ok := db.(map[string]any)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid type", dbName)
+			}
+			name, ok := dbMap["name"].(string)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid name field", dbName)
+			}
+			organization, ok := dbMap["organization"].(string)
+			if !ok {
+				return &DatabasesOutput{}, fmt.Errorf("database %s has invalid organization field", dbName)
+			}
 			output.Body = append(output.Body, DatabaseResponse{
 				Id:           dbName,
-				Name:         db.Name,
-				Organization: db.Organization,
+				Name:         name,
+				Organization: organization,
 			})
 		}
 	}
@@ -263,11 +275,12 @@ func (service *prototype) getDatabase(ctx context.Context,
 	if !ok {
 		return nil, huma.Error404NotFound(fmt.Sprintf("Database %s not found", input.Id))
 	}
+	dbMap := db.(map[string]any)
 	return &DatabaseOutput{
 		Body: DatabaseResponse{
 			Id:           input.Id,
-			Name:         db.Name,
-			Organization: db.Organization,
+			Name:         dbMap["name"].(string),
+			Organization: dbMap["organization"].(string),
 		},
 	}, nil
 }

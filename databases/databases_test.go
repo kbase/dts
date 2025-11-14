@@ -24,6 +24,10 @@ func (td *TestDatabase) Descriptors(orcid string, fileIds []string) ([]map[strin
 	return []map[string]any{}, nil
 }
 
+func (td *TestDatabase) EndpointNames() []string {
+	return []string{"test-endpoint"}
+}
+
 func (td *TestDatabase) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
 	return uuid.New(), nil
 }
@@ -135,6 +139,10 @@ func (t *SerialTests) TestDatabaseRegistration() {
 	db, err := NewDatabase("testdb")
 	assert.NotNil(db, "Creating registered database failed")
 	assert.Nil(err, "Creating registered database reported an error")
+
+	dbs := RegisteredDatabases()
+	assert.Contains(dbs, "testdb", "Registered databases list does not contain testdb")
+	assert.Equal(len(dbs), 1, "Registered databases list has incorrect length")
 }
 
 func (t *SerialTests) TestDuplicateDatabaseRegistration() {

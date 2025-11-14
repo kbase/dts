@@ -147,3 +147,12 @@ func (e DowngradedRedirectError) Error() string {
 	return fmt.Sprintf("The endpoint %s is attempting to downgrade an HTTPS request to HTTP",
 		e.Endpoint)
 }
+
+// indicates that a database is not configured properly
+type InvalidDatabaseConfigError struct {
+	Database, Message string
+}
+
+func (e InvalidDatabaseConfigError) Error() string {
+	return fmt.Sprintf("Database %s is not properly configured: %s", e.Database, e.Message)
+}

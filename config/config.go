@@ -66,6 +66,9 @@ type serviceConfig struct {
 	DoubleCheckStaging bool `json:"double_check_staging" yaml:"double_check_staging"`
 }
 
+// config types
+type databaseConfig any
+
 // global config variables
 var Service serviceConfig
 var Credentials map[string]auth.Credential
@@ -185,42 +188,9 @@ func (endpoint endpointConfig) Validate(name string) error {
 	return nil
 }
 
-func (db databaseConfig) Validate(name string) error {
-	if db.Endpoint == "" && len(db.Endpoints) == 0 {
-		return &InvalidDatabaseConfigError{
-			Database: name,
-			Message:  "No endpoints specified",
-		}
-	} else if db.Endpoint != "" && len(db.Endpoints) > 0 {
-		return &InvalidDatabaseConfigError{
-			Database: name,
-			Message:  "EITHER endpoint OR endpoints may be specified, but not both",
-		}
-	} else if db.Endpoint != "" {
-		// does the endpoint exist in our configuration?
-		if _, found := Endpoints[db.Endpoint]; !found {
-			return &InvalidDatabaseConfigError{
-				Database: name,
-				Message:  fmt.Sprintf("Invalid endpoint for database %s: %s", name, db.Endpoint),
-			}
-		}
-	} else {
-		// do all functional endpoints exist in our configuration?
-		for functionalName, endpointName := range db.Endpoints {
-			if _, found := Endpoints[endpointName]; !found {
-				return &InvalidDatabaseConfigError{
-					Database: name,
-					Message:  fmt.Sprintf("Invalid %s endpoint for database %s: %s", functionalName, name, endpointName),
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
-func (c Config) Validate(service, credentials, databases, endpoints bool) error {
+func (c Config) Validate(service, credentials, endpoints bool) error {
 	var err error
 	if service {
 		if err = c.Service.Validate(); err != nil {
@@ -242,19 +212,6 @@ func (c Config) Validate(service, credentials, databases, endpoints bool) error 
 		}
 	}
 
-	if databases {
-		if len(c.Databases) == 0 {
-			return &InvalidServiceConfigError{
-				Message: "No databases configured",
-			}
-		}
-		for name, database := range c.Databases {
-			err = database.Validate(name)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	return err
 }
 
@@ -276,6 +233,6 @@ func InitSelected(yamlData []byte, service, credentials, databases, endpoints bo
 	if err != nil {
 		return Config{}, err
 	}
-	err = conf.Validate(service, credentials, databases, endpoints)
+	err = conf.Validate(service, credentials, endpoints)
 	return conf, err
 }

@@ -34,14 +34,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awsS3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	awsTestRegion         = "us-west-2"
 	awsTestBucket         = "nasa-power"
+	awsEndpoint           = "aws-s3-test"
 	minioTestEndpointURL  = "http://localhost:9000"
+	minioEndpoint         = "minio-test"
 	minioTestAccessKey    = "minioadmin"
 	minioTestSecretKey    = "minioadmin"
 	minioTestSessionToken = ""
@@ -51,9 +55,28 @@ const (
 
 var minioTestBucket = "test-database-bucket"
 
+const configYaml string = `
+minio-test:
+  name: minio-test
+  id: 12345678-9abc-def0-1234-56789abcdef0
+  provider: s3
+  credential: minio-test-credential
+aws-s3-test:
+  name: aws-s3-test
+  id: 98765432-1fed-cba0-9876-54321fedcba0
+  provider: s3
+  credential: aws-s3-test-credential
+`
+
 // connect to the minio test server, create a test bucket, and populate it with
 // some test data
 func setup() {
+	// mock the endpoints configuration
+	err := yaml.Unmarshal([]byte(configYaml), &config.Endpoints)
+	if err != nil {
+		panic(fmt.Sprintf("unable to unmarshal config YAML, %v", err))
+	}
+
 	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		panic(fmt.Sprintf("unable to load SDK config, %v", err))
@@ -139,7 +162,8 @@ func TestNewAWSS3Database(t *testing.T) {
 	assert := assert.New(t)
 
 	cfg := Config{
-		Region: awsTestRegion,
+		Region:   awsTestRegion,
+		Endpoint: awsEndpoint,
 	}
 	db, err := NewDatabase(awsTestBucket, cfg)
 	assert.NoError(err)
@@ -213,6 +237,47 @@ func TestNewAWSS3Database(t *testing.T) {
 	assert.Equal(databases.StagingStatusSucceeded, status)
 }
 
+func TestInvalidEndpoint(t *testing.T) {
+	assert := assert.New(t)
+
+	cfg := Config{
+		Region:   awsTestRegion,
+		Endpoint: "invalid-endpoint",
+	}
+	db, err := NewDatabase(awsTestBucket, cfg)
+	assert.Nil(db)
+	assert.NotNil(err)
+}
+
+func TestCustomDeleteAfterDuration(t *testing.T) {
+	assert := assert.New(t)
+
+	cfg := Config{
+		Region:              awsTestRegion,
+		Endpoint:            awsEndpoint,
+		DeleteAfter:         1,
+	}
+	db, err := NewDatabase(awsTestBucket, cfg)
+	assert.NoError(err)
+	assert.NotNil(db)
+	s3db := db.(*Database)
+	assert.Equal(1*time.Second, s3db.DeleteAfter)
+}
+
+func TestDatabaseConstructor(t *testing.T) {
+	assert := assert.New(t)
+
+	confMap := map[string]any{
+		"bucket":   awsTestBucket,
+		"region":   awsTestRegion,
+		"endpoint": awsEndpoint,
+	}
+	constructor := DatabaseConstructor(confMap)
+	db, err := constructor()
+	assert.NoError(err)
+	assert.NotNil(db)
+}
+
 func TestNewMinioS3Database(t *testing.T) {
 	assert := assert.New(t)
 
@@ -223,11 +288,15 @@ func TestNewMinioS3Database(t *testing.T) {
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
 		UsePathStyle: minioTestUsePathStyle,
+		Endpoint:     minioEndpoint,
 	}
 	db, err := NewDatabase(minioTestBucket, cfg)
 	assert.NoError(err)
 	assert.NotNil(db)
 	s3db := db.(*Database)
+
+	endpointName := db.EndpointNames()
+	assert.Equal([]string{"minio-test"}, endpointName, "MinIO database returned incorrect endpoint name")
 
 	// test support functions
 	exists, err := s3db.fileExists("file1.txt")
@@ -303,6 +372,11 @@ func TestNewMinioS3Database(t *testing.T) {
 		assert.Equal("application/octet-stream", desc["mediatype"])
 	}
 
+    // test staging non-existent file
+	invalidFileIds := []string{"non_existent_file.txt"}
+	_, err = db.StageFiles("test-orcid", invalidFileIds)
+	assert.NotNil(err, "Staging non-existent file should return an error")
+
 	// test staging
 	stagingID, err := db.StageFiles("test-orcid", fileIds)
 	assert.NoError(err)
@@ -333,6 +407,13 @@ func TestNewMinioS3Database(t *testing.T) {
 	status, err = newS3Db.StagingStatus(stagingID)
 	assert.NoError(err)
 	assert.Equal(databases.StagingStatusSucceeded, status)
+
+	err = newS3Db.Finalize("test-orcid", stagingID)
+	assert.NoError(err)
+
+	localUser, err := newS3Db.LocalUser("test-orcid")
+	assert.Error(err)
+	assert.Equal("", localUser)
 }
 
 func TestMain(m *testing.M) {

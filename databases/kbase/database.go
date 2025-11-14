@@ -25,21 +25,34 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 // file database appropriate for handling KBase searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
-	kbaseFed KBaseUserFederation
+	EndpointName string
+	kbaseFed     KBaseUserFederation
 }
 
-func NewDatabase(conf config.Config) (databases.Database, error) {
-	db := Database{}
+type Config struct {
+	Endpoint                  string `yaml:"endpoint"`
+	KBaseUserFederationConfig `yaml:",inline"`
+}
+
+func NewDatabase(conf Config) (databases.Database, error) {
+	// make sure the endpoint is valid
+	if !endpoints.EndpointExists(conf.Endpoint) {
+		return nil, fmt.Errorf("invalid endpoint '%s' in kbase database configuration", conf.Endpoint)
+	}
+	db := Database{
+		EndpointName: conf.Endpoint,
+	}
 	var err error
-	db.kbaseFed, err = newKBaseUserFederation(conf)
+	db.kbaseFed, err = newKBaseUserFederation(conf.KBaseUserFederationConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +64,13 @@ func NewDatabase(conf config.Config) (databases.Database, error) {
 	return &db, nil
 }
 
-func DatabaseConstructor(conf config.Config) func() (databases.Database, error) {
+func DatabaseConstructor(conf map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
-		return NewDatabase(conf)
+		var kbaseConf Config
+		if err := mapstructure.Decode(conf, &kbaseConf); err != nil {
+			return nil, err
+		}
+		return NewDatabase(kbaseConf)
 	}
 }
 
@@ -69,6 +86,10 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
 	err := fmt.Errorf("Descriptors not implemented for kbase database")
 	return nil, err
+}
+
+func (db *Database) EndpointNames() []string {
+	return []string{db.EndpointName}
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {

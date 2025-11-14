@@ -53,6 +53,9 @@ type Database interface {
 	// by this call, the number of descriptors returned will exceed the number of
 	// requested file IDs by the number of data descriptors.
 	Descriptors(orcid string, fileIds []string) ([]map[string]any, error)
+	// Returns a list of endpoint names that can be used as sources or destinations
+	// for transfer with this database
+	EndpointNames() []string
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)

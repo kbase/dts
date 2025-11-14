@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
@@ -31,6 +33,8 @@ func TestNewDatabase(t *testing.T) {
 	db, err := NewDatabase(conf)
 	assert.NotNil(db, "KBase database not created")
 	assert.Nil(err, "KBase database creation encountered an error")
+	endpointName := db.EndpointNames()
+	assert.Equal([]string{"globus-kbase"}, endpointName, "KBase database returned incorrect endpoint name")
 }
 
 func TestSpecificSearchParameters(t *testing.T) {
@@ -118,7 +122,7 @@ func TestSaveLoad(t *testing.T) {
 
 var CWD string
 var TESTING_DIR string
-var conf config.Config
+var conf Config
 
 const kbaseConfig string = `
 service:
@@ -137,6 +141,13 @@ endpoints:
     auth:
       client_id: ${DTS_GLOBUS_CLIENT_ID}
       client_secret: ${DTS_GLOBUS_CLIENT_SECRET}
+`
+
+const kbaseDbConfig string = `
+name: KBase Workspace Service (KSS)
+organization: KBase
+data_directory: TESTING_DIR/data
+endpoint: globus-kbase
 `
 
 // helper function replaces embedded environment variables in yaml string
@@ -188,14 +199,20 @@ func setup() {
 	if err != nil {
 		log.Panicf("Couldn't initialize config: %s", err)
 	}
-	conf, err = config.NewConfig([]byte(myConfig))
+	kbaseConfig := strings.ReplaceAll(kbaseDbConfig, "TESTING_DIR", TESTING_DIR)
+	err = yaml.Unmarshal([]byte(setTestEnvVars(kbaseConfig)), &conf)
 	if err != nil {
 		log.Panicf("Couldn't parse config: %s", err)
 	}
 
 	setupUserFederationTests(config.Service.DataDirectory)
 
-	databases.RegisterDatabase("kbase", DatabaseConstructor(conf))
+	var confMap map[string]any
+	err = mapstructure.Decode(conf, &confMap)
+	if err != nil {
+		log.Panicf("Couldn't decode config to map: %s", err)
+	}
+	databases.RegisterDatabase("kbase", DatabaseConstructor(confMap))
 	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
 }
 

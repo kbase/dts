@@ -89,11 +89,11 @@ type Endpoint interface {
 var allEndpoints map[string]Endpoint = make(map[string]Endpoint)
 
 // here's a table of endpoint creation functions
-var createEndpointFuncs = make(map[string]func(name string) (Endpoint, error))
+var createEndpointFuncs = make(map[string]func(conf map[string]any) (Endpoint, error))
 
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
-func RegisterEndpointProvider(provider string, createEp func(name string) (Endpoint, error)) error {
+func RegisterEndpointProvider(provider string, createEp func(conf map[string]any) (Endpoint, error)) error {
 	if _, found := createEndpointFuncs[provider]; found {
 		return &AlreadyRegisteredError{Provider: provider}
 	} else {
@@ -118,12 +118,19 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 	if !found {
 		// look in our configuration for the endpoint's provider
 		if epConfig, epFound := config.Endpoints[endpointName]; epFound {
-			if createEp, valid := createEndpointFuncs[epConfig.Provider]; valid {
-				endpoint, err = createEp(endpointName)
+			provider, ok := epConfig["provider"].(string)
+			if !ok {
+				return nil, &InvalidProviderError{
+					Name:     endpointName,
+					Provider: "",
+				}
+			}
+			if createEp, valid := createEndpointFuncs[provider]; valid {
+				endpoint, err = createEp(epConfig)
 			} else { // invalid provider!
 				err = InvalidProviderError{
 					Name:     endpointName,
-					Provider: epConfig.Provider,
+					Provider: provider,
 				}
 			}
 		} else { // endpoint not found in config!

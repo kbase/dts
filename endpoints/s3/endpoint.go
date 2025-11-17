@@ -35,6 +35,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	awsS3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/endpoints"
 )
@@ -74,7 +75,7 @@ type Endpoint struct {
 	TransfersMap map[uuid.UUID]*TransferStatus
 }
 
-type EndpointConfig struct {
+type Config struct {
 	// AWS region
 	Region string `yaml:"region"`
 	// AWS access key ID (optional)
@@ -90,7 +91,7 @@ type EndpointConfig struct {
 }
 
 // creates a new S3 endpoint from the provided configuration information
-func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (endpoints.Endpoint, error) {
+func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, error) {
 
 	var newEndpoint Endpoint
 
@@ -125,6 +126,19 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg EndpointConfig) (endpoints.En
 	newEndpoint.TransfersMap = make(map[uuid.UUID]*TransferStatus)
 
 	return &newEndpoint, nil
+}
+
+// constructs an S3 endpoint from a configuration map
+func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
+	var config struct {
+		Bucket string `yaml:"bucket"`
+		Id     uuid.UUID `yaml:"id"`
+		Config Config `yaml:",inline" mapstructure:",squash"`
+	}
+	if err := mapstructure.Decode(conf, &config); err != nil {
+		return nil, err
+	}
+	return NewEndpoint(config.Bucket, config.Id, config.Config)
 }
 
 func (e *Endpoint) Provider() string {

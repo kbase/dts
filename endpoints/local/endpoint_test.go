@@ -25,13 +25,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert/yaml"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -47,24 +46,9 @@ var sourceFilesById = map[string]string{
 	"3": "file3.txt",
 }
 
-const localConfig string = `
-endpoints:
-  source:
-    name: Source Endpoint
-    id: 2ee69538-10d5-4d1e-a890-1127b5e42003
-    provider: local
-    root: SOURCE_ROOT
-  destination:
-    name: Destination Endpoint
-    id: b925d96e-7e39-473b-a658-714f8c243b1c
-    provider: local
-    root: DESTINATION_ROOT
-  destination-cancel:
-    name: Destination Endpoint for cancellation
-    id: b925d96e-7e39-473b-a658-714f8c243b1c
-    provider: local
-    root: DESTINATION_CANCEL
-`
+var sourceConfig string
+var destConfig string
+var destCancelConfig string
 
 // this function gets called at the begіnning of a test session
 func setup() {
@@ -98,15 +82,26 @@ func setup() {
 		}
 	}
 
-	// read in the config file with variable paths substituted
-	myConfig := strings.ReplaceAll(localConfig, "SOURCE_ROOT", sourceRoot)
-	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_ROOT", destinationRoot)
-	myConfig = strings.ReplaceAll(myConfig, "DESTINATION_CANCEL", destinationRootCancel)
-	fmt.Print(myConfig)
-	_, err = config.InitSelected([]byte(myConfig), false, false, false, true)
-	if err != nil {
-		panic(err)
-	}
+	// set the configuration strings
+	sourceConfig = fmt.Sprintf(`
+name: Source Endpoint
+id: 2ee69538-10d5-4d1e-a890-1127b5e42003
+provider: local
+root: %s
+`, sourceRoot)
+	destConfig = fmt.Sprintf(`
+name: Destination Endpoint
+id: b925d96e-7e39-473b-a658-714f8c243b1c
+provider: local
+root: %s
+`, destinationRoot)
+	destCancelConfig = fmt.Sprintf(`
+name: Destination Endpoint for cancellation
+id: b925d96e-7e39-473b-a658-714f8c243b1c
+provider: local
+root: %s
+`, destinationRootCancel)
+
 }
 
 // this function gets called after all tests have been run
@@ -117,22 +112,41 @@ func breakdown() {
 func TestLocalConstructor(t *testing.T) {
 	assert := assert.New(t)
 
-	endpoint, err := NewEndpoint("source")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	endpoint, err := NewEndpoint(conf)
 	assert.NotNil(endpoint)
 	assert.Nil(err)
 }
 
 func TestBadLocalConstructor(t *testing.T) {
 	assert := assert.New(t)
+	conf := Config{
+		Name: "Bad Local Endpoint - no root",
+		Id:   uuid.New(),
+		Root: "",
+	}
+	endpoint, err := NewEndpoint(conf)
+	assert.NotNil(err)
+	assert.Nil(endpoint)
 
-	endpoint, err := NewEndpoint("nonexistent-endpoint")
+	conf = Config{
+		Name: "",
+		Id:   uuid.New(),
+		Root: "/bad/endpoint/no/name",
+	}
+	endpoint, err = NewEndpoint(conf)
 	assert.Nil(endpoint)
 	assert.NotNil(err)
 }
 
 func TestLocalTransfers(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpoint("source")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	endpoint, _ := NewEndpoint(conf)
 	// this is just a smoke test--we don't check the contents of the result
 	xfers, err := endpoint.Transfers()
 	assert.NotNil(xfers) // empty or non-empty slice
@@ -141,7 +155,10 @@ func TestLocalTransfers(t *testing.T) {
 
 func TestGlobusFilesStaged(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpoint("source")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	endpoint, _ := NewEndpoint(conf)
 
 	// provide an empty slice of filenames, which should return true
 	staged, err := endpoint.FilesStaged([]map[string]any{})
@@ -176,8 +193,16 @@ func TestGlobusFilesStaged(t *testing.T) {
 func TestLocalTransfer(t *testing.T) {
 	assert := assert.New(t)
 
-	source, _ := NewEndpoint("source")
-	destination, _ := NewEndpoint("destination")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	source, err := NewEndpoint(conf)
+	assert.Nil(err)
+
+	err = yaml.Unmarshal([]byte(destConfig), &conf)
+	assert.Nil(err)
+	destination, err := NewEndpoint(conf)
+	assert.Nil(err)
 
 	fileXfers := make([]endpoints.FileTransfer, 0)
 	for i := 1; i <= 3; i++ {
@@ -188,14 +213,20 @@ func TestLocalTransfer(t *testing.T) {
 			DestinationPath: sourceFilesById[id],
 		})
 	}
-	_, err := source.Transfer(destination, fileXfers)
+	_, err = source.Transfer(destination, fileXfers)
 	assert.Nil(err)
 }
 
 func TestBadLocalTransfer(t *testing.T) {
 	assert := assert.New(t)
-	source, _ := NewEndpoint("source")
-	destination, _ := NewEndpoint("destination")
+
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	source, _ := NewEndpoint(conf)
+	err = yaml.Unmarshal([]byte(destConfig), &conf)
+	assert.Nil(err)
+	destination, _ := NewEndpoint(conf)
 
 	// ask for some nonexistent files
 	fileXfers := make([]endpoints.FileTransfer, 0)
@@ -206,13 +237,16 @@ func TestBadLocalTransfer(t *testing.T) {
 			DestinationPath: sourceFilesById[id] + "_with_bad_suffix",
 		})
 	}
-	_, err := source.Transfer(destination, fileXfers)
+	_, err = source.Transfer(destination, fileXfers)
 	assert.NotNil(err)
 }
 
 func TestUnknownLocalStatus(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpoint("source")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	endpoint, _ := NewEndpoint(conf)
 
 	// make up a bogus transfer UUID and check its status
 	taskId := uuid.New()
@@ -224,8 +258,14 @@ func TestUnknownLocalStatus(t *testing.T) {
 func TestLocalTransferCancellation(t *testing.T) {
 	assert := assert.New(t)
 
-	source, _ := NewEndpoint("source")
-	destination, _ := NewEndpoint("destination-cancel")
+	var conf Config
+	err := yaml.Unmarshal([]byte(sourceConfig), &conf)
+	assert.Nil(err)
+	source, _ := NewEndpoint(conf)
+
+	err = yaml.Unmarshal([]byte(destCancelConfig), &conf)
+	assert.Nil(err)
+	destination, _ := NewEndpoint(conf)
 
 	fileXfers := make([]endpoints.FileTransfer, 0)
 	for i := 1; i <= 3; i++ {

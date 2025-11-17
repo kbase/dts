@@ -486,7 +486,7 @@ func setup() {
 			panic("Couldn't register NMDC database: " + err.Error())
 		}
 	}
-	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
+	endpoints.RegisterEndpointProvider("globus", globus.EndpointConstructor)
 
 	// construct NMDC-specific search parameters for a study
 	nmdcSearchParams = make(map[string]any)

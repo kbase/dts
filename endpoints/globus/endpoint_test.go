@@ -30,10 +30,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert/yaml"
 
-	"github.com/kbase/dts/config"
-	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -55,62 +55,114 @@ var sourceFilesById = map[string]string{
 	"3": "5MB-in-tiny-files/c/c/c-c-1KB.dat",
 }
 
-var globusConfig string = fmt.Sprintf(`
-credentials:
-  globus:
-    id: ${DTS_GLOBUS_CLIENT_ID}
-    secret: ${DTS_GLOBUS_CLIENT_SECRET}
-endpoints:
-  source:
-    name: %s
-    id: %s
-    provider: globus
-    credential: globus
-  destination:
-    name: DTS Globus Test Endpoint
-    id: ${DTS_GLOBUS_TEST_ENDPOINT}
-    provider: globus
-    credential: globus
-  not-globus-jdp:
-    name: lalala
-    id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-    provider: not-globus
+var sourceConfig string = fmt.Sprintf(`
+name: %s
+id: %s
+credential:
+  id: ${DTS_GLOBUS_CLIENT_ID}
+  secret: ${DTS_GLOBUS_CLIENT_SECRET}
 `, sourceEndpointName, sourceEndpointId)
 
-// this function gets called at the begіnning of a test session
-func setup() {
-	dtstest.EnableDebugLogging()
+var destConfig string = `
+name: DTS Globus Test Endpoint
+id: ${DTS_GLOBUS_TEST_ENDPOINT}
+credential:
+  id: ${DTS_GLOBUS_CLIENT_ID}
+  secret: ${DTS_GLOBUS_CLIENT_SECRET}
+`
 
-	if _, ok := os.LookupEnv("DTS_GLOBUS_TEST_ENDPOINT"); !ok {
-		print("DTS_GLOBUS_TEST_ENDPOINT environment variable not set. Skipping Globus unit tests.\n")
-		os.Exit(0)
+// returns a Config object for a given yaml string
+func getConfigFromYAML(yamlStr string) (Config, error) {
+	// replace env vars
+	// if the env vars are not set, provide dummy values
+	if checkGlobusEnvVars() == false {
+		testVars := map[string]string{
+			"DTS_GLOBUS_TEST_ENDPOINT": "7ba7b810-9dad-11d1-80b4-00c04fd430d9",
+			"DTS_GLOBUS_CLIENT_ID":     "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			"DTS_GLOBUS_CLIENT_SECRET": "fake_client_secret",
+		}
+		yamlStr = os.Expand(yamlStr, func(yamlVar string) string {
+			if val, ok := testVars[yamlVar]; ok {
+				return val
+			}
+			return ""
+		})
+	} else {
+		yamlStr = os.ExpandEnv(yamlStr)
 	}
-	config.Init([]byte(globusConfig))
+
+	// unmarshal into Config
+	var conf Config
+	err := yaml.Unmarshal([]byte(yamlStr), &conf)
+	if err != nil {
+		return Config{}, err
+	}
+	return conf, nil
 }
 
-// this function gets called after all tests have been run
-func breakdown() {
+// checks if environment variables are set for Globus tests
+func checkGlobusEnvVars() bool {
+	requiredVars := []string{
+		"DTS_GLOBUS_TEST_ENDPOINT",
+		"DTS_GLOBUS_CLIENT_ID",
+		"DTS_GLOBUS_CLIENT_SECRET",
+	}
+
+	for _, v := range requiredVars {
+		if os.Getenv(v) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func TestGlobusConstructor(t *testing.T) {
 	assert := assert.New(t)
 
-	endpoint, err := NewEndpointFromConfig("source")
+	config, err := getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	var configMap map[string]any
+	err = mapstructure.Decode(config, &configMap)
+	assert.Nil(err)
+
+	endpoint, err := EndpointConstructor(configMap)
 	assert.NotNil(endpoint)
+	// if invalid credientials are provided, an error is returned
+	if !checkGlobusEnvVars() {
+		assert.NotNil(err)
+		return
+	}
 	assert.Nil(err)
 }
 
-func TestBadGlobusConstructor(t *testing.T) {
+func TestBadConfig(t *testing.T) {
 	assert := assert.New(t)
 
-	endpoint, err := NewEndpointFromConfig("not-globus-jdp")
-	assert.Nil(endpoint)
+	// bad UUID
+	badConfig := fmt.Sprintf(`
+name: Bad Globus Endpoint
+id: %s
+credential:
+  id: %s
+  secret: "some_secret"
+`, uuid.New().String(), "bad-uuid")
+	var conf Config
+	err := yaml.Unmarshal([]byte(badConfig), &conf)
+	assert.Nil(err)
+
+	_, err = NewEndpoint(conf)
 	assert.NotNil(err)
 }
 
 func TestGlobusTransfers(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpointFromConfig("source")
+	if !checkGlobusEnvVars() {
+		t.Skip("Skipping Globus transfers test due to missing environment variables.")
+	}
+	conf, err := getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	endpoint, err := NewEndpoint(conf)
+	assert.Nil(err)
 	// this is just a smoke test--we don't check the contents of the result
 	xfers, err := endpoint.Transfers()
 	assert.NotNil(xfers) // empty or non-empty slice
@@ -119,7 +171,13 @@ func TestGlobusTransfers(t *testing.T) {
 
 func TestGlobusFilesStaged(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpointFromConfig("source")
+	if !checkGlobusEnvVars() {
+		t.Skip("Skipping Globus files staged test due to missing environment variables.")
+	}
+	conf, err := getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	endpoint, err := NewEndpoint(conf)
+	assert.Nil(err)
 
 	// provide an empty slice of filenames, which should return true
 	staged, err := endpoint.FilesStaged([]map[string]any{})
@@ -167,9 +225,22 @@ func destDirName(n int) string {
 
 func TestGlobusTransfer(t *testing.T) {
 	assert := assert.New(t)
-	source, _ := NewEndpointFromConfig("source")
-	destination, _ := NewEndpointFromConfig("destination")
+	if !checkGlobusEnvVars() {
+		t.Skip("Skipping Globus transfer test due to missing environment variables.")
+	}
+	var sourceConf Config
+	var destConf Config
+	var err error
 
+	sourceConf, err = getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	destConf, err = getConfigFromYAML(destConfig)
+	assert.Nil(err)
+	source, err := NewEndpoint(sourceConf)
+	assert.Nil(err)
+	destination, err := NewEndpoint(destConf)
+	assert.Nil(err)
+	
 	fileXfers := make([]endpoints.FileTransfer, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)
@@ -210,7 +281,13 @@ func TestGlobusTransfer(t *testing.T) {
 
 func TestUnknownGlobusStatus(t *testing.T) {
 	assert := assert.New(t)
-	endpoint, _ := NewEndpointFromConfig("source")
+	if !checkGlobusEnvVars() {
+		t.Skip("Skipping Globus unknown status test due to missing environment variables.")
+	}
+	conf, err := getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	endpoint, err := NewEndpoint(conf)
+	assert.Nil(err)
 
 	// make up a bogus transfer UUID and check its status
 	taskId := uuid.New()
@@ -221,8 +298,17 @@ func TestUnknownGlobusStatus(t *testing.T) {
 
 func TestGlobusTransferCancellation(t *testing.T) {
 	assert := assert.New(t)
-	source, _ := NewEndpointFromConfig("source")
-	destination, _ := NewEndpointFromConfig("destination")
+	if !checkGlobusEnvVars() {
+		t.Skip("Skipping Globus transfer cancellation test due to missing environment variables.")
+	}
+	sourceConf, err := getConfigFromYAML(sourceConfig)
+	assert.Nil(err)
+	destinationConf, err := getConfigFromYAML(destConfig)
+	assert.Nil(err)
+	source, err := NewEndpoint(sourceConf)
+	assert.Nil(err)
+	destination, err := NewEndpoint(destinationConf)
+	assert.Nil(err)
 
 	fileXfers := make([]endpoints.FileTransfer, 0)
 	for i := 1; i <= 3; i++ {
@@ -249,13 +335,4 @@ func TestGlobusTransferCancellation(t *testing.T) {
 
 	err = source.Cancel(taskId)
 	assert.Nil(err)
-}
-
-// this runs setup, runs all tests, and does breakdown
-func TestMain(m *testing.M) {
-	var status int
-	setup()
-	status = m.Run()
-	breakdown()
-	os.Exit(status)
 }

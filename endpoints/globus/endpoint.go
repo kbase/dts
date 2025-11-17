@@ -33,8 +33,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
-	"github.com/kbase/dts/config"
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -78,13 +79,26 @@ type Endpoint struct {
 	Info EndpointInfo
 }
 
+// configuration struct for Globus endpoints
+type Config struct {
+	Name       string    `yaml:"name"`
+	Id         uuid.UUID `yaml:"id"`
+	Credential auth.Credential `yaml:"credential"`
+	Root       string    `yaml:"root,omitempty"`
+}
+
 // creates a new Globus endpoint using the given information
-func NewEndpoint(name string, shareId uuid.UUID, rootPath string, clientId uuid.UUID, clientSecret string) (endpoints.Endpoint, error) {
+func NewEndpoint(config Config) (endpoints.Endpoint, error) {
+	clientId, err := uuid.Parse(config.Credential.Id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Globus client ID for credential '%s': %s (must be UUID)",
+			config.Name, config.Credential.Id)
+	}
 	ep := &Endpoint{
-		Name:         name,
-		Id:           shareId,
+		Name:         config.Name,
+		Id:           config.Id,
 		ClientId:     clientId,
-		ClientSecret: clientSecret,
+		ClientSecret: config.Credential.Secret,
 	}
 
 	// if needed, authenticate to obtain a Globus Transfer API access token
@@ -98,40 +112,28 @@ func NewEndpoint(name string, shareId uuid.UUID, rootPath string, clientId uuid.
 
 	// if present, the root entry overrides the endpoint's root, and is expressed
 	// as a path relative to it
-	if rootPath != "" {
-		ep.RootDir = rootPath
+	if config.Root != "" {
+		ep.RootDir = config.Root
 	} else {
 		ep.RootDir = "/"
 	}
 	slog.Debug(fmt.Sprintf("Endpoint %s: root directory is %s",
-		name, rootPath))
+		ep.Name, ep.RootDir))
 
 	// query the endpoint for its capabilities
-	var err error
 	ep.Info, err = ep.getEndpointInfo(ep.Id)
 
 	return ep, err
 }
 
-// creates a new Globus endpoint using the information supplied in the
-// DTS configuration file under the given endpoint name
-func NewEndpointFromConfig(endpointName string) (endpoints.Endpoint, error) {
-	epConfig, found := config.Endpoints[endpointName]
-	if !found {
-		return nil, fmt.Errorf("'%s' is not an endpoint", endpointName)
+// constructs a Globus endpoint from a configuration map
+func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
+	// marshal the config map into JSON
+	var globusConfig Config
+	if err := mapstructure.Decode(conf, &globusConfig); err != nil {
+		return nil, err
 	}
-	if epConfig.Provider != "globus" {
-		return nil, fmt.Errorf("'%s' is not a Globus endpoint", endpointName)
-	}
-	credential, found := config.Credentials[epConfig.Credential]
-	if !found {
-		return nil, fmt.Errorf("invalid credential for endpoint '%s': %s", endpointName, epConfig.Credential)
-	}
-	clientId, err := uuid.Parse(credential.Id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid Globus client ID for credential '%s': %s (must be UUID)", epConfig.Credential, credential.Id)
-	}
-	return NewEndpoint(epConfig.Name, epConfig.Id, epConfig.Root, clientId, credential.Secret)
+	return NewEndpoint(globusConfig)
 }
 
 func (ep *Endpoint) Provider() string {

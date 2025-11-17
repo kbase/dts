@@ -27,7 +27,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
 	"github.com/kbase/dts/auth"
@@ -67,7 +66,8 @@ type serviceConfig struct {
 }
 
 // config types
-type databaseConfig any
+type databaseConfig map[string]any
+type endpointConfig map[string]any
 
 // global config variables
 var Service serviceConfig
@@ -120,9 +120,10 @@ func readConfig(bytes []byte, service, credentials, databases, endpoints bool) (
 	if endpoints {
 		Endpoints = conf.Endpoints
 		for name, endpoint := range Endpoints {
-			if endpoint.Root == "" {
-				endpoint.Root = "/"
-				Endpoints[name] = endpoint
+			endpoint["name"] = name
+			if _, ok := endpoint["provider"].(string); ok {
+			} else {
+				return Config{}, fmt.Errorf("endpoint %s missing provider field", name)
 			}
 		}
 	}
@@ -172,43 +173,13 @@ func (params serviceConfig) Validate() error {
 	return nil
 }
 
-func (endpoint endpointConfig) Validate(name string) error {
-	if endpoint.Id == uuid.Nil { // invalid endpoint UUID
-		return &InvalidEndpointConfigError{
-			Endpoint: name,
-			Message:  "Invalid UUID",
-		}
-	}
-	if endpoint.Provider == "" { // no provider given
-		return &InvalidEndpointConfigError{
-			Endpoint: name,
-			Message:  "No provider specified",
-		}
-	}
-	return nil
-}
-
 // This helper validates the given sections in the configuration, returning an
 // error that indicates success or failure.
-func (c Config) Validate(service, credentials, endpoints bool) error {
+func (c Config) Validate(service, credentials bool) error {
 	var err error
 	if service {
 		if err = c.Service.Validate(); err != nil {
 			return err
-		}
-	}
-
-	if endpoints {
-		if len(c.Endpoints) == 0 {
-			return &InvalidServiceConfigError{
-				Message: "No endpoints configured",
-			}
-		}
-		for name, endpoint := range c.Endpoints {
-			err = endpoint.Validate(name)
-			if err != nil {
-				return err
-			}
 		}
 	}
 
@@ -233,6 +204,6 @@ func InitSelected(yamlData []byte, service, credentials, databases, endpoints bo
 	if err != nil {
 		return Config{}, err
 	}
-	err = conf.Validate(service, credentials, endpoints)
+	err = conf.Validate(service, credentials)
 	return conf, err
 }

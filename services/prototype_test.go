@@ -111,6 +111,25 @@ endpoints:
 // file test metadata
 var testDescriptors map[string]map[string]any
 
+// checks for required environment variables
+func checkEnvVars() bool {
+	requiredVars := []string{
+		"DTS_GLOBUS_CLIENT_ID",
+		"DTS_GLOBUS_CLIENT_SECRET",
+		"DTS_JDP_SECRET",
+		"DTS_NMDC_USER",
+		"DTS_NMDC_PASSWORD",
+	}
+	missingVar := false
+	for _, varName := range requiredVars {
+		if os.Getenv(varName) == "" {
+			log.Printf("Environment variable %s is not set; skipping tests.\n", varName)
+			missingVar = true
+		}
+	}
+	return !missingVar
+}
+
 // performs testing setup
 func setup() {
 	dtstest.EnableDebugLogging()
@@ -172,6 +191,14 @@ func setup() {
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION1_ROOT", destination1Root)
 	myConfig = strings.ReplaceAll(myConfig, "DESTINATION2_ROOT", destination2Root)
 	myConfig = strings.ReplaceAll(myConfig, "TESTING_DIR", TESTING_DIR)
+
+	// if the required environment variables aren't set, skip the tests
+	if !checkEnvVars() {
+		log.Print("Skipping tests due to missing environment variables.\n")
+		return
+	}
+
+	// Initialize the configuration.
 	err = config.Init([]byte(myConfig))
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
@@ -182,7 +209,7 @@ func setup() {
 	}
 
 	// register test databases referred to in config file
-	err = endpoints.RegisterEndpointProvider("local", local.NewEndpoint)
+	err = endpoints.RegisterEndpointProvider("local", local.EndpointConstructor)
 	if err != nil {
 		log.Panicf("Couldn't initialize configuration: %s", err)
 	}
@@ -281,6 +308,9 @@ func delete_(resource string) (*http.Response, error) {
 // queries the service's root endpoint
 func TestQueryRoot(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	resp, err := get(baseUrl)
 	assert.Nil(err)
@@ -299,6 +329,9 @@ func TestQueryRoot(t *testing.T) {
 // queries the service's databases endpoint
 func TestQueryDatabases(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	resp, err := get(baseUrl + apiPrefix + "databases")
 	assert.Nil(err)
@@ -341,6 +374,9 @@ func TestQueryDatabases(t *testing.T) {
 // queries a specific (valid) database
 func TestQueryValidDatabase(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	resp, err := get(baseUrl + apiPrefix + "databases/source")
 	assert.Nil(err)
@@ -360,6 +396,9 @@ func TestQueryValidDatabase(t *testing.T) {
 // queries a database that doesn't exist
 func TestQueryInvalidDatabase(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	resp, err := get(baseUrl + apiPrefix + "databases/nonexistentdb")
 	assert.Nil(err)
@@ -369,6 +408,9 @@ func TestQueryInvalidDatabase(t *testing.T) {
 // queries search parameters specific to the JDP database
 func TestQueryJDPDatabaseSearchParameters(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	resp, err := get(baseUrl + apiPrefix + "databases/jdp/search-parameters")
 	assert.Nil(err)
@@ -425,6 +467,9 @@ func TestQueryJDPDatabaseSearchParameters(t *testing.T) {
 // searches a specific database for files matching a simple query
 func TestSearchDatabase(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	// our source test database returns all requested source files
 	resp, err := get(baseUrl + apiPrefix + "files?database=source&query=1")
@@ -447,6 +492,9 @@ func TestSearchDatabase(t *testing.T) {
 // searches a specific database with some database-specific parameters
 func TestSearchJdpDatabaseWithSpecificParams(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	// our source test database returns all requested source files
 	reqBody, err := json.Marshal(map[string]any{
@@ -476,6 +524,9 @@ func TestSearchJdpDatabaseWithSpecificParams(t *testing.T) {
 // fetches file metadata from the JDP for some specific files
 func TestFetchJdpMetadata(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	// try omitting file IDs
 	resp, err := get(baseUrl + apiPrefix + "files/by-id?database=jdp")
@@ -506,6 +557,9 @@ func TestFetchJdpMetadata(t *testing.T) {
 // creates a transfer from source -> destination1
 func TestCreateTransfer(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
@@ -566,6 +620,9 @@ func TestCreateTransfer(t *testing.T) {
 // creates a transfer from source -> destination2 and then cancels it
 func TestCreateAndCancelTransfer(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
@@ -639,6 +696,9 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 // attempts to fetch the status of a nonexistent transfer
 func TestFetchInvalidTransferStatus(t *testing.T) {
 	assert := assert.New(t)
+	if !checkEnvVars() {
+		t.Skip("Skipping test due to missing environment variables.")
+	}
 
 	// try an ill-formed transfer
 	resp, err := get(baseUrl + apiPrefix + "transfers/xyzzy")

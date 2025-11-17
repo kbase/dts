@@ -29,8 +29,8 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 
-	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -53,27 +53,38 @@ type Endpoint struct {
 	Xfers map[uuid.UUID]xferRecord
 }
 
+// configuration struct for local endpoint
+type Config struct {
+	Name       string `yaml:"name"`
+	Id         uuid.UUID `yaml:"id"`
+	Root	   string `yaml:"root"`
+}
+
 // creates a new local endpoint using the information supplied in the
 // DTS configuration file under the given endpoint name
-func NewEndpoint(endpointName string) (endpoints.Endpoint, error) {
-	epConfig, found := config.Endpoints[endpointName]
-	if !found {
-		return nil, fmt.Errorf("'%s' is not an endpoint", endpointName)
+func NewEndpoint(config Config) (endpoints.Endpoint, error) {
+	if config.Root == "" {
+		config.Root = "/"
 	}
-	if epConfig.Provider != "local" {
-		return nil, fmt.Errorf("'%s' is not a local endpoint", endpointName)
+	if config.Name == "" {
+		return nil, fmt.Errorf("name must be specified for local endpoint")
 	}
-	if epConfig.Root == "" {
-		return nil, fmt.Errorf("'%s' requires a root directory to be specified", endpointName)
-	}
-
 	ep := &Endpoint{
-		Name:  epConfig.Name,
-		Id:    epConfig.Id,
+		Name:  config.Name,
+		Id:    config.Id,
 		Xfers: make(map[uuid.UUID]xferRecord),
 	}
-	err := ep.setRoot(epConfig.Root)
+	err := ep.setRoot(config.Root)
 	return ep, err
+}
+
+// constructs a local endpoint from a configuration map
+func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
+	var config Config
+	if err := mapstructure.Decode(conf, &config); err != nil {
+		return nil, err
+	}
+	return NewEndpoint(config)
 }
 
 // sets the root directory for the local endpoint after checking that it exists

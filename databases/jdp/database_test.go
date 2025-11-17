@@ -318,7 +318,7 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
-	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
+	endpoints.RegisterEndpointProvider("globus", globus.EndpointConstructor)
 }
 
 // this function gets called after all tests have been run

@@ -240,7 +240,7 @@ func TestGlobusTransfer(t *testing.T) {
 	assert.Nil(err)
 	destination, err := NewEndpoint(destConf)
 	assert.Nil(err)
-	
+
 	fileXfers := make([]endpoints.FileTransfer, 0)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("%d", i)

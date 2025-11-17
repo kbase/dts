@@ -55,9 +55,9 @@ type Endpoint struct {
 
 // configuration struct for local endpoint
 type Config struct {
-	Name       string `yaml:"name"`
-	Id         uuid.UUID `yaml:"id"`
-	Root	   string `yaml:"root"`
+	Name string    `yaml:"name"`
+	Id   uuid.UUID `yaml:"id"`
+	Root string    `yaml:"root"`
 }
 
 // creates a new local endpoint using the information supplied in the

@@ -81,10 +81,10 @@ type Endpoint struct {
 
 // configuration struct for Globus endpoints
 type Config struct {
-	Name       string    `yaml:"name"`
-	Id         uuid.UUID `yaml:"id"`
+	Name       string          `yaml:"name"`
+	Id         uuid.UUID       `yaml:"id"`
 	Credential auth.Credential `yaml:"credential"`
-	Root       string    `yaml:"root,omitempty"`
+	Root       string          `yaml:"root,omitempty"`
 }
 
 // creates a new Globus endpoint using the given information

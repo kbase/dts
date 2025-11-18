@@ -125,7 +125,7 @@ func (m *manifestorState) Cancel(transferId uuid.UUID) error {
 
 type manifestEntry struct {
 	ManifestTransferId uuid.UUID
-	Manifest           *datapackage.Package
+	Manifest           map[string]any
 	Filename           string
 }
 
@@ -196,7 +196,11 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	}
 
 	filename := filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transferId.String()))
-	if err := manifest.SaveDescriptor(filename); err != nil {
+	pkg, err := datapackage.New(manifest, ".")
+	if err != nil {
+		return manifestEntry{}, err
+	}
+	if err := pkg.SaveDescriptor(filename); err != nil {
 		return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
 	}
 
@@ -237,7 +241,7 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 
 // generates a manifest for the transfer with the given ID and begins transferring it to its
 // destination
-func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specification) (*datapackage.Package, error) {
+func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specification) (map[string]any, error) {
 	descriptors, err := store.GetDescriptors(transferId)
 	if err != nil {
 		return nil, err
@@ -288,7 +292,7 @@ func (m *manifestorState) generateManifest(transferId uuid.UUID, spec Specificat
 		"username":     username,
 	}
 
-	return datapackage.New(packageDescriptor, ".")
+	return packageDescriptor, nil
 }
 
 // update the status of the manifest transfer with the given ID, returning true if the transfer has
@@ -334,6 +338,10 @@ func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry
 		} else {
 			statusString = "failed"
 		}
+		pkg, err := datapackage.New(entry.Manifest, ".")
+		if err != nil {
+			return false, err
+		}
 		err = journal.RecordTransfer(journal.Record{
 			Id:          transferId,
 			Source:      spec.Source,
@@ -344,7 +352,7 @@ func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry
 			Status:      statusString,
 			PayloadSize: size,
 			NumFiles:    len(spec.FileIds),
-			Manifest:    entry.Manifest,
+			Manifest:    pkg,
 		})
 		if err != nil {
 			slog.Error(err.Error())

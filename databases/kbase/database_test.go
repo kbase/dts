@@ -213,7 +213,7 @@ func setup() {
 		log.Panicf("Couldn't decode config to map: %s", err)
 	}
 	databases.RegisterDatabase("kbase", DatabaseConstructor(confMap))
-	endpoints.RegisterEndpointProvider("globus", globus.NewEndpointFromConfig)
+	endpoints.RegisterEndpointProvider("globus", globus.EndpointConstructor)
 }
 
 // this function gets called after all tests have been run

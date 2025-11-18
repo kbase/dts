@@ -38,10 +38,11 @@ import (
 	"github.com/kbase/dts/databases/jdp"
 	"github.com/kbase/dts/databases/kbase"
 	"github.com/kbase/dts/databases/nmdc"
-	"github.com/kbase/dts/databases/s3"
+	s3db "github.com/kbase/dts/databases/s3"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/local"
+	s3ep "github.com/kbase/dts/endpoints/s3"
 	"github.com/kbase/dts/journal"
 )
 
@@ -216,9 +217,10 @@ var global struct {
 func registerEndpointProviders() error {
 	// NOTE: it's okay if these endpoint providers have already been registered,
 	// NOTE: as they can be used in testing
-	endpointsToRegister := map[string]func(endpointName string) (endpoints.Endpoint, error){
-		"globus": globus.NewEndpointFromConfig,
-		"local":  local.NewEndpoint,
+	endpointsToRegister := map[string]func(conf map[string]any) (endpoints.Endpoint, error){
+		"globus": globus.EndpointConstructor,
+		"local":  local.EndpointConstructor,
+		"s3":     s3ep.EndpointConstructor,
 	}
 	for name, constructor := range endpointsToRegister {
 		err := endpoints.RegisterEndpointProvider(name, constructor)
@@ -236,22 +238,15 @@ var constructorMap map[string]func(config map[string]any) func() (databases.Data
 	"jdp":   jdp.DatabaseConstructor,
 	"kbase": kbase.DatabaseConstructor,
 	"nmdc":  nmdc.DatabaseConstructor,
-	"s3":    s3.DatabaseConstructor,
+	"s3":    s3db.DatabaseConstructor,
 }
 
 // registers databases; if at least one database is available, no error is propagated
 func registerDatabases(conf config.Config) error {
 	for dbName, dbConf := range conf.Databases {
-		dbMap, ok := dbConf.(map[string]any)
-		if !ok {
-			return &InvalidDatabaseConfigError{
-				Database: dbName,
-				Message:  fmt.Sprintf("database \"%s\" configuration is not a map", dbName),
-			}
-		}
 		// expand credentials within the config map
-		if _, found := dbMap["credential"]; found {
-			credString, ok := dbMap["credential"].(string)
+		if _, found := dbConf["credential"]; found {
+			credString, ok := dbConf["credential"].(string)
 			if !ok {
 				return &InvalidDatabaseConfigError{
 					Database: dbName,
@@ -264,17 +259,17 @@ func registerDatabases(conf config.Config) error {
 					Message:  fmt.Sprintf("credential '%s' not found", credString),
 				}
 			}
-			dbMap["credential"] = config.Credentials[credString]
+			dbConf["credential"] = config.Credentials[credString]
 		}
 		// add a transaction pruning time, if not specified
-		if _, found := dbMap["delete_after"]; !found {
-			dbMap["delete_after"] = conf.Service.DeleteAfter
+		if _, found := dbConf["delete_after"]; !found {
+			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
 		constructor, ok := constructorMap[dbName]
 		// if no constructor found, assume the database is already registered
 		// (e.g., a test database)
 		if ok {
-			databases.RegisterDatabase(dbName, constructor(dbMap))
+			databases.RegisterDatabase(dbName, constructor(dbConf))
 		}
 	}
 	// ensure at least one database is available
@@ -364,11 +359,29 @@ func databaseEndpointNames(dbName string) ([]string, error) {
 func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error) {
 	// everything's been validated at this point, so no need to check for errors
 	if strings.Contains(destination, ":") { // custom transfer spec
-		customSpec, _ := endpoints.ParseCustomSpec(destination)
-		endpointId, _ := uuid.Parse(customSpec.Id)
+		customSpec, err := endpoints.ParseCustomSpec(destination)
+		if err != nil {
+			return nil, err
+		}
+		endpointId, err := uuid.Parse(customSpec.Id)
+		if err != nil {
+			return nil, err
+		}
 		credential := config.Credentials[customSpec.Credential]
-		clientId, _ := uuid.Parse(credential.Id)
-		return globus.NewEndpoint("Custom endpoint", endpointId, customSpec.Path, clientId, credential.Secret)
+		clientId, err := uuid.Parse(credential.Id)
+		if err != nil {
+			return nil, err
+		}
+		conf := globus.Config{
+			Name: fmt.Sprintf("Custom endpoint (%s)", endpointId.String()),
+			Id:   endpointId,
+			Root: customSpec.Path,
+			Credential: auth.Credential{
+				Id:     clientId.String(),
+				Secret: credential.Secret,
+			},
+		}
+		return globus.NewEndpoint(conf)
 	}
 	endpts, err := databaseEndpointNames(destination)
 	if err != nil {

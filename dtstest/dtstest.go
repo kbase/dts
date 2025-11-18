@@ -61,7 +61,11 @@ Did you call config.Init()? `)
 
 	// register endpoint fixtures
 	for endpointName, endpointConfig := range config.Endpoints {
-		if strings.Contains(endpointConfig.Provider, "test") {
+		provider, ok := endpointConfig["provider"].(string)
+		if !ok {
+			return fmt.Errorf("endpoint %s has no valid provider field", endpointName)
+		}
+		if strings.Contains(provider, "test") {
 			RegisterEndpoint(endpointName, endpointOptions)
 		}
 	}
@@ -112,15 +116,22 @@ type Endpoint struct {
 // given set of Frictionless descriptors as "test files."
 func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	slog.Debug(fmt.Sprintf("Registering test endpoint %s...", endpointName))
-	newEndpointFunc := func(name string) (endpoints.Endpoint, error) {
+	newEndpointFunc := func(conf map[string]any) (endpoints.Endpoint, error) {
+		root, ok := config.Endpoints[endpointName]["root"].(string)
+		if !ok {
+			root = "/"
+		}
 		return &Endpoint{
 			Options:     options,
 			Xfers:       make(map[uuid.UUID]transferInfo),
-			RootPath:    config.Endpoints[endpointName].Root,
+			RootPath:    root,
 			StagedFiles: make(map[string]bool),
 		}, nil
 	}
-	provider := config.Endpoints[endpointName].Provider
+	provider, ok := config.Endpoints[endpointName]["provider"].(string)
+	if !ok {
+		return fmt.Errorf("endpoint %s has no valid provider field", endpointName)
+	}
 	return endpoints.RegisterEndpointProvider(provider, newEndpointFunc)
 }
 
@@ -217,20 +228,17 @@ type Database struct {
 }
 
 // Registers a database test fixture with the given name in the configuration.
-func RegisterDatabase(databaseName string, config any, descriptors map[string]map[string]any) error {
+func RegisterDatabase(databaseName string, config map[string]any, descriptors map[string]map[string]any) error {
 	slog.Debug(fmt.Sprintf("Registering test database %s...", databaseName))
-	cfgMap, ok := config.(map[string]any)
-	if !ok {
-		return fmt.Errorf("database %s has invalid configuration type", databaseName)
-	}
 	var endpts []string
-	if eps, found := cfgMap["endpoints"]; found {
+	var ok bool
+	if eps, found := config["endpoints"]; found {
 		endpts, ok = eps.([]string)
 		if !ok {
 			return fmt.Errorf("database %s has invalid endpoints field", databaseName)
 		}
 	} else {
-		if eps, found := cfgMap["endpoint"]; found {
+		if eps, found := config["endpoint"]; found {
 			endpt, ok := eps.(string)
 			if !ok {
 				return fmt.Errorf("database %s has invalid endpoint field", databaseName)

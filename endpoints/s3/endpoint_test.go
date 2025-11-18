@@ -139,7 +139,7 @@ func setup() {
 
 func TestNewAWSS3Endpoint(t *testing.T) {
 	assert := assert.New(t)
-	cfg := EndpointConfig{
+	cfg := Config{
 		Region: awsTestRegion,
 	}
 	awsEndpoint, err := NewEndpoint(awsTestBucket, uuid.New(), cfg)
@@ -168,7 +168,7 @@ func TestNewAWSS3Endpoint(t *testing.T) {
 
 func TestNewMinioS3Endpoint(t *testing.T) {
 	assert := assert.New(t)
-	cfg := EndpointConfig{
+	cfg := Config{
 		BaseURL:      minioTestEndpointURL,
 		AccessKeyID:  minioTestAccessKey,
 		SecretKey:    minioTestSecretKey,
@@ -249,7 +249,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 func TestAWSToMinioTransfer(t *testing.T) {
 	assert := assert.New(t)
 	// create AWS endpoint
-	awsCfg := EndpointConfig{
+	awsCfg := Config{
 		Region: awsTestRegion,
 	}
 	awsEndpoint, err := NewEndpoint(awsTestBucket, uuid.New(), awsCfg)
@@ -257,7 +257,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 	assert.Nil(err)
 
 	// create Minio endpoint
-	minioCfg := EndpointConfig{
+	minioCfg := Config{
 		BaseURL:      minioTestEndpointURL,
 		AccessKeyID:  minioTestAccessKey,
 		SecretKey:    minioTestSecretKey,
@@ -323,7 +323,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 func TestMinioToMinioTransfer(t *testing.T) {
 	assert := assert.New(t)
 	// create Minio endpoint configuration
-	minioCfg := EndpointConfig{
+	minioCfg := Config{
 		BaseURL:      minioTestEndpointURL,
 		AccessKeyID:  minioTestAccessKey,
 		SecretKey:    minioTestSecretKey,

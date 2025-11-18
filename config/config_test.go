@@ -134,7 +134,7 @@ endpoints:
     name: Globus test endpoint
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-		credential: globus
+        credential: globus
   bad_endpoint:
     name: Bad endpoint
     id: 00000000-0000-0000-0000-000000000000
@@ -153,7 +153,7 @@ endpoints:
     name: Globus test endpoint
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-		credential: globus
+        credential: globus
   bad_endpoint:
     id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
     provider: ""
@@ -193,14 +193,6 @@ func TestInitRejectsInvalidEndpointType(t *testing.T) {
 	b := []byte(yaml)
 	err := Init(b)
 	assert.NotNil(t, err, "Config with invalid endpoint didn't trigger an error.")
-}
-
-// Tests whether config.Init rejects a database with a bad base URL.
-func TestInitRejectsBadDatabaseBaseURL(t *testing.T) {
-	yaml := "databases:\n  ohaicorp:\n    url: hahahahahahaha\n\n"
-	b := []byte(yaml)
-	err := Init(b)
-	assert.NotNil(t, err, "Config with bad database URL didn't trigger an error.")
 }
 
 // tests whether config.Init rejects a configuration with a database that has

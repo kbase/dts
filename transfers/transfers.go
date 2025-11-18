@@ -373,7 +373,7 @@ func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error
 			return nil, err
 		}
 		conf := globus.Config{
-			Name: "Custom endpoint",
+			Name: fmt.Sprintf("Custom endpoint (%s)", endpointId.String()),
 			Id:   endpointId,
 			Root: customSpec.Path,
 			Credential: auth.Credential{

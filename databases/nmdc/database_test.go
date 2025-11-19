@@ -454,7 +454,7 @@ func setTestEnvVars(yaml string) (string, bool) {
 			})
 		}
 	}
-	return yaml, hasValidCredentials
+	return os.ExpandEnv(yaml), hasValidCredentials
 }
 
 // this function gets called at the beginning of a test session

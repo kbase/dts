@@ -301,9 +301,6 @@ func setup() {
 
 	// create a mock JDP server (useful even when we have a real one)
 	mockJDPServer = createMockJDPServer()
-	if err != nil {
-		panic(err)
-	}
 
 	if isMockDatabase {
 		err = databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))
@@ -413,7 +410,7 @@ func TestSearch(t *testing.T) {
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 		var configData Config
-		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -425,6 +422,7 @@ func TestSearch(t *testing.T) {
 				MaxNum: 50,
 			},
 		}
+		assert.NotNil(db)
 		results, err := db.Search(orcid, params)
 		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
 		assert.Nil(err, "JDP search query encountered an error")
@@ -682,12 +680,13 @@ func TestDescriptors(t *testing.T) {
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 		var configData Config
-		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 		assert.Nil(err, "Failed to unmarshal JDP database config for save/load test")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
 			Query: "prochlorococcus",
 		}
+		assert.NotNil(db)
 		results, _ := db.Search(orcid, params)
 		fileIds := make([]string, len(results.Descriptors))
 		for i, descriptor := range results.Descriptors {

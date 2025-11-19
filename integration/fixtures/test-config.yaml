@@ -1,0 +1,73 @@
+service:
+  secret: aj0p0GG6qRAQl1bXLIB8_uf1eDtUxskpUJM-5vBi1vQ=
+  port: 8080
+  max_connections: 3
+  max_payload_size: 0.000001
+  poll_interval: 1000
+  endpoint: local-fs
+  data_dir: ./fixtures/server-data
+  manifest_dir: ./manifests
+  delete_after: 60
+  debug: true
+
+endpoints:
+  local-fs:
+    name: local-fs
+    provider: local
+    root: ./local-fs
+  s3-foo:
+    bucket: test-bucket-integration-foo
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    provider: s3
+  s3-bar:
+    bucket: test-bucket-integration-bar
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    provider: s3
+  s3-baz:
+    bucket: test-bucket-integration-baz
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    provider: s3
+
+databases:
+  db-foo:
+    name: The Foo Database
+    organization: Foo International
+    bucket: test-bucket-integration-foo
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    endpoint: s3-foo
+  db-bar:
+    name: The Bar Database
+    organization: Bar Enterprises
+    bucket: test-bucket-integration-bar
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    endpoint: s3-bar
+  db-baz:
+    name: The Baz Database
+    organization: Baz LLC
+    bucket: test-bucket-integration-baz
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    path_style: true
+    endpoint: s3-baz

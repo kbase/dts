@@ -295,7 +295,7 @@ func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) er
 			return fmt.Errorf("endpoint for database '%s' is not a string", dbName)
 		}
 		if ep, err := endpoints.NewEndpoint(epNameString); err == nil {
-			switch ep.Provider() {
+			switch strings.Split(ep.Provider(), ":")[0] {
 			case "s3":
 				databases.RegisterDatabase(dbName, s3db.DatabaseConstructor(dbConf))
 			default:

@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
@@ -111,6 +112,11 @@ endpoints:
 // file test metadata
 var testDescriptors map[string]map[string]any
 
+// DTS authentication token
+var dtsKbaseDevToken string = "test-token"
+var dtsKbaseTestOrcid string = "0000-0002-1825-0097"
+var dtsKbaseTestUser string = "test-user"
+
 // checks for required environment variables
 func checkEnvVars() bool {
 	requiredVars := []string{
@@ -123,9 +129,33 @@ func checkEnvVars() bool {
 	missingVar := false
 	for _, varName := range requiredVars {
 		if os.Getenv(varName) == "" {
-			log.Printf("Environment variable %s is not set; skipping tests.\n", varName)
+			log.Printf("Environment variable %s is not set.\n", varName)
 			missingVar = true
 		}
+	}
+	kbaseDevVars := []string{
+		"DTS_KBASE_DEV_TOKEN",
+		"DTS_KBASE_TEST_ORCID",
+		"DTS_KBASE_TEST_USER",
+	}
+	missingAuth := false
+	for _, varName := range kbaseDevVars {
+		if os.Getenv(varName) == "" {
+			log.Printf("Environment variable %s is not set.\n", varName)
+			missingAuth = true
+		}
+	}
+	if missingAuth {
+		log.Printf("KBase authentication variables are not set; injecting test user to DTS.\n")
+		user := auth.User{
+			Name:  dtsKbaseTestUser,
+			Orcid: dtsKbaseTestOrcid,
+		}
+		auth.InjectTestUser(dtsKbaseDevToken, user)
+	} else {
+		dtsKbaseDevToken = os.Getenv("DTS_KBASE_DEV_TOKEN")
+		dtsKbaseTestOrcid = os.Getenv("DTS_KBASE_TEST_ORCID")
+		dtsKbaseTestUser = os.Getenv("DTS_KBASE_TEST_USER")
 	}
 	return !missingVar
 }
@@ -273,7 +303,7 @@ func get(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
+	accessToken := os.Getenv(dtsKbaseDevToken)
 	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	return http.DefaultClient.Do(req)
@@ -285,7 +315,7 @@ func post(resource string, body io.Reader) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
+	accessToken := os.Getenv(dtsKbaseDevToken)
 	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")
@@ -298,7 +328,7 @@ func delete_(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
+	accessToken := os.Getenv(dtsKbaseDevToken)
 	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")

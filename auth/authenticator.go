@@ -49,6 +49,9 @@ const (
 	defaultRereadInterval = time.Minute
 )
 
+// test user records
+var testUserForToken = make(map[string]User)
+
 // Creates a new authenticator by reading an access token file and decrypting it with a secret.
 func NewAuthenticator(accessTokenFile, secret string) (*Authenticator, error) {
 	var a Authenticator
@@ -76,8 +79,17 @@ func (a *Authenticator) GetUser(accessToken string) (User, error) {
 	if user, found := a.UserForToken[accessToken]; found {
 		return user, nil
 	}
+	
+	if user, found := testUserForToken[accessToken]; found {
+		return user, nil
+	}
 
 	return User{}, errors.New("invalid access token")
+}
+
+// Adds a user record for testing
+func InjectTestUser(token string, user User) {
+	testUserForToken[token] = user
 }
 
 func (a *Authenticator) readAccessTokenFile() error {

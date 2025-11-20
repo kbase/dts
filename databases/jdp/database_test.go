@@ -273,17 +273,17 @@ func setTestEnvVars(yaml string) string {
 		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
 	}
 
-	// check for existence of each variable. when not present, replace
-	// instances of it in the yaml string with a test value
-	for key, value := range testVars {
+	// check for existence of each variable. when any are missing, set all
+	// to the values defined above to use the mock JDP server
+	for key := range testVars {
 		if os.Getenv(key) == "" {
-			yaml = os.Expand(yaml, func(yamlVar string) string {
-				if yamlVar == key {
-					isMockDatabase = true
-					return value
-				}
-				return "${" + yamlVar + "}"
-			})
+			isMockDatabase = true
+			break
+		}
+	}
+	if isMockDatabase {
+		for key, value := range testVars {
+			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
 		}
 	}
 	return yaml
@@ -301,6 +301,9 @@ func setup() {
 
 	// create a mock JDP server (useful even when we have a real one)
 	mockJDPServer = createMockJDPServer()
+	if err != nil {
+		panic(err)
+	}
 
 	if isMockDatabase {
 		err = databases.RegisterDatabase("jdp", NewMockDatabase(mockJDPServer.URL))

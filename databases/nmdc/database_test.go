@@ -441,17 +441,17 @@ func setTestEnvVars(yaml string) (string, bool) {
 		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
 	}
 	hasValidCredentials := true
-	// check for existence of each variable. when not present, replace
-	// instances of it in the yaml string with a test value
-	for key, value := range testVars {
+	// check for existence of each variable. when any are missing, set all
+	// to the values defined above to use the mock NMDC server
+	for key := range testVars {
 		if os.Getenv(key) == "" {
-			yaml = os.Expand(yaml, func(yamlVar string) string {
-				if yamlVar == key {
-					hasValidCredentials = false
-					return value
-				}
-				return "${" + yamlVar + "}"
-			})
+			hasValidCredentials = false
+			break
+		}
+	}
+	if !hasValidCredentials {
+		for key, value := range testVars {
+			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
 		}
 	}
 	return os.ExpandEnv(yaml), hasValidCredentials

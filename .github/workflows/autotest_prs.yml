@@ -13,7 +13,7 @@ env:
   DTS_KBASE_TEST_USER: ${{ secrets.DTS_KBASE_TEST_USER }}
   DTS_GLOBUS_CLIENT_ID: ${{ secrets.DTS_GLOBUS_CLIENT_ID }}
   DTS_GLOBUS_CLIENT_SECRET: ${{ secrets.DTS_GLOBUS_CLIENT_SECRET }}
-#  DTS_GLOBUS_TEST_ENDPOINT: ${{ secrets.DTS_GLOBUS_TEST_ENDPOINT }}
+  DTS_GLOBUS_TEST_ENDPOINT: ${{ secrets.DTS_GLOBUS_TEST_ENDPOINT }}
   DTS_JDP_SECRET: ${{ secrets.DTS_JDP_SECRET }}
   DTS_NMDC_USER: ${{ secrets.DTS_NMDC_USER }}
   DTS_NMDC_PASSWORD: ${{ secrets.DTS_NMDC_PASSWORD }}
@@ -56,11 +56,20 @@ jobs:
     - name: Building DTS
       run: go build -v ./...
 
-    - name: Testing DTS
+    - name: Testing DTS against real services
       id: test
       shell: bash
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
+      continue-on-error: true # load coverage even if tests fail
+
+    - name: Testing DTS against mock services
+      id: test-mock
+      shell: bash
+      env:
+        DTS_TEST_WITH_MOCK_SERVICES: true
+      run: |
+        go test -v ./... -coverprofile=coverage_mock.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
     - name: Run AWS example script # example script for using the aws go sdk
@@ -73,7 +82,8 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        files: coverage.out,coverage_mock.out
 
     - name: Fail if tests failed
-      if: steps.test.outcome == 'failure'
+      if: steps.test.outcome == 'failure' || steps.test-mock.outcome == 'failure'
       run: exit 1

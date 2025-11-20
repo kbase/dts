@@ -104,10 +104,78 @@ func TestGetDatabases(t *testing.T) {
 			t.Errorf("unexpected database ID: %s", db.Id)
 			continue
 		}
+		assert.Equal(t, db.Id, db.Id, "unexpected database ID for ID %s", db.Id)
 		assert.Equal(t, expected.Name, db.Name, "unexpected database name for ID %s", db.Id)
 		assert.Equal(t, expected.Organization, db.Organization, "unexpected organization for ID %s", db.Id)
+		// FIXME: The URL field is always empty in the current implementation, even if a URL is set in the config.
 		assert.Equal(t, expected.URL, db.URL, "unexpected URL for ID %s", db.Id)
 	}
+}
+
+func TestGetDatabaseByID(t *testing.T) {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	for dbID, expected := range databases {
+		req, err := http.NewRequest("GET", testServiceURL+"/api/v1/databases/"+dbID, nil)
+		if err != nil {
+			t.Fatalf("failed to create request for database %s: %v", dbID, err)
+		}
+		addAuthHeader(req)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to perform request for database %s: %v", dbID, err)
+		}
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for database %s", dbID)
+
+		var db struct {
+			Id           string `json:"id"`
+			Name         string `json:"name"`
+			Organization string `json:"organization"`
+			URL          string `json:"url"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&db)
+		if err != nil {
+			t.Fatalf("failed to decode response body for database %s: %v", dbID, err)
+		}
+		assert.Equal(t, dbID, db.Id, "unexpected database ID for database %s", dbID)
+		assert.Equal(t, expected.Name, db.Name, "unexpected database name for database %s", dbID)
+		assert.Equal(t, expected.Organization, db.Organization, "unexpected organization for database %s", dbID)
+		// FIXME: The URL field is always empty in the current implementation, even if a URL is set in the config.
+		assert.Equal(t, expected.URL, db.URL, "unexpected URL for database %s", dbID)
+	}
+}
+
+func TestDatabaseSearchParameters(t *testing.T) {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/databases/db-foo/search-parameters", nil)
+	if err != nil {
+		t.Fatalf("failed to create request for database search parameters: %v", err)
+	}
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to perform request for database search parameters: %v", err)
+	}
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for database search parameters")
+
+	// S3 databases currently do not support search parameters, so expect an empty list
+	var params map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&params)
+	if err != nil {
+		t.Fatalf("failed to decode response body for database search parameters: %v", err)
+	}
+	assert.Equal(t, 0, len(params), "expected no search parameters for S3 database")
 }
 
 func setup() services.TransferService {

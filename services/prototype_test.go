@@ -303,8 +303,7 @@ func get(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv(dtsKbaseDevToken)
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	return http.DefaultClient.Do(req)
 }
@@ -315,8 +314,7 @@ func post(resource string, body io.Reader) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv(dtsKbaseDevToken)
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)
@@ -328,8 +326,7 @@ func delete_(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv(dtsKbaseDevToken)
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)

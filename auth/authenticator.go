@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -93,6 +94,15 @@ func InjectTestUser(token string, user User) {
 }
 
 func (a *Authenticator) readAccessTokenFile() error {
+	// if there is no secret, no file is read and authentication falls back to
+	// other methods
+	if a.Secret == "" {
+		a.UserForToken = make(map[string]User)
+		a.TimeOfLastRead = time.Now()
+		slog.Debug("No secret provided; skipping access token file read")
+		return nil
+	}
+
 	key, err := fernet.DecodeKey(a.Secret)
 	if err != nil {
 		return err

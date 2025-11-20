@@ -595,7 +595,7 @@ func TestCreateTransfer(t *testing.T) {
 	if !checkEnvVars() {
 		t.Skip("Skipping test due to missing environment variables.")
 	}
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := dtsKbaseTestOrcid
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
 	payload, err := json.Marshal(TransferRequest{

@@ -85,3 +85,6 @@ to do:
   capabilities
 * `DTS_JDP_SECRET`: a string containing a shared secret that allows the DTS to
   authenticate with the JGI Data Portal
+
+Alternatively, you can run tests against mock services without the above
+environment variables set by setting `DTS_TEST_WITH_MOCK_SERVICES=true`

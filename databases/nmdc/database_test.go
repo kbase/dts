@@ -449,12 +449,15 @@ func setTestEnvVars(yaml string) (string, bool) {
 			break
 		}
 	}
-	if !hasValidCredentials {
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
 		for key, value := range testVars {
 			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
 		}
+		return os.ExpandEnv(yaml), false
+	} else if !hasValidCredentials {
+		panic("Environment variables for NMDC tests not set; use DTS_TEST_WITH_MOCK_SERVICES=true to run with mock services")
 	}
-	return os.ExpandEnv(yaml), hasValidCredentials
+	return os.ExpandEnv(yaml), true
 }
 
 // this function gets called at the beginning of a test session
@@ -603,9 +606,17 @@ func TestSearch(t *testing.T) {
 	}
 	results, err := db.Search(testOrcid, params)
 
-	// this call ^^^ times out, so we expect it to time out for now.
-	assert.NotNil(err, "NMDC search query somehow didn't time out?")
-	assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+	if areValidCredentials {
+		// this call ^^^ times out, so we expect it to time out for now.
+		assert.NotNil(err, "NMDC search query somehow didn't time out?")
+		assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+	} else {
+		// at least the mock service should work
+		assert.Nil(err, "NMDC search query encountered an error")
+		assert.NotNil(results, "NMDC search query did not return results")
+		assert.True(len(results.Descriptors) >= 2,
+			"NMDC search query didn't return all results")
+	}
 
 	// check with parameters that don't include a study_id
 	mockDb := getMockNmdcDatabase(t)

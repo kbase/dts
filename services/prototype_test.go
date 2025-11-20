@@ -157,7 +157,15 @@ func checkEnvVars() bool {
 		dtsKbaseTestOrcid = os.Getenv("DTS_KBASE_TEST_ORCID")
 		dtsKbaseTestUser = os.Getenv("DTS_KBASE_TEST_USER")
 	}
-	return !missingVar
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
+		log.Printf("Running tests with mock services as requested.\n")
+		return false
+	}
+	if missingVar {
+		panic("Some required environment variables are not set. To run with mock services, set DTS_TEST_WITH_MOCK_SERVICES=true.")
+	}
+	log.Printf("Running tests with real services.\n")
+	return true
 }
 
 // performs testing setup

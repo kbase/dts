@@ -281,10 +281,14 @@ func setTestEnvVars(yaml string) string {
 			break
 		}
 	}
-	if isMockDatabase {
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
 		for key, value := range testVars {
 			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
 		}
+		return yaml
+	}
+	if isMockDatabase {
+		panic("Environment variables for JDP tests not set; use DTS_TEST_WITH_MOCK_SERVICES=true to run with mock services")
 	}
 	return yaml
 }

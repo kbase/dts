@@ -650,7 +650,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 	if !checkEnvVars() {
 		t.Skip("Skipping test due to missing environment variables.")
 	}
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := dtsKbaseTestOrcid
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
 	payload, err := json.Marshal(TransferRequest{
@@ -679,7 +679,9 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 		if err != nil {
 			return statusResp, err
 		}
-		assert.Equal(http.StatusOK, resp.StatusCode)
+		if http.StatusOK != resp.StatusCode {
+			return statusResp, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
 		var body []byte
 		body, err = io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -710,14 +712,23 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 	// wait for the transfer to finish or be canceled
 	status, err = queryTransfer()
 	assert.Nil(err)
+	timeoutCount := 0
 	for {
 		if status.Status == "succeeded" || status.Status == "failed" {
 			break
 		}
+		timeoutCount++
+		if timeoutCount > 20 {
+			err = fmt.Errorf("timeout waiting for transfer to complete")
+			break
+		}
 		time.Sleep(600 * time.Millisecond)
 		status, err = queryTransfer()
-		assert.Nil(err)
+		if err != nil {
+			break
+		}
 	}
+	assert.Nil(err)
 }
 
 // attempts to fetch the status of a nonexistent transfer

@@ -80,7 +80,7 @@ func (a *Authenticator) GetUser(accessToken string) (User, error) {
 	if user, found := a.UserForToken[accessToken]; found {
 		return user, nil
 	}
-	
+
 	if user, found := testUserForToken[accessToken]; found {
 		return user, nil
 	}

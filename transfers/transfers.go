@@ -41,6 +41,7 @@ import (
 	s3db "github.com/kbase/dts/databases/s3"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
+	"github.com/kbase/dts/endpoints/irods"
 	"github.com/kbase/dts/endpoints/local"
 	s3ep "github.com/kbase/dts/endpoints/s3"
 	"github.com/kbase/dts/journal"
@@ -221,6 +222,7 @@ func registerEndpointProviders() error {
 		"globus": globus.EndpointConstructor,
 		"local":  local.EndpointConstructor,
 		"s3":     s3ep.EndpointConstructor,
+		"irods":  irods.EndpointConstructor,
 	}
 	for name, constructor := range endpointsToRegister {
 		err := endpoints.RegisterEndpointProvider(name, constructor)

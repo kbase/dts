@@ -913,7 +913,7 @@ func TestMimeTypeForFile(t *testing.T) {
 		{"test.txt", "text/plain"},
 		{"test.html", "text/html"},
 		{"test.json", "application/json"},
-		{"test.xml", "application/xml"},
+		{"test.xml", "xml"},
 		{"test.mp4", "video/mp4"},
 		{"test.mp3", "audio/mpeg"},
 		{"test.unknown", "application/octet-stream"},

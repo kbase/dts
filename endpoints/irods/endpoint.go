@@ -25,6 +25,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/irods/irods_client_s3_api"
 
 	"github.com/kbase/dts/endpoints"
 )
@@ -38,10 +39,23 @@ type Endpoint struct {
 }
 
 type Config struct {
-	Hostname string
-	Port     int
-	Username string
-	Password string
+	// iRODS host
+	Hostname string `yaml:"hostname"`
+	// port exposed by iRODS host for transfers
+	Port int `yaml:"port"`
+	// iRODS user who initiates transfers
+	Username string `yaml:"username"`
+	// password for iRODS user
+	Password string `yaml:"password"`
+	// zone for iRODS client
+	Zone string `yaml:"zone"`
+	// S3 proxy information for iRODS <-> S3 transfers
+	S3Proxy struct {
+		// S3 proxy host
+		Hostname string `yaml:"hostname"`
+		// S3 proxy port
+		Port int `yaml:"port"`
+	} `yaml:"s3_proxy"`
 }
 
 // creates a new local endpoint using the information supplied in the
@@ -72,6 +86,7 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 }
 
 func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+
 	return uuid.UUID{}, fmt.Errorf("endpoints.іrods.Endpoint.Transfer: not implemented")
 }
 

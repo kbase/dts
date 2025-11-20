@@ -922,7 +922,7 @@ func TestMimeTypeForFile(t *testing.T) {
 		t.Run(tt.FileName, func(t *testing.T) {
 			mime := mimetypeForFile(tt.FileName)
 			ok := strings.Contains(mime, tt.ExpectedMIME)
-			assert.True(ok, "MIME type for %q is incorrect", tt.FileName)
+			assert.True(ok, "MIME type for %q is incorrect; expected %q but got %q", tt.FileName, tt.ExpectedMIME, mime)
 		})
 	}
 }

@@ -55,9 +55,9 @@ type Endpoint struct {
 
 // configuration struct for local endpoint
 type Config struct {
-	Name string    `yaml:"name"`
-	Id   uuid.UUID `yaml:"id"`
-	Root string    `yaml:"root"`
+	Name string `yaml:"name"`
+	Id   string `yaml:"id"`
+	Root string `yaml:"root"`
 }
 
 // creates a new local endpoint using the information supplied in the
@@ -69,12 +69,16 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	if config.Name == "" {
 		return nil, fmt.Errorf("name must be specified for local endpoint")
 	}
+	id, err := uuid.Parse(config.Id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid UUID specified for local endpoint: %s", config.Id)
+	}
 	ep := &Endpoint{
 		Name:  config.Name,
-		Id:    config.Id,
+		Id:    id,
 		Xfers: make(map[uuid.UUID]xferRecord),
 	}
-	err := ep.setRoot(config.Root)
+	err = ep.setRoot(config.Root)
 	return ep, err
 }
 

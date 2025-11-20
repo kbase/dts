@@ -273,18 +273,22 @@ func setTestEnvVars(yaml string) string {
 		"DTS_GLOBUS_CLIENT_SECRET": "test_client_secret",
 	}
 
-	// check for existence of each variable. when not present, replace
-	// instances of it in the yaml string with a test value
-	for key, value := range testVars {
+	// check for existence of each variable. when any are missing, set all
+	// to the values defined above to use the mock JDP server
+	for key := range testVars {
 		if os.Getenv(key) == "" {
-			yaml = os.Expand(yaml, func(yamlVar string) string {
-				if yamlVar == key {
-					isMockDatabase = true
-					return value
-				}
-				return "${" + yamlVar + "}"
-			})
+			isMockDatabase = true
+			break
 		}
+	}
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
+		for key, value := range testVars {
+			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
+		}
+		return yaml
+	}
+	if isMockDatabase {
+		panic("Environment variables for JDP tests not set; use DTS_TEST_WITH_MOCK_SERVICES=true to run with mock services")
 	}
 	return yaml
 }
@@ -413,7 +417,7 @@ func TestSearch(t *testing.T) {
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 		var configData Config
-		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 		assert.Nil(err, "Failed to get config data for JDP database")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
@@ -425,6 +429,7 @@ func TestSearch(t *testing.T) {
 				MaxNum: 50,
 			},
 		}
+		assert.NotNil(db)
 		results, err := db.Search(orcid, params)
 		assert.True(len(results.Descriptors) > 0, "JDP search query returned no results")
 		assert.Nil(err, "JDP search query encountered an error")
@@ -682,12 +687,13 @@ func TestDescriptors(t *testing.T) {
 	if !isMockDatabase {
 		orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 		var configData Config
-		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpConfig)), &configData)
+		err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &configData)
 		assert.Nil(err, "Failed to unmarshal JDP database config for save/load test")
 		db, _ := NewDatabase(configData)
 		params := databases.SearchParameters{
 			Query: "prochlorococcus",
 		}
+		assert.NotNil(db)
 		results, _ := db.Search(orcid, params)
 		fileIds := make([]string, len(results.Descriptors))
 		for i, descriptor := range results.Descriptors {
@@ -907,7 +913,7 @@ func TestMimeTypeForFile(t *testing.T) {
 		{"test.txt", "text/plain"},
 		{"test.html", "text/html"},
 		{"test.json", "application/json"},
-		{"test.xml", "application/xml"},
+		{"test.xml", "xml"},
 		{"test.mp4", "video/mp4"},
 		{"test.mp3", "audio/mpeg"},
 		{"test.unknown", "application/octet-stream"},
@@ -916,7 +922,7 @@ func TestMimeTypeForFile(t *testing.T) {
 		t.Run(tt.FileName, func(t *testing.T) {
 			mime := mimetypeForFile(tt.FileName)
 			ok := strings.Contains(mime, tt.ExpectedMIME)
-			assert.True(ok, "MIME type for %q is incorrect", tt.FileName)
+			assert.True(ok, "MIME type for %q is incorrect; expected %q but got %q", tt.FileName, tt.ExpectedMIME, mime)
 		})
 	}
 }

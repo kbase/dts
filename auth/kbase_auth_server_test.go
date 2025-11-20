@@ -122,26 +122,37 @@ func createMockKBaseServer() *httptest.Server {
 	return httptest.NewServer(router)
 }
 
+func getKbaseToken() (string, bool) {
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
+		return "", false
+	}
+	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
+	if len(devToken) == 0 {
+		panic("DTS_KBASE_DEV_TOKEN environment variable not set, cannot run KBase auth server tests")
+	}
+	return devToken, true
+}
+
 // tests whether a proxy for the KBase authentication server can be
 // constructed
 func TestNewKBaseAuthServer(t *testing.T) {
 	assert := assert.New(t)
 
-	// this test requires a valid developer token
-	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	if len(devToken) > 0 {
+	devToken, ok := getKbaseToken()
+	if ok {
+		// this test requires a valid developer token
 		server, err := NewKBaseAuthServer(devToken)
 		assert.NotNil(server, "Authentication server not created")
 		assert.Nil(err, "Authentication server constructor triggered an error")
+	} else {
+		// test with the mock server
+		server, err := NewKBaseAuthServer("valid_token",
+			func(cfg *KBaseAuthServerConfig) {
+				cfg.BaseURL = mockKBaseServer.URL
+			})
+		assert.NotNil(server, "Authentication server not created with valid token")
+		assert.Nil(err, "Authentication server constructor triggered an error with valid token")
 	}
-
-	// test with the mock server
-	server, err := NewKBaseAuthServer("valid_token",
-		func(cfg *KBaseAuthServerConfig) {
-			cfg.BaseURL = mockKBaseServer.URL
-		})
-	assert.NotNil(server, "Authentication server not created with valid token")
-	assert.Nil(err, "Authentication server constructor triggered an error with valid token")
 }
 
 // tests whether an invalid KBase token prevents a proxy for the auth server
@@ -149,24 +160,32 @@ func TestNewKBaseAuthServer(t *testing.T) {
 func TestInvalidToken(t *testing.T) {
 	assert := assert.New(t)
 
-	// test against the real server
-	devToken := "INVALID_KBASE_TOKEN"
-	server, err := NewKBaseAuthServer(devToken)
-	assert.Nil(server, "Authentication server created with invalid token")
-	assert.NotNil(err, "Invalid token for authentication server triggered no error")
-
-	// test with the mock server
-	server, err = NewKBaseAuthServer("invalid_token",
-		func(cfg *KBaseAuthServerConfig) {
-			cfg.BaseURL = mockKBaseServer.URL
-		})
-	assert.Nil(server, "Authentication server created with invalid token")
-	assert.NotNil(err, "Invalid token for authentication server triggered no error")
+	_, ok := getKbaseToken()
+	if ok {
+		// test against the real server
+		devToken := "INVALID_KBASE_TOKEN"
+		server, err := NewKBaseAuthServer(devToken)
+		assert.Nil(server, "Authentication server created with invalid token")
+		assert.NotNil(err, "Invalid token for authentication server triggered no error")
+	} else {
+		// test with the mock server
+		server, err := NewKBaseAuthServer("invalid_token",
+			func(cfg *KBaseAuthServerConfig) {
+				cfg.BaseURL = mockKBaseServer.URL
+			})
+		assert.Nil(server, "Authentication server created with invalid token")
+		assert.NotNil(err, "Invalid token for authentication server triggered no error")
+	}
 }
 
 // tests that the proxy handles missing identifiers correctly
 func TestNoIdentifiers(t *testing.T) {
 	assert := assert.New(t)
+
+	_, ok := getKbaseToken()
+	if ok {
+		t.Skip("Skipping no identifiers test against real KBase server")
+	}
 
 	// test with the mock server
 	server, err := NewKBaseAuthServer("no_idents_token",
@@ -180,6 +199,11 @@ func TestNoIdentifiers(t *testing.T) {
 // tests that the proxy handles missing OrcID identifiers correctly
 func TestNoOrcID(t *testing.T) {
 	assert := assert.New(t)
+
+	_, ok := getKbaseToken()
+	if ok {
+		t.Skip("Skipping no ORCID test against real KBase server")
+	}
 
 	// test with the mock server
 	server, err := NewKBaseAuthServer("no_orcid_token",
@@ -195,9 +219,9 @@ func TestNoOrcID(t *testing.T) {
 func TestClient(t *testing.T) {
 	assert := assert.New(t)
 
-	// this test requires a valid developer token with an associated ORCID
-	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	if len(devToken) > 0 {
+	devToken, ok := getKbaseToken()
+	if ok {
+		// this test requires a valid developer token with an associated ORCID
 		server, _ := NewKBaseAuthServer(devToken)
 		assert.NotNil(server)
 		user, err := server.User()
@@ -205,18 +229,18 @@ func TestClient(t *testing.T) {
 
 		assert.True(len(user.Email) > 0)
 		assert.Equal(os.Getenv("DTS_KBASE_TEST_ORCID"), user.Orcid)
+	} else {
+		// test with the mock server
+		server, _ := NewKBaseAuthServer("valid_token",
+			func(cfg *KBaseAuthServerConfig) {
+				cfg.BaseURL = mockKBaseServer.URL
+			})
+		assert.NotNil(server, "Authentication server not created with valid token")
+		user, err := server.User()
+		assert.Nil(err, "User() triggered an error with valid token")
+
+		assert.Equal("Test User", user.Name)
+		assert.Equal("test@email.com", user.Email)
+		assert.Equal("testuser", user.Orcid)
 	}
-
-	// test with the mock server
-	server, _ := NewKBaseAuthServer("valid_token",
-		func(cfg *KBaseAuthServerConfig) {
-			cfg.BaseURL = mockKBaseServer.URL
-		})
-	assert.NotNil(server, "Authentication server not created with valid token")
-	user, err := server.User()
-	assert.Nil(err, "User() triggered an error with valid token")
-
-	assert.Equal("Test User", user.Name)
-	assert.Equal("test@email.com", user.Email)
-	assert.Equal("testuser", user.Orcid)
 }

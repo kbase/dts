@@ -82,7 +82,7 @@ type Endpoint struct {
 // configuration struct for Globus endpoints
 type Config struct {
 	Name       string          `yaml:"name"`
-	Id         uuid.UUID       `yaml:"id"`
+	Id         string          `yaml:"id"`
 	Credential auth.Credential `yaml:"credential"`
 	Root       string          `yaml:"root,omitempty"`
 }
@@ -94,9 +94,13 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		return nil, fmt.Errorf("invalid Globus client ID for credential '%s': %s (must be UUID)",
 			config.Name, config.Credential.Id)
 	}
+	id, err := uuid.Parse(config.Id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid UUID specified for Globus endpoint: %s", config.Id)
+	}
 	ep := &Endpoint{
 		Name:         config.Name,
-		Id:           config.Id,
+		Id:           id,
 		ClientId:     clientId,
 		ClientSecret: config.Credential.Secret,
 	}

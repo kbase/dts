@@ -148,6 +148,19 @@ func (m *moverState) process(decoder *gob.Decoder) {
 				err := m.cancel(moves)
 				if err == nil {
 					delete(moveOperations, transferId)
+					status, err := store.GetStatus(transferId)
+					if err == nil {
+						status.Code = TransferStatusFailed
+						status.Message = fmt.Sprintf("Transfer %s: canceled", transferId.String())
+						if err := store.SetStatus(transferId, status); err == nil {
+							publish(Message{
+								Description:    status.Message,
+								TransferId:     transferId,
+								TransferStatus: status,
+								Time:           time.Now(),
+							})
+						}
+					}
 				}
 				m.Channels.Error <- err
 			} else {

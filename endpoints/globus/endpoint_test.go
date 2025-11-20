@@ -110,6 +110,9 @@ func checkGlobusEnvVars() bool {
 
 	for _, v := range requiredVars {
 		if os.Getenv(v) == "" {
+			if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") != "true" {
+				panic(fmt.Sprintf("Environment variable %s not set for Globus tests; use DTS_TEST_WITH_MOCK_SERVICES=true to run with mock services", v))
+			}
 			return false
 		}
 	}

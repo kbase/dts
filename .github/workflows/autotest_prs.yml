@@ -57,6 +57,7 @@ jobs:
       run: go build -v ./...
 
     - name: Testing DTS
+      id: test
       shell: bash
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=atomic
@@ -72,3 +73,7 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Fail if tests failed
+      if: steps.test.outcome == 'failure'
+      run: exit 1

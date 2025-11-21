@@ -22,6 +22,7 @@
 package local
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -32,6 +33,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/endpoints/s3"
 )
 
 type xferRecord struct {
@@ -195,7 +197,8 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	var xferId uuid.UUID
 
 	_, ok := dst.(*Endpoint)
-	if !ok {
+	_, isS3 := dst.(*s3.Endpoint)
+	if !ok && !isS3 {
 		return xferId, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Name,
 			SourceProvider:      "local",
@@ -215,21 +218,54 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	if err != nil {
 		return xferId, err
 	}
-	if staged {
-		// assign a UUID to the transfer and set it going
-		xferId := uuid.New()
+	if !staged {
+		return xferId, fmt.Errorf("files requested for transfer are not yet staged")
+	}
+
+	// all files are staged; start the transfer
+    if isS3 {
+		// special case: destination is S3 endpoint
+		// turn each file into a bytes.Reader and upload it
+		for _, file := range files {
+			sourcePath := filepath.Join(ep.Root(), file.SourcePath)
+			data, err := os.ReadFile(sourcePath)
+			if err != nil {
+				return xferId, err
+			}
+			reader := bytes.NewReader(data)
+			s3Dst := dst.(*s3.Endpoint)
+			err = s3Dst.PutFromReader(file.DestinationPath, reader)
+			if err != nil {
+				return xferId, err
+			}
+		}
+		// all files transferred successfully
+		xferId = uuid.New()
 		ep.Xfers[xferId] = xferRecord{
 			Status: endpoints.TransferStatus{
-				Code:                endpoints.TransferStatusActive,
+				Code:                endpoints.TransferStatusSucceeded,
 				NumFiles:            len(files),
-				NumFilesTransferred: 0,
+				NumFilesTransferred: len(files),
 			},
 			Files: files,
 		}
-		go ep.transferFiles(xferId, dst)
 		return xferId, nil
 	}
-	return xferId, fmt.Errorf("files requested for transfer are not yet staged")
+
+	// non-S3 endpoints are handled entirely within local endpoint
+	// assign a UUID to the transfer and set it going
+	xferId = uuid.New()
+	ep.Xfers[xferId] = xferRecord{
+		Status: endpoints.TransferStatus{
+			Code:                endpoints.TransferStatusActive,
+			NumFiles:            len(files),
+			NumFilesTransferred: 0,
+		},
+		Files: files,
+	}
+	go ep.transferFiles(xferId, dst)
+	return xferId, nil
+
 }
 
 func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {

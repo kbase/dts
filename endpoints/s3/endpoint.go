@@ -233,6 +233,11 @@ func (e *Endpoint) Cancel(id uuid.UUID) error {
 	return endpoints.TransferNotFoundError{Id: id}
 }
 
+// Transfer files to this endpoint given a bytes.Reader as the source
+func (e *Endpoint) PutFromReader(key string, reader *bytes.Reader) error {
+	return e.putObject(key, reader)
+}
+
 //-----------
 // Internals
 //-----------

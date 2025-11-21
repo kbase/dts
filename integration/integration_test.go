@@ -436,12 +436,13 @@ func TestTransfer(t *testing.T) {
 	assert.Equal(transferId.String(), status.Id, "unexpected transfer ID in status response after wait")
 	assert.Equal(2, status.NumFiles, "unexpected number of files in status response after wait")
 	assert.Equal(2, status.NumFilesTransferred, "unexpected number of files transferred in status response after wait")
-	assert.Equal("finalizing", status.Status, "unexpected transfer status after wait")
+	assert.Equal("succeeded", status.Status, "unexpected transfer status after wait")
 
 	// make sure the file is now in the destination database
 	file1path := "local-user/dts-" + transferIdString + "/file1.txt"
 	file2path := "local-user/dts-" + transferIdString + "/file2.txt"
-	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file1path+","+file2path, nil)
+	manifestPath := "local-user/dts-" + transferIdString + "/manifest.json"
+	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file1path+","+file2path+","+manifestPath, nil)
 	assert.Nil(err, "failed to create request for destination database fetch metadata")
 	addAuthHeader(req)
 
@@ -458,10 +459,11 @@ func TestTransfer(t *testing.T) {
 	assert.Nil(err, "failed to unmarshal response body for destination database fetch metadata")
 	assert.Equal("db-bar", metadata.Database, "unexpected database ID in destination metadata response")
 	assert.NotNil(metadata.Descriptors, "missing file descriptor in destination metadata response")
-	assert.Equal(2, len(metadata.Descriptors), "unexpected number of file descriptors in destination metadata response")
+	assert.Equal(3, len(metadata.Descriptors), "unexpected number of file descriptors in destination metadata response")
 	expectedFileNames := map[string]bool{
 		file1path: true,
 		file2path: true,
+		manifestPath: true,
 	}
 	for _, desc := range metadata.Descriptors {
 		path, ok := desc["path"].(string)
@@ -479,14 +481,9 @@ func setup() services.TransferService {
 	if _, err := os.Stat("manifests"); os.IsNotExist(err) {
 		if err := os.Mkdir("manifests", 0755); err != nil {
 			panic("unable to create manifests directory: " + err.Error())
-		}
+		} 
 	}
-	// create a local-fs directory if it doesn't exist
-	if _, err := os.Stat("local-fs"); os.IsNotExist(err) {
-		if err := os.Mkdir("local-fs", 0755); err != nil {
-			panic("unable to create local-fs directory: " + err.Error())
-		}
-	}
+
 	// remove any existing .gob or .db files in the server-data directory
 	files, err := os.ReadDir("fixtures/server-data")
 	if err != nil {

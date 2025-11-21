@@ -159,19 +159,21 @@ func setTestEnvVars(yaml string) string {
 		"DTS_GLOBUS_CLIENT_SECRET": "fake_client_secret",
 	}
 
-	// check for existence of each variable. when not present, replace
-	// instances of it in the yaml string with a test value
-	for key, value := range testVars {
+	// check for existence of each variable.
+	isMockDatabase := false
+	for key := range testVars {
 		if os.Getenv(key) == "" {
-			yaml = os.Expand(yaml, func(yamlVar string) string {
-				if yamlVar == key {
-					return value
-				}
-				return "${" + yamlVar + "}"
-			})
+			isMockDatabase = true
 		}
 	}
-
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
+		for key, value := range testVars {
+			yaml = strings.ReplaceAll(yaml, "${"+key+"}", value)
+		}
+		return yaml
+	} else if isMockDatabase {
+		panic("Environment variables for KBase tests not set; use DTS_TEST_WITH_MOCK_SERVICES=true to run with mock services")
+	}
 	return yaml
 }
 

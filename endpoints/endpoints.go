@@ -125,6 +125,10 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 					Provider: "",
 				}
 			}
+			// expand the credential from its name
+			if credName, ok := epConfig["credential"].(string); ok {
+				epConfig["credential"] = config.Credentials[credName]
+			}
 			if createEp, valid := createEndpointFuncs[provider]; valid {
 				endpoint, err = createEp(epConfig)
 			} else { // invalid provider!

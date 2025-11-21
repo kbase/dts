@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -48,6 +49,9 @@ const (
 	// how often to reread the access token file, in minutes
 	defaultRereadInterval = time.Minute
 )
+
+// test user records
+var testUserForToken = make(map[string]User)
 
 // Creates a new authenticator by reading an access token file and decrypting it with a secret.
 func NewAuthenticator(accessTokenFile, secret string) (*Authenticator, error) {
@@ -77,10 +81,28 @@ func (a *Authenticator) GetUser(accessToken string) (User, error) {
 		return user, nil
 	}
 
+	if user, found := testUserForToken[accessToken]; found {
+		return user, nil
+	}
+
 	return User{}, errors.New("invalid access token")
 }
 
+// Adds a user record for testing
+func InjectTestUser(token string, user User) {
+	testUserForToken[token] = user
+}
+
 func (a *Authenticator) readAccessTokenFile() error {
+	// if there is no secret, no file is read and authentication falls back to
+	// other methods
+	if a.Secret == "" {
+		a.UserForToken = make(map[string]User)
+		a.TimeOfLastRead = time.Now()
+		slog.Debug("No secret provided; skipping access token file read")
+		return nil
+	}
+
 	key, err := fernet.DecodeKey(a.Secret)
 	if err != nil {
 		return err

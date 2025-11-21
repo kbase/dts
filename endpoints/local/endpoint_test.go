@@ -125,7 +125,7 @@ func TestBadLocalConstructor(t *testing.T) {
 
 	conf := Config{
 		Name: "",
-		Id:   uuid.New(),
+		Id:   uuid.New().String(),
 		Root: "/bad/endpoint/no/name",
 	}
 	endpoint, err := NewEndpoint(conf)

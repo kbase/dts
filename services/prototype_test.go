@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/dtstest"
 	"github.com/kbase/dts/endpoints"
@@ -111,6 +112,11 @@ endpoints:
 // file test metadata
 var testDescriptors map[string]map[string]any
 
+// DTS authentication token
+var dtsKbaseDevToken string = "test-token"
+var dtsKbaseTestOrcid string = "0000-0002-1825-0097"
+var dtsKbaseTestUser string = "test-user"
+
 // checks for required environment variables
 func checkEnvVars() bool {
 	requiredVars := []string{
@@ -123,11 +129,43 @@ func checkEnvVars() bool {
 	missingVar := false
 	for _, varName := range requiredVars {
 		if os.Getenv(varName) == "" {
-			log.Printf("Environment variable %s is not set; skipping tests.\n", varName)
+			log.Printf("Environment variable %s is not set.\n", varName)
 			missingVar = true
 		}
 	}
-	return !missingVar
+	kbaseDevVars := []string{
+		"DTS_KBASE_DEV_TOKEN",
+		"DTS_KBASE_TEST_ORCID",
+		"DTS_KBASE_TEST_USER",
+	}
+	missingAuth := false
+	for _, varName := range kbaseDevVars {
+		if os.Getenv(varName) == "" {
+			log.Printf("Environment variable %s is not set.\n", varName)
+			missingAuth = true
+		}
+	}
+	if missingAuth {
+		log.Printf("KBase authentication variables are not set; injecting test user to DTS.\n")
+		user := auth.User{
+			Name:  dtsKbaseTestUser,
+			Orcid: dtsKbaseTestOrcid,
+		}
+		auth.InjectTestUser(dtsKbaseDevToken, user)
+	} else {
+		dtsKbaseDevToken = os.Getenv("DTS_KBASE_DEV_TOKEN")
+		dtsKbaseTestOrcid = os.Getenv("DTS_KBASE_TEST_ORCID")
+		dtsKbaseTestUser = os.Getenv("DTS_KBASE_TEST_USER")
+	}
+	if os.Getenv("DTS_TEST_WITH_MOCK_SERVICES") == "true" {
+		log.Printf("Running tests with mock services as requested.\n")
+		return false
+	}
+	if missingVar {
+		panic("Some required environment variables are not set. To run with mock services, set DTS_TEST_WITH_MOCK_SERVICES=true.")
+	}
+	log.Printf("Running tests with real services.\n")
+	return true
 }
 
 // performs testing setup
@@ -273,8 +311,7 @@ func get(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	return http.DefaultClient.Do(req)
 }
@@ -285,8 +322,7 @@ func post(resource string, body io.Reader) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)
@@ -298,8 +334,7 @@ func delete_(resource string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
-	b64Token := base64.StdEncoding.EncodeToString([]byte(accessToken))
+	b64Token := base64.StdEncoding.EncodeToString([]byte(dtsKbaseDevToken))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", b64Token))
 	req.Header.Add("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)
@@ -560,7 +595,7 @@ func TestCreateTransfer(t *testing.T) {
 	if !checkEnvVars() {
 		t.Skip("Skipping test due to missing environment variables.")
 	}
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := dtsKbaseTestOrcid
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
 	payload, err := json.Marshal(TransferRequest{
@@ -623,7 +658,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 	if !checkEnvVars() {
 		t.Skip("Skipping test due to missing environment variables.")
 	}
-	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
+	orcid := dtsKbaseTestOrcid
 
 	// request a transfer of file1.txt, file2.txt, and file3.txt
 	payload, err := json.Marshal(TransferRequest{
@@ -652,7 +687,9 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 		if err != nil {
 			return statusResp, err
 		}
-		assert.Equal(http.StatusOK, resp.StatusCode)
+		if http.StatusOK != resp.StatusCode {
+			return statusResp, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
 		var body []byte
 		body, err = io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -683,14 +720,23 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 	// wait for the transfer to finish or be canceled
 	status, err = queryTransfer()
 	assert.Nil(err)
+	timeoutCount := 0
 	for {
 		if status.Status == "succeeded" || status.Status == "failed" {
 			break
 		}
+		timeoutCount++
+		if timeoutCount > 20 {
+			err = fmt.Errorf("timeout waiting for transfer to complete")
+			break
+		}
 		time.Sleep(600 * time.Millisecond)
 		status, err = queryTransfer()
-		assert.Nil(err)
+		if err != nil {
+			break
+		}
 	}
+	assert.Nil(err)
 }
 
 // attempts to fetch the status of a nonexistent transfer

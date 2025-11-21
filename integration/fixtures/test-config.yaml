@@ -23,7 +23,7 @@ endpoints:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     provider: s3
   s3-bar:
     id: f47ac10b-58cc-4372-a567-0e02b2c3d479
@@ -32,7 +32,7 @@ endpoints:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     provider: s3
   s3-baz:
     id: 123e4567-e89b-42d3-a456-426614174000
@@ -41,7 +41,7 @@ endpoints:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     provider: s3
 
 databases:
@@ -53,7 +53,7 @@ databases:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     endpoint: s3-foo
   db-bar:
     name: The Bar Database
@@ -63,7 +63,7 @@ databases:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     endpoint: s3-bar
   db-baz:
     name: The Baz Database
@@ -73,5 +73,5 @@ databases:
     access_key_id: minioadmin
     secret_key: minioadmin
     base_url: http://localhost:9000
-    path_style: true
+    use_path_style: true
     endpoint: s3-baz

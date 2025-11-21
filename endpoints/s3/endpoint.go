@@ -131,9 +131,9 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 // constructs an S3 endpoint from a configuration map
 func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 	var config struct {
-		Bucket string    `yaml:"bucket"`
-		Id     string    `yaml:"id"`
-		Config Config    `yaml:",inline" mapstructure:",squash"`
+		Bucket string `yaml:"bucket"`
+		Id     string `yaml:"id"`
+		Config Config `yaml:",inline" mapstructure:",squash"`
 	}
 	if err := mapstructure.Decode(conf, &config); err != nil {
 		return nil, err

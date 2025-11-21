@@ -22,6 +22,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -178,7 +179,168 @@ func TestDatabaseSearchParameters(t *testing.T) {
 	assert.Equal(t, 0, len(params), "expected no search parameters for S3 database")
 }
 
+func TestDatabaseFilesGet(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 100 * time.Second,
+	}
+	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files?database=db-foo", nil)
+	assert.Nil(err, "failed to create request for database files")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for database files")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for database files")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for database files")
+
+	var results services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err, "failed to unmarshal response body for database files")
+	assert.Equal("db-foo", results.Database, "unexpected database ID in search results")
+	assert.Equal("", results.Query, "unexpected query in search results")
+	assert.Equal(6, len(results.Descriptors), "unexpected number of file descriptors in search results")
+	expectedFileNames := map[string]bool{
+		"file1.txt":              true,
+		"file2.txt":              true,
+		"dir1/file3.txt":         true,
+		"dir1/file4.txt":         true,
+		"dir2/file5.txt":         true,
+		"dir2/subdir1/file6.txt": true,
+	}
+	for _, desc := range results.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in search results: %s", path)
+	}
+}
+
+func TestDatabaseFilesGetWithPrefix(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 100 * time.Second,
+	}
+	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files?database=db-foo&query=dir1/", nil)
+	assert.Nil(err, "failed to create request for database files with prefix")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for database files with prefix")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for database files with prefix")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for database files with prefix")
+
+	var results services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err, "failed to unmarshal response body for database files with prefix")
+	assert.Equal("db-foo", results.Database, "unexpected database ID in search results")
+	assert.Equal("dir1/", results.Query, "unexpected query in search results")
+	assert.Equal(2, len(results.Descriptors), "unexpected number of file descriptors in search results")
+	expectedFileNames := map[string]bool{
+		"dir1/file3.txt": true,
+		"dir1/file4.txt": true,
+	}
+	for _, desc := range results.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in search results: %s", path)
+	}
+}
+
+func TestDatabaseFilesPost(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 100 * time.Second,
+	}
+	reqBody, err := json.Marshal(map[string]any{
+		"database": "db-foo",
+		"query":    "",
+	})
+	assert.Nil(err, "failed to marshal request body for database files")
+	req, err := http.NewRequest("POST", testServiceURL+"/api/v1/files", bytes.NewBuffer(reqBody))
+	assert.Nil(err, "failed to create request for database files")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for database files")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for database files")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for database files")
+
+	var results services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err, "failed to unmarshal response body for database files")
+	assert.Equal("db-foo", results.Database, "unexpected database ID in search results")
+	assert.Equal("", results.Query, "unexpected query in search results")
+	assert.Equal(6, len(results.Descriptors), "unexpected number of file descriptors in search results")
+	expectedFileNames := map[string]bool{
+		"file1.txt":              true,
+		"file2.txt":              true,
+		"dir1/file3.txt":         true,
+		"dir1/file4.txt":         true,
+		"dir2/file5.txt":         true,
+		"dir2/subdir1/file6.txt": true,
+	}
+	for _, desc := range results.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in search results: %s", path)
+	}
+}
+
+func TestDatabaseFilesPostWithPrefix(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 100 * time.Second,
+	}
+	reqBody, err := json.Marshal(map[string]any{
+		"database": "db-foo",
+		"query":    "dir2/",
+	})
+	assert.Nil(err, "failed to marshal request body for database files with prefix")
+	req, err := http.NewRequest("POST", testServiceURL+"/api/v1/files", bytes.NewBuffer(reqBody))
+	assert.Nil(err, "failed to create request for database files with prefix")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for database files with prefix")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for database files with prefix")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for database files with prefix")
+
+	var results services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &results)
+	assert.Nil(err, "failed to unmarshal response body for database files with prefix")
+	assert.Equal("db-foo", results.Database, "unexpected database ID in search results")
+	assert.Equal("dir2/", results.Query, "unexpected query in search results")
+	assert.Equal(2, len(results.Descriptors), "unexpected number of file descriptors in search results")
+	expectedFileNames := map[string]bool{
+		"dir2/file5.txt":         true,
+		"dir2/subdir1/file6.txt": true,
+	}
+	for _, desc := range results.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in search results: %s", path)
+	}
+}
+
 func setup() services.TransferService {
+	// reset the S3 test buckets
+	ResetMinioTestBuckets()
+
 	// create a manifests directory if it doesn't exist
 	if _, err := os.Stat("manifests"); os.IsNotExist(err) {
 		if err := os.Mkdir("manifests", 0755); err != nil {

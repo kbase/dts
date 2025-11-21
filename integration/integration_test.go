@@ -337,6 +337,41 @@ func TestDatabaseFilesPostWithPrefix(t *testing.T) {
 	}
 }
 
+func TestDatabaseFetchMetadata(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-foo&ids=file1.txt,dir2/file5.txt", nil)
+	assert.Nil(err, "failed to create request for database fetch metadata")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for database fetch metadata")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for database fetch metadata")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for database fetch metadata")
+
+	var metadata services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &metadata)
+	assert.Nil(err, "failed to unmarshal response body for database fetch metadata")
+	assert.Equal("db-foo", metadata.Database, "unexpected database ID in metadata response")
+	assert.NotNil(metadata.Descriptors, "missing file descriptor in metadata response")
+	assert.Equal(2, len(metadata.Descriptors), "unexpected number of file descriptors in metadata response")
+	expectedFileNames := map[string]bool{
+		"file1.txt":      true,
+		"dir2/file5.txt": true,
+	}
+	for _, desc := range metadata.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in metadata response: %s", path)
+	}
+}
+
 func setup() services.TransferService {
 	// reset the S3 test buckets
 	ResetMinioTestBuckets()

@@ -132,13 +132,17 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 	var config struct {
 		Bucket string    `yaml:"bucket"`
-		Id     uuid.UUID `yaml:"id"`
+		Id     string    `yaml:"id"`
 		Config Config    `yaml:",inline" mapstructure:",squash"`
 	}
 	if err := mapstructure.Decode(conf, &config); err != nil {
 		return nil, err
 	}
-	return NewEndpoint(config.Bucket, config.Id, config.Config)
+	id, err := uuid.Parse(config.Id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid UUID specified for S3 endpoint: %s", config.Id)
+	}
+	return NewEndpoint(config.Bucket, id, config.Config)
 }
 
 func (e *Endpoint) Provider() string {

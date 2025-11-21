@@ -302,7 +302,7 @@ func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) er
 				return fmt.Errorf("endpoint '%s' for database '%s' has invalid provider '%s'", epName, dbName, ep.Provider())
 			}
 		} else {
-			return fmt.Errorf("database '%s' has invalid endpoint '%s'", dbName, epName)
+			return fmt.Errorf("database '%s' has invalid endpoint '%s': %w", dbName, epName, err)
 		}
 	} else {
 		return fmt.Errorf("database '%s' has no valid endpoint", dbName)

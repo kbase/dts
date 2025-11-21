@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/services"
 	"github.com/stretchr/testify/assert"
@@ -182,7 +183,7 @@ func TestDatabaseSearchParameters(t *testing.T) {
 func TestDatabaseFilesGet(t *testing.T) {
 	assert := assert.New(t)
 	client := &http.Client{
-		Timeout: 100 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files?database=db-foo", nil)
 	assert.Nil(err, "failed to create request for database files")
@@ -221,7 +222,7 @@ func TestDatabaseFilesGet(t *testing.T) {
 func TestDatabaseFilesGetWithPrefix(t *testing.T) {
 	assert := assert.New(t)
 	client := &http.Client{
-		Timeout: 100 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files?database=db-foo&query=dir1/", nil)
 	assert.Nil(err, "failed to create request for database files with prefix")
@@ -256,7 +257,7 @@ func TestDatabaseFilesGetWithPrefix(t *testing.T) {
 func TestDatabaseFilesPost(t *testing.T) {
 	assert := assert.New(t)
 	client := &http.Client{
-		Timeout: 100 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	reqBody, err := json.Marshal(map[string]any{
 		"database": "db-foo",
@@ -300,7 +301,7 @@ func TestDatabaseFilesPost(t *testing.T) {
 func TestDatabaseFilesPostWithPrefix(t *testing.T) {
 	assert := assert.New(t)
 	client := &http.Client{
-		Timeout: 100 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	reqBody, err := json.Marshal(map[string]any{
 		"database": "db-foo",
@@ -372,6 +373,104 @@ func TestDatabaseFetchMetadata(t *testing.T) {
 	}
 }
 
+func getTransferStatus(t *testing.T, client *http.Client, transferId uuid.UUID) services.TransferStatusResponse {
+	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/transfers/"+transferId.String(), nil)
+	assert.Nil(t, err, "failed to create request for transfer status")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(t, err, "failed to perform request for transfer status")
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for transfer status")
+
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(t, err, "failed to read response body for transfer status")
+
+	var statusResponse services.TransferStatusResponse
+	err = json.Unmarshal(respBody, &statusResponse)
+	assert.Nil(t, err, "failed to unmarshal response body for transfer status")
+
+	return statusResponse
+}
+
+func TestTransfer(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 1000 * time.Second,
+	}
+	transfer, err := json.Marshal(services.TransferRequest{
+		Orcid:       "0000-0000-1234-0000",
+		Source:      "db-foo",
+		Destination: "db-bar",
+		FileIds:     []string{"file1.txt", "file2.txt"},
+	})
+	assert.Nil(err, "failed to marshal transfer request")
+	req, err := http.NewRequest("POST", testServiceURL+"/api/v1/transfers", bytes.NewBuffer(transfer))
+	assert.Nil(err, "failed to create request for transfer")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for transfer")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusCreated, resp.StatusCode, "unexpected status code for transfer")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for transfer")
+
+	var transferResponse services.TransferResponse
+	err = json.Unmarshal(respBody, &transferResponse)
+	assert.Nil(err, "failed to unmarshal response body for transfer")
+	transferId := transferResponse.Id
+    transferIdString := transferId.String()
+	slog.Info("Created transfer", "id", transferIdString)
+
+	status := getTransferStatus(t, client, transferId)
+	assert.Equal(transferIdString, status.Id, "unexpected transfer ID in status response")
+	assert.Equal(2, status.NumFiles, "unexpected number of files in status response")
+
+	// wait for transfer to complete
+	time.Sleep(5 * time.Second)
+
+	status = getTransferStatus(t, client, transferId)
+	assert.Equal(transferId.String(), status.Id, "unexpected transfer ID in status response after wait")
+	assert.Equal(2, status.NumFiles, "unexpected number of files in status response after wait")
+	assert.Equal(2, status.NumFilesTransferred, "unexpected number of files transferred in status response after wait")
+	assert.Equal("finalizing", status.Status, "unexpected transfer status after wait")
+
+	// make sure the file is now in the destination database
+	file1path := "local-user/dts-" + transferIdString + "/file1.txt"
+	file2path := "local-user/dts-" + transferIdString + "/file2.txt"
+	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file1path+","+file2path, nil)
+	assert.Nil(err, "failed to create request for destination database fetch metadata")
+	addAuthHeader(req)
+
+	resp, err = client.Do(req)
+	assert.Nil(err, "failed to perform request for destination database fetch metadata")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for destination database fetch metadata")
+	respBody, err = io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for destination database fetch metadata")
+
+	var metadata services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &metadata)
+	assert.Nil(err, "failed to unmarshal response body for destination database fetch metadata")
+	assert.Equal("db-bar", metadata.Database, "unexpected database ID in destination metadata response")
+	assert.NotNil(metadata.Descriptors, "missing file descriptor in destination metadata response")
+	assert.Equal(2, len(metadata.Descriptors), "unexpected number of file descriptors in destination metadata response")
+	expectedFileNames := map[string]bool{
+		file1path: true,
+		file2path: true,
+	}
+	for _, desc := range metadata.Descriptors {
+		path, ok := desc["path"].(string)
+		assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+		_, ok = expectedFileNames[path]
+		assert.True(ok, "unexpected file path in destination metadata response: %s", path)
+	}
+}
+
 func setup() services.TransferService {
 	// reset the S3 test buckets
 	ResetMinioTestBuckets()
@@ -386,6 +485,22 @@ func setup() services.TransferService {
 	if _, err := os.Stat("local-fs"); os.IsNotExist(err) {
 		if err := os.Mkdir("local-fs", 0755); err != nil {
 			panic("unable to create local-fs directory: " + err.Error())
+		}
+	}
+	// remove any existing .gob or .db files in the server-data directory
+	files, err := os.ReadDir("fixtures/server-data")
+	if err != nil {
+		panic("unable to read server-data directory: " + err.Error())
+	}
+	for _, file := range files {
+		if !file.IsDir() {
+			name := file.Name()
+			if len(name) > 4 && (name[len(name)-4:] == ".gob" || name[len(name)-3:] == ".db") {
+				err := os.Remove("fixtures/server-data/" + name)
+				if err != nil {
+					panic("unable to remove file "+name+" from server-data directory: " + err.Error())
+				}
+			}
 		}
 	}
 

@@ -77,17 +77,17 @@ type Endpoint struct {
 
 type Config struct {
 	// AWS region
-	Region string `yaml:"region"`
+	Region string `yaml:"region" mapstructure:"region"`
 	// AWS access key ID (optional)
-	AccessKeyID string `yaml:"access_key_id,omitempty"`
+	AccessKeyID string `yaml:"access_key_id,omitempty" mapstructure:"access_key_id,omitempty"`
 	// AWS secret key (optional)
-	SecretKey string `yaml:"secret_key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty" mapstructure:"secret_key,omitempty"`
 	// Session token (optional)
-	SessionToken string `yaml:"session_token,omitempty"`
+	SessionToken string `yaml:"session_token,omitempty" mapstructure:"session_token,omitempty"`
 	// Base endpoint URL (optional)
-	BaseURL string `yaml:"base_url,omitempty"`
+	BaseURL string `yaml:"base_url,omitempty" mapstructure:"base_url,omitempty"`
 	// Whether to use path-style addressing
-	PathStyle bool `yaml:"path_style,omitempty"`
+	UsePathStyle bool `yaml:"use_path_style,omitempty" mapstructure:"use_path_style,omitempty"`
 }
 
 // creates a new S3 endpoint from the provided configuration information
@@ -117,7 +117,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 		if ecfg.Region != "" {
 			o.Region = ecfg.Region
 		}
-		o.UsePathStyle = ecfg.PathStyle
+		o.UsePathStyle = ecfg.UsePathStyle
 	})
 	newEndpoint.Downloader = manager.NewDownloader(newEndpoint.Client)
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)
@@ -131,8 +131,8 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 // constructs an S3 endpoint from a configuration map
 func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 	var config struct {
-		Bucket string `yaml:"bucket"`
-		Id     string `yaml:"id"`
+		Bucket string `yaml:"bucket" mapstructure:"bucket"`
+		Id     string `yaml:"id" mapstructure:"id"`
 		Config Config `yaml:",inline" mapstructure:",squash"`
 	}
 	if err := mapstructure.Decode(conf, &config); err != nil {

@@ -199,8 +199,8 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 		return xferId, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Name,
 			SourceProvider:      "local",
-			Destination:         ep.Name,
-			DestinationProvider: ep.Provider(),
+			Destination:         "unknown",
+			DestinationProvider: dst.Provider(),
 		}
 	}
 

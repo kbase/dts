@@ -225,7 +225,7 @@ func TestNewAWSS3Database(t *testing.T) {
 	assert.Equal("s3", savedState.Name)
 	assert.NotEmpty(savedState.Data)
 
-	newDb, err := NewDatabase(minioTestBucket, cfg)
+	newDb, err := NewDatabase(awsTestBucket, cfg)
 	assert.NoError(err)
 	err = newDb.Load(savedState)
 	assert.NoError(err)
@@ -412,8 +412,8 @@ func TestNewMinioS3Database(t *testing.T) {
 	assert.NoError(err)
 
 	localUser, err := newS3Db.LocalUser("test-orcid")
-	assert.Error(err)
-	assert.Equal("", localUser)
+	assert.Nil(err, "LocalUser returned an error")
+	assert.Equal("local-user", localUser)
 }
 
 func TestMain(m *testing.M) {

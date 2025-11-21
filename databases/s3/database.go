@@ -230,7 +230,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	return "", fmt.Errorf("local user lookup not implemented for S3 database")
+	return "local-user", nil
 }
 
 func (db *Database) Save() (databases.DatabaseSaveState, error) {
@@ -299,6 +299,7 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 	}
 
 	descriptor := map[string]any{
+		"id":        key,
 		"name":      filepath.Base(key),
 		"path":      key,
 		"mediatype": aws.ToString(headOutput.ContentType),

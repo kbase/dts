@@ -174,7 +174,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 		SecretKey:    minioTestSecretKey,
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
-		PathStyle:    minioTestUsePathStyle,
+		UsePathStyle:    minioTestUsePathStyle,
 	}
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), cfg)
 	assert.NotNil(minioEndpoint)
@@ -263,7 +263,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 		SecretKey:    minioTestSecretKey,
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
-		PathStyle:    minioTestUsePathStyle,
+		UsePathStyle: minioTestUsePathStyle,
 	}
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[1], uuid.New(), minioCfg)
 	assert.NotNil(minioEndpoint)
@@ -329,7 +329,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 		SecretKey:    minioTestSecretKey,
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
-		PathStyle:    minioTestUsePathStyle,
+		UsePathStyle: minioTestUsePathStyle,
 	}
 	minioSrcEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), minioCfg)
 	assert.NotNil(minioSrcEndpoint)

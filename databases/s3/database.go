@@ -183,7 +183,9 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving descriptor for file %s: %v", fileId, err)
 		}
-		descriptors = append(descriptors, descriptor)
+		if descriptor != nil {
+			descriptors = append(descriptors, descriptor)
+		}
 	}
 
 	return descriptors, nil
@@ -295,6 +297,9 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "StatusCode: 404") {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)
 	}
 

@@ -342,7 +342,7 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 
 	var size uint64
 	for _, descriptor := range entry.Descriptors {
-		switch v:= descriptor["bytes"].(type) {
+		switch v := descriptor["bytes"].(type) {
 		case int:
 			size += uint64(v)
 		case int64:

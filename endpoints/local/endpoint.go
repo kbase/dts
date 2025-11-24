@@ -223,7 +223,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// all files are staged; start the transfer
-    if isS3 {
+	if isS3 {
 		// special case: destination is S3 endpoint
 		// turn each file into a bytes.Reader and upload it
 		for _, file := range files {

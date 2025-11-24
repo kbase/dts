@@ -372,6 +372,15 @@ func TestNewMinioS3Database(t *testing.T) {
 		assert.Equal("application/octet-stream", desc["mediatype"])
 	}
 
+	// test descriptors for non-existent file
+	descriptors, err = db.Descriptors("test-orcid", []string{"file1.txt", "non_existent_file.txt"})
+	assert.NoError(err)
+	assert.Equal(1, len(descriptors))
+	assert.Equal("file1.txt", descriptors[0]["name"])
+	assert.Equal("file1.txt", descriptors[0]["path"])
+	assert.Equal(int64(len("This is the content of file 1.")), descriptors[0]["bytes"])
+	assert.Equal("application/octet-stream", descriptors[0]["mediatype"])
+
 	// test staging non-existent file
 	invalidFileIds := []string{"non_existent_file.txt"}
 	_, err = db.StageFiles("test-orcid", invalidFileIds)

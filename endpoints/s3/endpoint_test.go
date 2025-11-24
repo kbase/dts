@@ -174,7 +174,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 		SecretKey:    minioTestSecretKey,
 		SessionToken: minioTestSessionToken,
 		Region:       minioTestRegion,
-		UsePathStyle:    minioTestUsePathStyle,
+		UsePathStyle: minioTestUsePathStyle,
 	}
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), cfg)
 	assert.NotNil(minioEndpoint)

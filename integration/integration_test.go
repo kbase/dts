@@ -422,7 +422,7 @@ func TestTransfer(t *testing.T) {
 	err = json.Unmarshal(respBody, &transferResponse)
 	assert.Nil(err, "failed to unmarshal response body for transfer")
 	transferId := transferResponse.Id
-    transferIdString := transferId.String()
+	transferIdString := transferId.String()
 	slog.Info("Created transfer", "id", transferIdString)
 
 	status := getTransferStatus(t, client, transferId)
@@ -461,8 +461,8 @@ func TestTransfer(t *testing.T) {
 	assert.NotNil(metadata.Descriptors, "missing file descriptor in destination metadata response")
 	assert.Equal(3, len(metadata.Descriptors), "unexpected number of file descriptors in destination metadata response")
 	expectedFileNames := map[string]bool{
-		file1path: true,
-		file2path: true,
+		file1path:    true,
+		file2path:    true,
 		manifestPath: true,
 	}
 	for _, desc := range metadata.Descriptors {
@@ -473,6 +473,77 @@ func TestTransfer(t *testing.T) {
 	}
 }
 
+func TestCancelTransfer(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 1000 * time.Second,
+	}
+	transfer, err := json.Marshal(services.TransferRequest{
+		Orcid:       "0000-0000-1234-0000",
+		Source:      "db-foo",
+		Destination: "db-bar",
+		FileIds:     []string{"dir1/file3.txt", "dir1/file4.txt"},
+	})
+	assert.Nil(err, "failed to marshal transfer request")
+	req, err := http.NewRequest("POST", testServiceURL+"/api/v1/transfers", bytes.NewBuffer(transfer))
+	assert.Nil(err, "failed to create request for transfer")
+	addAuthHeader(req)
+
+	resp, err := client.Do(req)
+	assert.Nil(err, "failed to perform request for transfer")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusCreated, resp.StatusCode, "unexpected status code for transfer")
+	respBody, err := io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for transfer")
+
+	var transferResponse services.TransferResponse
+	err = json.Unmarshal(respBody, &transferResponse)
+	assert.Nil(err, "failed to unmarshal response body for transfer")
+	transferId := transferResponse.Id
+	transferIdString := transferId.String()
+	slog.Info("Created transfer to be canceled", "id", transferIdString)
+
+	// cancel the transfer
+	req, err = http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString, nil)
+	assert.Nil(err, "failed to create request to cancel transfer")
+	addAuthHeader(req)
+
+	resp, err = client.Do(req)
+	assert.Nil(err, "failed to perform request to cancel transfer")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusAccepted, resp.StatusCode, "unexpected status code for cancel transfer")
+
+	// check transfer status
+	status := getTransferStatus(t, client, transferId)
+	assert.Equal(transferIdString, status.Id, "unexpected transfer ID in status response after cancel")
+	assert.Equal("failed", status.Status, "unexpected transfer status after cancel")
+
+	// make sure the files are not in the destination database
+	file3path := "local-user/dts-" + transferIdString + "/dir1/file3.txt"
+	file4path := "local-user/dts-" + transferIdString + "/dir1/file4.txt"
+	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file3path+","+file4path, nil)
+	assert.Nil(err, "failed to create request for destination database fetch metadata after cancel")
+	addAuthHeader(req)
+
+	resp, err = client.Do(req)
+	assert.Nil(err, "failed to perform request for destination database fetch metadata after cancel")
+	defer resp.Body.Close()
+
+	assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for destination database fetch metadata after cancel")
+	respBody, err = io.ReadAll(resp.Body)
+	assert.Nil(err, "failed to read response body for destination database fetch metadata after cancel")
+
+	var metadata services.SearchResultsResponse
+	err = json.Unmarshal(respBody, &metadata)
+	assert.Nil(err, "failed to unmarshal response body for destination database fetch metadata after cancel")
+	assert.Equal("db-bar", metadata.Database, "unexpected database ID in destination metadata response after cancel")
+	// should be no files
+	assert.Equal(0, len(metadata.Descriptors), "expected no file descriptors in destination metadata response after cancel")
+
+}
+
 func setup() services.TransferService {
 	// reset the S3 test buckets
 	ResetMinioTestBuckets()
@@ -481,7 +552,7 @@ func setup() services.TransferService {
 	if _, err := os.Stat("manifests"); os.IsNotExist(err) {
 		if err := os.Mkdir("manifests", 0755); err != nil {
 			panic("unable to create manifests directory: " + err.Error())
-		} 
+		}
 	}
 
 	// remove any existing .gob or .db files in the server-data directory
@@ -495,7 +566,7 @@ func setup() services.TransferService {
 			if len(name) > 4 && (name[len(name)-4:] == ".gob" || name[len(name)-3:] == ".db") {
 				err := os.Remove("fixtures/server-data/" + name)
 				if err != nil {
-					panic("unable to remove file "+name+" from server-data directory: " + err.Error())
+					panic("unable to remove file " + name + " from server-data directory: " + err.Error())
 				}
 			}
 		}

@@ -196,12 +196,21 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	}
 
 	filename := filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transferId.String()))
-	pkg, err := datapackage.New(manifest, ".")
-	if err != nil {
-		return manifestEntry{}, err
-	}
-	if err := pkg.SaveDescriptor(filename); err != nil {
-		return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
+	if len(manifest["resources"].([]any)) > 0 {
+		pkg, err := datapackage.New(manifest, ".")
+		if err != nil {
+			return manifestEntry{}, err
+		}
+		if err := pkg.SaveDescriptor(filename); err != nil {
+			return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
+		}
+	} else {
+		// if no resources were transferred, just create an empty file
+		f, err := os.Create(filename)
+		if err != nil {
+			return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
+		}
+		f.Close()
 	}
 
 	// begin transferring the manifest
@@ -338,9 +347,12 @@ func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry
 		} else {
 			statusString = "failed"
 		}
-		pkg, err := datapackage.New(entry.Manifest, ".")
-		if err != nil {
-			return false, err
+		var pkg *datapackage.Package = nil
+		if len(entry.Manifest["resources"].([]any)) > 0 {
+			pkg, err = datapackage.New(entry.Manifest, ".")
+			if err != nil {
+				return false, err
+			}
 		}
 		err = journal.RecordTransfer(journal.Record{
 			Id:          transferId,

@@ -544,6 +544,204 @@ func TestCancelTransfer(t *testing.T) {
 
 }
 
+// test concurrent transfers
+// overall scenario:
+// - transfer 1: file1.txt, file2.txt from foo to baz
+// - transfer 2: dir1/file3.txt, dir1/file4.txt from foo to baz
+// - transfer 3: file3.txt from bar to foo
+// - transfer 4: file3.txt, file4.txt from bar to baz
+// - transfer 5: dir2/file5.txt, dir2/subdir1/file6.txt from foo to baz
+// - cancel transfer 4
+func TestConcurrentTransfers(t *testing.T) {
+	assert := assert.New(t)
+	client := &http.Client{
+		Timeout: 2000 * time.Second,
+	}
+
+	type transferInfo struct {
+		Request       services.TransferRequest
+		ExpectedFiles []string
+		Cancel        bool
+	}
+
+	transfers := []transferInfo{
+		{
+			Request: services.TransferRequest{
+				Orcid:       "0000-0000-1234-0000",
+				Source:      "db-foo",
+				Destination: "db-baz",
+				FileIds:     []string{"file1.txt", "file2.txt"},
+			},
+			ExpectedFiles: []string{"file1.txt", "file2.txt"},
+			Cancel:        false,
+		},
+		{
+			Request: services.TransferRequest{
+				Orcid:       "0000-0000-1234-0000",
+				Source:      "db-foo",
+				Destination: "db-baz",
+				FileIds:     []string{"dir1/file3.txt", "dir1/file4.txt"},
+			},
+			ExpectedFiles: []string{"dir1/file3.txt", "dir1/file4.txt"},
+			Cancel:        false,
+		},
+		{
+			Request: services.TransferRequest{
+				Orcid:       "0000-0000-1234-0000",
+				Source:      "db-bar",
+				Destination: "db-foo",
+				FileIds:     []string{"file3.txt"},
+			},
+			ExpectedFiles: []string{"file3.txt"},
+			Cancel:        false,
+		},
+		{
+			Request: services.TransferRequest{
+				Orcid:       "0000-0000-1234-0000",
+				Source:      "db-bar",
+				Destination: "db-baz",
+				FileIds:     []string{"file3.txt", "file4.txt"},
+			},
+			ExpectedFiles: []string{"file3.txt", "file4.txt"},
+			Cancel:        true,
+		},
+		{
+			Request: services.TransferRequest{
+				Orcid:       "0000-0000-1234-0000",
+				Source:      "db-foo",
+				Destination: "db-baz",
+				FileIds:     []string{"dir2/file5.txt", "dir2/subdir1/file6.txt"},
+			},
+			ExpectedFiles: []string{"dir2/file5.txt", "dir2/subdir1/file6.txt"},
+			Cancel:        false,
+		},
+	}
+
+	type transferResult struct {
+		Id   uuid.UUID
+		info transferInfo
+	}
+
+	resultsCh := make(chan transferResult, len(transfers))
+
+	// start transfers concurrently
+	for _, tr := range transfers {
+		go func(tr transferInfo) {
+			reqBody, err := json.Marshal(tr.Request)
+			assert.Nil(err, "failed to marshal transfer request")
+			req, err := http.NewRequest("POST", testServiceURL+"/api/v1/transfers", bytes.NewBuffer(reqBody))
+			assert.Nil(err, "failed to create request for transfer")
+			addAuthHeader(req)
+
+			resp, err := client.Do(req)
+			assert.Nil(err, "failed to perform request for transfer")
+			defer resp.Body.Close()
+
+			assert.Equal(http.StatusCreated, resp.StatusCode, "unexpected status code for transfer")
+			respBody, err := io.ReadAll(resp.Body)
+			assert.Nil(err, "failed to read response body for transfer")
+
+			var transferResponse services.TransferResponse
+			err = json.Unmarshal(respBody, &transferResponse)
+			assert.Nil(err, "failed to unmarshal response body for transfer")
+
+			resultsCh <- transferResult{
+				Id:   transferResponse.Id,
+				info: tr,
+			}
+		}(tr)
+	}
+
+	// collect results
+	var results []transferResult
+	for i := 0; i < len(transfers); i++ {
+		result := <-resultsCh
+		results = append(results, result)
+	}
+
+	// cancel transfers as needed
+	for _, result := range results {
+		if result.info.Cancel {
+			transferId := result.Id
+			transferIdString := transferId.String()
+			slog.Info("Cancelling transfer", "id", transferIdString)
+
+			// cancel the transfer
+			req, err := http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString, nil)
+			assert.Nil(err, "failed to create request to cancel transfer")
+			addAuthHeader(req)
+
+			resp, err := client.Do(req)
+			assert.Nil(err, "failed to perform request to cancel transfer")
+			defer resp.Body.Close()
+
+			assert.Equal(http.StatusAccepted, resp.StatusCode, "unexpected status code for cancel transfer")
+		}
+	}
+
+	// wait for transfers to complete
+	time.Sleep(10 * time.Second)
+
+	// check transfer statuses and destination databases
+	for _, result := range results {
+		transferId := result.Id
+		transferIdString := transferId.String()
+		slog.Info("Checking transfer", "id", transferIdString)
+
+		// check transfer status
+		status := getTransferStatus(t, client, transferId)
+		assert.Equal(transferIdString, status.Id, "unexpected transfer ID in status response after processing")
+
+		if result.info.Cancel {
+			assert.Equal("failed", status.Status, "unexpected transfer status after cancel")
+		} else {
+			assert.Equal("succeeded", status.Status, "unexpected transfer status after wait")
+
+			// make sure the files are in the destination database
+			expectedFiles := result.info.ExpectedFiles
+			var filePaths []string
+			for _, file := range expectedFiles {
+				filePaths = append(filePaths, "local-user/dts-"+transferIdString+"/"+file)
+			}
+			idsParam := ""
+			for j, path := range filePaths {
+				if j > 0 {
+					idsParam += ","
+				}
+				idsParam += path
+			}
+			req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database="+result.info.Request.Destination+"&ids="+idsParam, nil)
+			assert.Nil(err, "failed to create request for destination database fetch metadata after processing")
+			addAuthHeader(req)
+
+			resp, err := client.Do(req)
+			assert.Nil(err, "failed to perform request for destination database fetch metadata after processing")
+			defer resp.Body.Close()
+
+			assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for destination database fetch metadata after processing")
+			respBody, err := io.ReadAll(resp.Body)
+			assert.Nil(err, "failed to read response body for destination database fetch metadata after processing")
+
+			var metadata services.SearchResultsResponse
+			err = json.Unmarshal(respBody, &metadata)
+			assert.Nil(err, "failed to unmarshal response body for destination database fetch metadata after processing")
+			assert.Equal(result.info.Request.Destination, metadata.Database, "unexpected database ID in destination metadata response after processing")
+			// should be the expected files
+			assert.Equal(len(expectedFiles), len(metadata.Descriptors), "unexpected number of file descriptors in destination metadata response after processing")
+			expectedFileNames := map[string]bool{}
+			for _, file := range expectedFiles {
+				expectedFileNames["local-user/dts-"+transferIdString+"/"+file] = true
+			}
+			for _, desc := range metadata.Descriptors {
+				path, ok := desc["path"].(string)
+				assert.True(ok, "file descriptor missing 'path' field or it is not a string")
+				_, ok = expectedFileNames[path]
+				assert.True(ok, "unexpected file path in destination metadata response after processing: %s", path)
+			}
+		}
+	}
+}
+
 func setup() services.TransferService {
 	// reset the S3 test buckets
 	ResetMinioTestBuckets()

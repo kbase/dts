@@ -22,6 +22,8 @@
 package endpoints
 
 import (
+	"sync"
+
 	"github.com/google/uuid"
 
 	"github.com/kbase/dts/config"
@@ -85,25 +87,28 @@ type Endpoint interface {
 	Cancel(id uuid.UUID) error
 }
 
-// we maintain a table of endpoint instances, identified by their names
-var allEndpoints map[string]Endpoint = make(map[string]Endpoint)
-
-// here's a table of endpoint creation functions
-var createEndpointFuncs = make(map[string]func(conf map[string]any) (Endpoint, error))
-
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
 func RegisterEndpointProvider(provider string, createEp func(conf map[string]any) (Endpoint, error)) error {
-	if _, found := createEndpointFuncs[provider]; found {
+	mu_.RLock()
+
+	if _, found := createEndpointFuncs_[provider]; found {
+		mu_.RUnlock()
 		return &AlreadyRegisteredError{Provider: provider}
 	} else {
-		createEndpointFuncs[provider] = createEp
+		mu_.RUnlock()
+		mu_.Lock()
+		defer mu_.Unlock()
+		createEndpointFuncs_[provider] = createEp
 		return nil
 	}
 }
 
 // returns whether an endpoint with the given name has been configured for use
 func EndpointExists(endpointName string) bool {
+	mu_.RLock()
+	defer mu_.RUnlock()
+
 	_, found := config.Endpoints[endpointName]
 	return found
 }
@@ -112,14 +117,16 @@ func EndpointExists(endpointName string) bool {
 // instance
 func NewEndpoint(endpointName string) (Endpoint, error) {
 	var err error
+	mu_.RLock()
 
 	// do we have one of these already?
-	endpoint, found := allEndpoints[endpointName]
+	endpoint, found := allEndpoints_[endpointName]
 	if !found {
 		// look in our configuration for the endpoint's provider
 		if epConfig, epFound := config.Endpoints[endpointName]; epFound {
 			provider, ok := epConfig["provider"].(string)
 			if !ok {
+				mu_.RUnlock()
 				return nil, &InvalidProviderError{
 					Name:     endpointName,
 					Provider: "",
@@ -129,7 +136,7 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			if credName, ok := epConfig["credential"].(string); ok {
 				epConfig["credential"] = config.Credentials[credName]
 			}
-			if createEp, valid := createEndpointFuncs[provider]; valid {
+			if createEp, valid := createEndpointFuncs_[provider]; valid {
 				endpoint, err = createEp(epConfig)
 			} else { // invalid provider!
 				err = InvalidProviderError{
@@ -141,10 +148,25 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			err = NotFoundError{Name: endpointName}
 		}
 
+		mu_.RUnlock()
+
 		// stash it
 		if err == nil {
-			allEndpoints[endpointName] = endpoint
+			mu_.Lock()
+			defer mu_.Unlock()
+			allEndpoints_[endpointName] = endpoint
 		}
+	} else {
+		mu_.RUnlock()
 	}
 	return endpoint, err
 }
+
+// we maintain a table of endpoint instances, identified by their names
+var allEndpoints_ map[string]Endpoint = make(map[string]Endpoint)
+
+// here's a table of endpoint creation functions
+var createEndpointFuncs_ = make(map[string]func(conf map[string]any) (Endpoint, error))
+
+// global state protector
+var mu_ sync.RWMutex

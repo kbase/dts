@@ -61,7 +61,8 @@ jobs:
         DTS_NMDC_USER: ${{ secrets.DTS_NMDC_USER }}
         DTS_NMDC_PASSWORD: ${{ secrets.DTS_NMDC_PASSWORD }}
       run: |
-        go test -v ./... -coverprofile=coverage.out -covermode=atomic
+        PACKAGES=$(go list ./... | grep -v /integration)
+        go test -v $PACKAGES -coverprofile=coverage.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
     - name: Testing DTS against mock services
@@ -70,7 +71,7 @@ jobs:
       env:
         DTS_TEST_WITH_MOCK_SERVICES: true
       run: |
-        go test -v ./... ./integration/... -coverprofile=coverage_mock.out -covermode=atomic
+        go test -v ./... -coverprofile=coverage_mock.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
     - name: Run AWS example script # example script for using the aws go sdk

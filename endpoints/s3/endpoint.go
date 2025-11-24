@@ -146,18 +146,7 @@ func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 }
 
 func (e *Endpoint) Provider() string {
-	region := ""
-	if e.Client.Options().Region != "" {
-		region = "." + e.Client.Options().Region
-	}
-	baseUrl := "s3" + region + ".amazonaws.com"
-	if e.Client.Options().BaseEndpoint != nil {
-		baseUrl = *e.Client.Options().BaseEndpoint
-	}
-	if e.Client.Options().UsePathStyle {
-		return "s3: " + baseUrl + "/" + e.Bucket
-	}
-	return "s3: " + e.Bucket + "." + baseUrl
+	return "s3"
 }
 
 func (e *Endpoint) Root() string {

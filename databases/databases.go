@@ -187,7 +187,8 @@ func HaveDatabase(dbName string) bool {
 // configured type, or returns an existing instance
 func NewDatabase(dbName string) (Database, error) {
 	var err error
-	mu_.RLock()
+	mu_.Lock()
+	defer mu_.Unlock()
 
 	// do we have one of these already?
 	db, found := allDatabases_[dbName]
@@ -198,14 +199,9 @@ func NewDatabase(dbName string) (Database, error) {
 		} else {
 			err = &NotFoundError{dbName}
 		}
-		mu_.RUnlock()
 		if err == nil {
-			mu_.Lock()
-			defer mu_.Unlock()
 			allDatabases_[dbName] = db // stash it
 		}
-	} else {
-		mu_.RUnlock()
 	}
 	return db, err
 }

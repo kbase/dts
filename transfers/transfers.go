@@ -289,7 +289,7 @@ func registerDatabases(conf config.Config) error {
 }
 
 func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) error {
-	if epName, found := dbConf["endpoint"]; found {
+	if _, found := dbConf["endpoint"]; found {
 		epNameString, ok := dbConf["endpoint"].(string)
 		if !ok {
 			return fmt.Errorf("endpoint for database '%s' is not a string", dbName)
@@ -299,10 +299,10 @@ func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) er
 			case "s3":
 				databases.RegisterDatabase(dbName, s3db.DatabaseConstructor(dbConf))
 			default:
-				return fmt.Errorf("endpoint '%s' for database '%s' has invalid provider '%s'", epName, dbName, ep.Provider())
+				return fmt.Errorf("endpoint '%s' for database '%s' has invalid provider '%s'", epNameString, dbName, ep.Provider())
 			}
 		} else {
-			return fmt.Errorf("database '%s' has invalid endpoint '%s': %w", dbName, epName, err)
+			return fmt.Errorf("database '%s' has invalid endpoint '%s': %w", dbName, epNameString, err)
 		}
 	} else {
 		return fmt.Errorf("database '%s' has no valid endpoint", dbName)

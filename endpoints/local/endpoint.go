@@ -196,9 +196,9 @@ func (ep *Endpoint) transferFiles(xferId uuid.UUID, dest endpoints.Endpoint) {
 func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
-	_, ok := dst.(*Endpoint)
+	_, isLocal := dst.(*Endpoint)
 	_, isS3 := dst.(*s3.Endpoint)
-	if !ok && !isS3 {
+	if !isLocal && !isS3 {
 		return xferId, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Name,
 			SourceProvider:      "local",
@@ -230,12 +230,14 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 			sourcePath := filepath.Join(ep.Root(), file.SourcePath)
 			data, err := os.ReadFile(sourcePath)
 			if err != nil {
+				err = fmt.Errorf("incomplete file transfer at: %s for S3 transfer: %w", sourcePath, err)
 				return xferId, err
 			}
 			reader := bytes.NewReader(data)
 			s3Dst := dst.(*s3.Endpoint)
 			err = s3Dst.PutFromReader(file.DestinationPath, reader)
 			if err != nil {
+				err = fmt.Errorf("incomplete file transfer at: %s for S3 transfer: %w", file.DestinationPath, err)
 				return xferId, err
 			}
 		}

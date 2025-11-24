@@ -90,15 +90,12 @@ type Endpoint interface {
 // registers a database creation function under the given database name
 // to allow for e.g. test database implementations
 func RegisterEndpointProvider(provider string, createEp func(conf map[string]any) (Endpoint, error)) error {
-	mu_.RLock()
+	mu_.Lock()
+	defer mu_.Unlock()
 
 	if _, found := createEndpointFuncs_[provider]; found {
-		mu_.RUnlock()
 		return &AlreadyRegisteredError{Provider: provider}
 	} else {
-		mu_.RUnlock()
-		mu_.Lock()
-		defer mu_.Unlock()
 		createEndpointFuncs_[provider] = createEp
 		return nil
 	}
@@ -117,7 +114,8 @@ func EndpointExists(endpointName string) bool {
 // instance
 func NewEndpoint(endpointName string) (Endpoint, error) {
 	var err error
-	mu_.RLock()
+	mu_.Lock()
+	defer mu_.Unlock()
 
 	// do we have one of these already?
 	endpoint, found := allEndpoints_[endpointName]
@@ -126,7 +124,6 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 		if epConfig, epFound := config.Endpoints[endpointName]; epFound {
 			provider, ok := epConfig["provider"].(string)
 			if !ok {
-				mu_.RUnlock()
 				return nil, &InvalidProviderError{
 					Name:     endpointName,
 					Provider: "",
@@ -148,16 +145,10 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			err = NotFoundError{Name: endpointName}
 		}
 
-		mu_.RUnlock()
-
 		// stash it
 		if err == nil {
-			mu_.Lock()
-			defer mu_.Unlock()
 			allEndpoints_[endpointName] = endpoint
 		}
-	} else {
-		mu_.RUnlock()
 	}
 	return endpoint, err
 }

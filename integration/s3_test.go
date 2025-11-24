@@ -18,8 +18,6 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-
-// Testing support functions for managing S3 buckets.
 package integration
 
 import (
@@ -35,8 +33,8 @@ import (
 
 const (
 	minioTestEndpointURL  = "http://localhost:9000"
-	minioTestAccessKey    = "minioadmin"
-	minioTestSecretKey    = "minioadmin"
+	minioTestAccessKey    = "minioadmin" // must match MinIO server config
+	minioTestSecretKey    = "minioadmin" // must match MinIO server config
 	minioTestSessionToken = ""
 	minioTestRegion       = "us-east-1"
 	minioTestUsePathStyle = true

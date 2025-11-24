@@ -196,7 +196,8 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	}
 
 	filename := filepath.Join(config.Service.ManifestDirectory, fmt.Sprintf("manifest-%s.json", transferId.String()))
-	if len(manifest["resources"].([]any)) > 0 {
+	resources, ok := manifest["resources"].([]any)
+	if ok && len(resources) > 0 {
 		pkg, err := datapackage.New(manifest, ".")
 		if err != nil {
 			return manifestEntry{}, err
@@ -348,7 +349,8 @@ func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry
 			statusString = "failed"
 		}
 		var pkg *datapackage.Package = nil
-		if len(entry.Manifest["resources"].([]any)) > 0 {
+		resources, ok := entry.Manifest["resources"].([]any)
+		if ok && len(resources) > 0 {
 			pkg, err = datapackage.New(entry.Manifest, ".")
 			if err != nil {
 				return false, err

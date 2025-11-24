@@ -297,7 +297,7 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "StatusCode: 404") {
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "Not Found") {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)

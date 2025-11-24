@@ -30,6 +30,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,7 +107,6 @@ func TestGetDatabases(t *testing.T) {
 			t.Errorf("unexpected database ID: %s", db.Id)
 			continue
 		}
-		assert.Equal(t, db.Id, db.Id, "unexpected database ID for ID %s", db.Id)
 		assert.Equal(t, expected.Name, db.Name, "unexpected database name for ID %s", db.Id)
 		assert.Equal(t, expected.Organization, db.Organization, "unexpected organization for ID %s", db.Id)
 		// FIXME: The URL field is always empty in the current implementation, even if a URL is set in the config.
@@ -761,7 +761,7 @@ func setup() services.TransferService {
 	for _, file := range files {
 		if !file.IsDir() {
 			name := file.Name()
-			if len(name) > 4 && (name[len(name)-4:] == ".gob" || name[len(name)-3:] == ".db") {
+			if strings.HasSuffix(name, ".gob") || strings.HasSuffix(name, ".db") {
 				err := os.Remove("fixtures/server-data/" + name)
 				if err != nil {
 					panic("unable to remove file " + name + " from server-data directory: " + err.Error())

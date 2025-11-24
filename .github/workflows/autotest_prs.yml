@@ -69,7 +69,7 @@ jobs:
       env:
         DTS_TEST_WITH_MOCK_SERVICES: true
       run: |
-        go test -v ./... -coverprofile=coverage_mock.out -covermode=atomic
+        go test -v ./... ./integration/... -coverprofile=coverage_mock.out -covermode=atomic
       continue-on-error: true # load coverage even if tests fail
 
     - name: Run AWS example script # example script for using the aws go sdk

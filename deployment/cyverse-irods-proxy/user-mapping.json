@@ -1,6 +1,6 @@
 {
-    "<s3_access_key_id_1>": {
-        "secret_key": "<s3_secret_key_1>",
-        "username": "<irods_username_1>"
+    "${S3_ACCESS_KEY_ID}": {
+        "secret_key": "${S3_SECRET_KEY}",
+        "username": "${IRODS_USERNAME}"
     }
 }

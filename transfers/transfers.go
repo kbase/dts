@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -234,16 +235,21 @@ func registerEndpointProviders() error {
 	return nil
 }
 
-var constructorMap map[string]func(config map[string]any) func() (databases.Database, error) = map[string]func(config map[string]any) func() (databases.Database, error){
+// constructors for named (bespoke) databases
+var dbConstructors map[string]func(config map[string]any) func() (databases.Database, error) = map[string]func(config map[string]any) func() (databases.Database, error){
 	"jdp":   jdp.DatabaseConstructor,
 	"kbase": kbase.DatabaseConstructor,
 	"nmdc":  nmdc.DatabaseConstructor,
-	"s3":    s3db.DatabaseConstructor,
 }
 
 // registers databases; if at least one database is available, no error is propagated
 func registerDatabases(conf config.Config) error {
 	for dbName, dbConf := range conf.Databases {
+		// check if previously registered
+		if slices.Contains(databases.RegisteredDatabases(), dbName) {
+			continue
+		}
+
 		// expand credentials within the config map
 		if _, found := dbConf["credential"]; found {
 			credString, ok := dbConf["credential"].(string)
@@ -253,28 +259,53 @@ func registerDatabases(conf config.Config) error {
 					Message:  "credential field is not a string",
 				}
 			}
-			if _, credFound := config.Credentials[credString]; !credFound {
+			if _, credFound := conf.Credentials[credString]; !credFound {
 				return &InvalidDatabaseConfigError{
 					Database: dbName,
 					Message:  fmt.Sprintf("credential '%s' not found", credString),
 				}
 			}
-			dbConf["credential"] = config.Credentials[credString]
+			dbConf["credential"] = conf.Credentials[credString]
 		}
 		// add a transaction pruning time, if not specified
 		if _, found := dbConf["delete_after"]; !found {
 			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
-		constructor, ok := constructorMap[dbName]
-		// if no constructor found, assume the database is already registered
-		// (e.g., a test database)
-		if ok {
+		if constructor, found := dbConstructors[dbName]; found {
 			databases.RegisterDatabase(dbName, constructor(dbConf))
+		} else {
+			// check the endpoint's provider to see whether we can construct one of the
+			// file-system-oriented databases
+			if err := registerDatabaseByEndpointProvider(dbName, dbConf); err != nil {
+				slog.Error(err.Error())
+			}
 		}
 	}
 	// ensure at least one database is available
 	if len(databases.RegisteredDatabases()) == 0 {
 		return &NoDatabasesAvailable{}
+	}
+	return nil
+}
+
+func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) error {
+	if _, found := dbConf["endpoint"]; found {
+		epNameString, ok := dbConf["endpoint"].(string)
+		if !ok {
+			return fmt.Errorf("endpoint for database '%s' is not a string", dbName)
+		}
+		if ep, err := endpoints.NewEndpoint(epNameString); err == nil {
+			switch strings.Split(ep.Provider(), ":")[0] {
+			case "s3":
+				databases.RegisterDatabase(dbName, s3db.DatabaseConstructor(dbConf))
+			default:
+				return fmt.Errorf("endpoint '%s' for database '%s' has invalid provider '%s'", epNameString, dbName, ep.Provider())
+			}
+		} else {
+			return fmt.Errorf("database '%s' has invalid endpoint '%s': %w", dbName, epNameString, err)
+		}
+	} else {
+		return fmt.Errorf("database '%s' has no valid endpoint", dbName)
 	}
 	return nil
 }
@@ -367,7 +398,7 @@ func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error
 		if err != nil {
 			return nil, err
 		}
-		credential := config.Credentials[customSpec.Credential]
+		credential := config.Credentials[customSpec.Credential] // FIXME: using global config
 		clientId, err := uuid.Parse(credential.Id)
 		if err != nil {
 			return nil, err

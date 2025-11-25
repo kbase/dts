@@ -1,0 +1,77 @@
+service:
+  secret: axtwHHcMX5w3gPLE3xzMip2V8uFyzYAnoI2CB1tAFM4=
+  port: 8080
+  max_connections: 3
+  max_payload_size: 0.000001
+  poll_interval: 1000
+  endpoint: local-fs
+  data_dir: ./fixtures/server-data
+  manifest_dir: ./manifests
+  delete_after: 60
+  debug: true
+
+endpoints:
+  local-fs:
+    name: local-fs
+    id: 550e8400-e29b-41d4-a716-446655440000
+    provider: local
+    root: .
+  s3-foo:
+    id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+    bucket: test-bucket-integration-foo
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    provider: s3
+  s3-bar:
+    id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+    bucket: test-bucket-integration-bar
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    provider: s3
+  s3-baz:
+    id: 123e4567-e89b-42d3-a456-426614174000
+    bucket: test-bucket-integration-baz
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    provider: s3
+
+databases:
+  db-foo:
+    name: The Foo Database
+    organization: Foo International
+    bucket: test-bucket-integration-foo
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    endpoint: s3-foo
+  db-bar:
+    name: The Bar Database
+    organization: Bar Enterprises
+    bucket: test-bucket-integration-bar
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    endpoint: s3-bar
+  db-baz:
+    name: The Baz Database
+    organization: Baz LLC
+    bucket: test-bucket-integration-baz
+    region: us-east-1
+    access_key_id: minioadmin
+    secret_key: minioadmin
+    base_url: http://localhost:9000
+    use_path_style: true
+    endpoint: s3-baz

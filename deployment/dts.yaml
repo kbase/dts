@@ -77,6 +77,11 @@ endpoints:
     provider: globus
     credential: globus
     root: /
+  s3-nasa-power:
+    name: NASA POWER (S3)
+    bucket: nasa-power
+    region: us-west-2
+    provider: s3
 
 databases: # databases between which files can be transferred
   jdp:

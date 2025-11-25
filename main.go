@@ -114,14 +114,14 @@ func main() {
 		syscall.SIGQUIT)
 
 	// start the service in a goroutine so it doesn't block
-	go func() {
+	go func(conf config.Config) {
 		err = service.Start(conf)
 		if err != nil { // on error, log the error message and issue a SIGINT
 			log.Println(err.Error())
 			thisProcess, _ := os.FindProcess(os.Getpid())
 			thisProcess.Signal(os.Interrupt)
 		}
-	}()
+	}(conf)
 
 	// block till we receive one of the above signals
 	<-sigChan

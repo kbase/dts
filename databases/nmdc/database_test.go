@@ -479,9 +479,8 @@ func setup() {
 			panic("Couldn't decode config to map: " + err.Error())
 		}
 		err := databases.RegisterDatabase("nmdc", DatabaseConstructor(confMap))
-		// NMDC is timing out currently, so we expect an error here
-		if err == nil {
-			panic("NMDC not timing out as expected")
+		if err != nil {
+			panic("Couldn't register NMDC database: " + err.Error())
 		}
 	} else {
 		mockNmdcServer := createMockNmdcServer()
@@ -620,6 +619,10 @@ func TestSearch(t *testing.T) {
 	}
 
 	// check with parameters that don't include a study_id
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	mockDb := getMockNmdcDatabase(t)
 	params = databases.SearchParameters{
 		Query: "",
@@ -634,6 +637,10 @@ func TestSearch(t *testing.T) {
 
 func TestSimpleFunctions(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 
 	// StageFiles just returns new UUID
@@ -658,6 +665,10 @@ func TestSimpleFunctions(t *testing.T) {
 
 func TestSaveLoad(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 
 	state, err := db.Save()
@@ -672,6 +683,10 @@ func TestSaveLoad(t *testing.T) {
 
 func TestGetAccessToken(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dbNmdc := db.(*Database)
 
@@ -696,6 +711,10 @@ func TestGetAccessToken(t *testing.T) {
 
 func TestRenewAccessTokenIfExpired(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dbNmdc := db.(*Database)
 
@@ -724,7 +743,15 @@ func TestDescriptors(t *testing.T) {
 		Query:    "",
 		Specific: nmdcSearchParams,
 	}
-	results, _ := db.Search(testOrcid, params)
+	results, err := db.Search(testOrcid, params)
+	if areValidCredentials {
+		// this call ^^^ times out, so we expect an error.
+		assert.NotNil(err, "NMDC search query somehow didn't time out?")
+		assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+		return
+	}
+	assert.Nil(err, "NMDC search query encountered an error")
+	assert.NotNil(results, "NMDC search query did not return results")
 	fileIds := make([]string, len(results.Descriptors))
 	for i, descriptor := range results.Descriptors {
 		fileIds[i] = descriptor["id"].(string)
@@ -748,6 +775,10 @@ func TestDescriptors(t *testing.T) {
 
 func TestDataObjects(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dbNmdc := db.(*Database)
 	params := url.Values{}
@@ -767,6 +798,10 @@ func TestDataObjects(t *testing.T) {
 
 func TestCreateDataObjectAndBiosampleDescriptors(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dbNmdc := db.(*Database)
 
@@ -805,6 +840,10 @@ func TestCreateDataObjectAndBiosampleDescriptors(t *testing.T) {
 
 func TestCreateDataObjectDescriptor(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dataObject := DataObject{
 		Id:            "nmdc:do-1234-abcde56789",
@@ -836,6 +875,10 @@ func TestCreateDataObjectDescriptor(t *testing.T) {
 
 func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 	assert := assert.New(t)
+	if areValidCredentials {
+		// skip mock server tests
+		return
+	}
 	db := getMockNmdcDatabase(t)
 	dbNmdc := db.(*Database)
 
@@ -1109,10 +1152,7 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 func TestMain(m *testing.M) {
 	setup()
 	status := 0
-	// FIXME: NMDC is currently timing out, so only run tests against the mock server
-	if !areValidCredentials {
-		status = m.Run()
-	}
+	status = m.Run()
 	breakdown()
 	os.Exit(status)
 }

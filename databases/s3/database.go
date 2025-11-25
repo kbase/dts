@@ -62,21 +62,21 @@ type Database struct {
 // S3 database configuration
 type Config struct {
 	// AWS region
-	Region string `yaml:"region"`
+	Region string `yaml:"region" mapstructure:"region"`
 	// AWS access key ID (optional)
-	AccessKeyID string `yaml:"access_key_id,omitempty"`
+	AccessKeyID string `yaml:"access_key_id,omitempty" mapstructure:"access_key_id,omitempty"`
 	// AWS secret key (optional)
-	SecretKey string `yaml:"secret_key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty" mapstructure:"secret_key,omitempty"`
 	// Session token (optional)
-	SessionToken string `yaml:"session_token,omitempty"`
+	SessionToken string `yaml:"session_token,omitempty" mapstructure:"session_token,omitempty"`
 	// Base endpoint URL (optional)
-	BaseUrl string `yaml:"endpoint,omitempty"`
+	BaseUrl string `yaml:"base_url,omitempty" mapstructure:"base_url,omitempty"`
 	// Whether to use path-style addressing (optional; default: false)
-	UsePathStyle bool `yaml:"use_path_style,omitempty"`
+	UsePathStyle bool `yaml:"use_path_style,omitempty" mapstructure:"use_path_style,omitempty"`
 	// Time after which staging requests are deleted (s) (optional; default: 7 days)
-	DeleteAfter int `yaml:"delete_after,omitempty"`
+	DeleteAfter int `yaml:"delete_after,omitempty" mapstructure:"delete_after,omitempty"`
 	// Endpoint name
-	Endpoint string `yaml:"endpoint"`
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
 }
 
 type StagingRequest struct {
@@ -124,6 +124,15 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 		o.UsePathStyle = cfg.UsePathStyle
 	})
 	newDb.Bucket = bucket
+
+	// make sure the bucket exists
+	_, err = newDb.Client.HeadBucket(context.TODO(), &awsS3.HeadBucketInput{
+		Bucket: aws.String(newDb.Bucket),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error accessing S3 bucket %s: %v", newDb.Bucket, err)
+	}
+
 	newDb.Downloader = manager.NewDownloader(newDb.Client)
 	newDb.StagingRequests = make(map[uuid.UUID]StagingRequest)
 	if cfg.DeleteAfter > 0 {
@@ -138,7 +147,7 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 func DatabaseConstructor(config map[string]any) func() (databases.Database, error) {
 	return func() (databases.Database, error) {
 		var s3Conf struct {
-			Bucket string `yaml:"bucket"`
+			Bucket string `yaml:"bucket" mapstructure:"bucket"`
 			Config `yaml:",inline" mapstructure:",squash"`
 		}
 		if err := mapstructure.Decode(config, &s3Conf); err != nil {
@@ -167,14 +176,16 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
-	var descriptors []map[string]any
+	descriptors := make([]map[string]any, 0)
 
 	for _, fileId := range fileIds {
 		descriptor, err := db.s3ObjectToDescriptor(fileId)
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving descriptor for file %s: %v", fileId, err)
 		}
-		descriptors = append(descriptors, descriptor)
+		if len(descriptor) != 0 {
+			descriptors = append(descriptors, descriptor)
+		}
 	}
 
 	return descriptors, nil
@@ -221,7 +232,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	return "", fmt.Errorf("local user lookup not implemented for S3 database")
+	return "local-user", nil
 }
 
 func (db *Database) Save() (databases.DatabaseSaveState, error) {
@@ -286,10 +297,14 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "Not Found") {
+			return map[string]any{}, nil
+		}
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)
 	}
 
 	descriptor := map[string]any{
+		"id":        key,
 		"name":      filepath.Base(key),
 		"path":      key,
 		"mediatype": aws.ToString(headOutput.ContentType),

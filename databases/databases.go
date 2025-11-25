@@ -24,6 +24,7 @@ package databases
 import (
 	"encoding/gob"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -148,6 +149,9 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 		return err
 	}
 
+	mu_.Lock()
+	defer mu_.Unlock()
+
 	if _, found := createDatabaseFuncs_[dbName]; found {
 		return &AlreadyRegisteredError{
 			Database: dbName,
@@ -160,6 +164,9 @@ func RegisterDatabase(dbName string, createDb func() (Database, error)) error {
 
 // returns a list of names of registered databases
 func RegisteredDatabases() []string {
+	mu_.RLock()
+	defer mu_.RUnlock()
+
 	dbs := make([]string, 0)
 	for name := range createDatabaseFuncs_ {
 		dbs = append(dbs, name)
@@ -169,6 +176,9 @@ func RegisteredDatabases() []string {
 
 // returns true if a database has been registered with the given name, false if not
 func HaveDatabase(dbName string) bool {
+	mu_.RLock()
+	defer mu_.RUnlock()
+
 	_, found := createDatabaseFuncs_[dbName]
 	return found
 }
@@ -177,6 +187,8 @@ func HaveDatabase(dbName string) bool {
 // configured type, or returns an existing instance
 func NewDatabase(dbName string) (Database, error) {
 	var err error
+	mu_.Lock()
+	defer mu_.Unlock()
 
 	// do we have one of these already?
 	db, found := allDatabases_[dbName]
@@ -200,6 +212,9 @@ func Save() (DatabaseSaveStates, error) {
 	states := DatabaseSaveStates{
 		Data: make(map[string]DatabaseSaveState),
 	}
+	mu_.RLock()
+	defer mu_.RUnlock()
+
 	for key, db := range allDatabases_ {
 		saveState, err := db.Save()
 		if err != nil {
@@ -241,3 +256,6 @@ var allDatabases_ = make(map[string]Database)
 
 // a table of database creation functions
 var createDatabaseFuncs_ = make(map[string]func() (Database, error))
+
+// global state protector
+var mu_ sync.RWMutex

@@ -253,7 +253,14 @@ func (s *storeState) process(decoder *gob.Decoder) {
 			if transfer, found := transfers[id]; found {
 				var size uint64
 				for _, descriptor := range transfer.Descriptors {
-					size += uint64(descriptor["bytes"].(int))
+					switch v := descriptor["bytes"].(type) {
+					case int:
+						size += uint64(v)
+					case int64:
+						size += uint64(v)
+					default:
+						s.Channels.Error <- fmt.Errorf("invalid 'bytes' field type in descriptor: %T", v)
+					}
 				}
 				s.Channels.ReturnPayloadSize <- size
 			} else {
@@ -335,7 +342,14 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 
 	var size uint64
 	for _, descriptor := range entry.Descriptors {
-		size += uint64(descriptor["bytes"].(int))
+		switch v := descriptor["bytes"].(type) {
+		case int:
+			size += uint64(v)
+		case int64:
+			size += uint64(v)
+		default:
+			return id, transferStoreEntry{}, fmt.Errorf("invalid 'bytes' field type in descriptor: %T", v)
+		}
 	}
 	publish(Message{
 		Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, entry.Status.NumFiles, float64(size)/float64(1024*1024*1024)),

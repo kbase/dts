@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    hostname: catalog
+    environment:
+      POSTGRES_USER: irods
+      POSTGRES_PASSWORD: irods_password
+      POSTGRES_DB: irods
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U irods"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+    networks:
+      - irods_net
+  irods:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: irods-provider
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      IRODS_DB_HOST: catalog
+      IRODS_DB_PORT: 5432
+      IRODS_DB_NAME: irods
+      IRODS_DB_USER: irods
+      IRODS_DB_PASSWORD: irods_password
+      IRODS_ZONE_NAME: tempZone
+      IRODS_ADMIN_USER: rods
+      IRODS_ADMIN_PASSWORD: rods
+    ports:
+      - "1247:1247"
+      - "1248:1248"
+      - "20000-20100:20000-20100/udp"
+    networks:
+      - irods_net
+    volumes:
+      - irdata:/var/lib/irods
+
+volumes:
+  pgdata:
+  irdata:
+
+networks:
+  irods_net:
+    driver: bridge

@@ -10,8 +10,7 @@ extern "C" {
 #ifndef TEST
 
 #include "user_mapping.h"
-#include "subst_env_var.h"
-#include "cJSON.h"
+#include "plugin_tools.h"
 
 #define MAX_NUM_MAPPINGS 8
 
@@ -27,20 +26,13 @@ typedef struct {
 static user_mappings_t global = {0};
 
 int user_mapping_init(const char* _json) {
-  cJSON *config = cJSON_Parse(_json);
-  if (!config) {
-    fprintf(stderr, "ERROR: couldn't parse JSON configuration");
-    global = (user_mappings_t){0};
-    return 1;
-  }
-
-  if (!cJSON_IsObject(config)) {
-    fprintf(stderr, "ERROR: JSON configuration is not an object");
+  cJSON *plugin_config = read_plugin_config_file(_json);
+  if (!plugin_config) {
     global = (user_mappings_t){0};
     return 1;
   }
   
-  global.num_mappings = cJSON_GetArraySize(config);
+  global.num_mappings = cJSON_GetArraySize(plugin_config);
   if (global.num_mappings > MAX_NUM_MAPPINGS) {
     fprintf(stderr, "ERROR: Number of mappings (%d) exceeds maximum (%d)", global.num_mappings, MAX_NUM_MAPPINGS);
     global = (user_mappings_t){0};
@@ -49,7 +41,7 @@ int user_mapping_init(const char* _json) {
 
   cJSON *item;
   int i = 0;
-  cJSON_ArrayForEach(item, config) {
+  cJSON_ArrayForEach(item, plugin_config) {
     if (!cJSON_IsObject(item)) {
       fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' is not an object\n", item->string);
       global = (user_mappings_t){0};
@@ -87,7 +79,7 @@ int user_mapping_init(const char* _json) {
     ++i;
   }
 
-  cJSON_Delete(config);
+  cJSON_Delete(plugin_config);
   return 0;
 }
 
@@ -151,12 +143,10 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  // see ../user-mapping.json for details
   static const char *config_s =
     "{\n"
-    "  \"${S3_ACCESS_KEY_ID}\": {\n"
-    "    \"secret_key\": \"${S3_SECRET_KEY}\",\n"
-    "    \"username\": \"${IRODS_USERNAME}\"\n"
-    "  }\n"
+    "  \"file_path\": \"../user-mapping.json\""
     "}";
 
   setenv("IRODS_USERNAME", "irods_user", 1);

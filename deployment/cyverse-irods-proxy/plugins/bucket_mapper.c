@@ -1,7 +1,3 @@
-#include "bucket_mapping.h"
-#include "subst_env_var.h"
-#include "cJSON.h"
-
 #include <stdio.h>
 #include <string.h>
 
@@ -11,6 +7,12 @@ extern "C" {
 
 #define MAX_STR_LEN      1024
 #define MAX_NUM_MAPPINGS 8
+
+#ifndef TEST
+
+#include "bucket_mapping.h"
+#include "subst_env_var.h"
+#include "cJSON.h"
 
 typedef struct {
   struct {
@@ -27,20 +29,20 @@ static bucket_mappings_t global = {0};
 int bucket_mapping_init(const char* _json) {
   cJSON *config = cJSON_Parse(_json);
   if (!config) {
-    fprintf(stderr, "ERROR: couldn't parse JSON configuration");
+    fprintf(stderr, "ERROR: couldn't parse JSON configuration\n");
     global = (bucket_mappings_t){0};
     return 1;
   }
 
   if (!cJSON_IsObject(config)) {
-    fprintf(stderr, "ERROR: JSON configuration is not an object");
+    fprintf(stderr, "ERROR: JSON configuration is not an object\n");
     global = (bucket_mappings_t){0};
     return 1;
   }
   
   global.num_mappings = cJSON_GetArraySize(config);
   if (global.num_mappings > MAX_NUM_MAPPINGS) {
-    fprintf(stderr, "ERROR: Number of mappings (%d) exceeds maximum (%d)", global.num_mappings, MAX_NUM_MAPPINGS);
+    fprintf(stderr, "ERROR: Number of mappings (%d) exceeds maximum (%d)\n", global.num_mappings, MAX_NUM_MAPPINGS);
     global = (bucket_mappings_t){0};
     return 1;
   }
@@ -49,7 +51,7 @@ int bucket_mapping_init(const char* _json) {
   int i = 0;
   cJSON_ArrayForEach(item, config) {
     if (!cJSON_IsString(item)) {
-      fprintf(stderr, "ERROR: mapping for bucket '%s' is not a string (collection)", item->string);
+      fprintf(stderr, "ERROR: mapping for bucket '%s' is not a string (collection)\n", item->string);
       global = (bucket_mappings_t){0};
       return 1;
     }
@@ -66,7 +68,7 @@ int bucket_mapping_init(const char* _json) {
 
 int bucket_mapping_list(bucket_mapping_entry_t** _buckets, size_t* _size) {
   if (!global.num_mappings) {
-    fprintf(stderr, "ERROR: couldn't fetch bucket mapping list (invalid mapping state)");
+    fprintf(stderr, "ERROR: couldn't fetch bucket mapping list (invalid mapping state)\n");
     *_buckets = NULL;
     *_size = 0;
     return 1;
@@ -83,7 +85,7 @@ int bucket_mapping_list(bucket_mapping_entry_t** _buckets, size_t* _size) {
 
 int bucket_mapping_collection(const char* _bucket, char** _collection) {
   if (!global.num_mappings) {
-    fprintf(stderr, "ERROR: couldn't fetch collection for bucket '%s' (invalid mapping state)", _bucket);
+    fprintf(stderr, "ERROR: couldn't fetch collection for bucket '%s' (invalid mapping state\n)", _bucket);
     *_collection = NULL;
     return 1;
   }
@@ -93,7 +95,7 @@ int bucket_mapping_collection(const char* _bucket, char** _collection) {
       return 0;
     }
   }
-  fprintf(stderr, "ERROR: collection not found for bucket '%s'", _bucket);
+  fprintf(stderr, "ERROR: collection not found for bucket '%s'\n", _bucket);
   return 1;
 }
 
@@ -104,6 +106,106 @@ int bucket_mapping_close() {
 
 void bucket_mapping_free(void* _data) {
 }
+
+#endif
+
+#ifdef TEST
+
+#include <dlfcn.h>
+#include <stdlib.h>
+
+typedef struct bucket_mapping_entry // copied from bucket_mapping.h
+{
+	char* bucket;
+	char* collection;
+} bucket_mapping_entry_t;
+
+static int (*bucket_mapping_init)(const char *) = NULL;
+static int (*bucket_mapping_list)(bucket_mapping_entry_t **, size_t *) = NULL;
+static int (*bucket_mapping_collection)(const char *, char **) = NULL;
+static int (*bucket_mapping_close)(void) = NULL;
+static void (*bucket_mapping_free)(void *) = NULL;
+
+int main(int argc, char *argv[]) {
+
+  if (argc == 1) {
+    fprintf(stderr, "ERROR: execute with path to plugin\n");
+    exit(1);
+  }
+
+  static const char *config_s =
+    "{\n"
+    "  \"${BUCKET_NAME}\": \"${COLLECTION_NAME}\"\n"
+    "}";
+
+  setenv("BUCKET_NAME", "iplant", 1);
+  setenv("COLLECTION_NAME", "collection_1", 1);
+
+  void *plugin = dlopen(argv[1], RTLD_NOW);
+  if (!plugin) {
+    fprintf(stderr, "ERROR: couldn't load plugin\n");
+    exit(1);
+  }
+
+  bucket_mapping_init = dlsym(plugin, "bucket_mapping_init");
+  bucket_mapping_list = dlsym(plugin, "bucket_mapping_list");
+  bucket_mapping_collection = dlsym(plugin, "bucket_mapping_collection");
+  bucket_mapping_close = dlsym(plugin, "bucket_mapping_close");
+  bucket_mapping_free = dlsym(plugin, "bucket_mapping_free");
+
+  if (!bucket_mapping_init) { fprintf(stderr, "ERROR: couldn't load bucket_mapping_init\n"); exit(1); }
+  if (!bucket_mapping_list) { fprintf(stderr, "ERROR: couldn't load bucket_mapping_list\n"); exit(1); }
+  if (!bucket_mapping_collection) { fprintf(stderr, "ERROR: couldn't load bucket_mapping_collection\n"); exit(1); }
+  if (!bucket_mapping_close) { fprintf(stderr, "ERROR: couldn't load bucket_mapping_close\n"); exit(1); }
+  if (!bucket_mapping_free) { fprintf(stderr, "ERROR: couldn't load bucket_mapping_free\n"); exit(1); }
+
+  int result = bucket_mapping_init(config_s);
+  if (result) {
+    exit(result);
+  }
+
+  bucket_mapping_entry_t *buckets;
+  size_t size;
+
+  result = bucket_mapping_list(&buckets, &size);
+  if (result) {
+    exit(result);
+  }
+  if (!buckets) {
+    fprintf(stderr, "ERROR: no buckets!\n");
+    exit(1);
+  }
+  if (size != 1) {
+    fprintf(stderr, "ERROR: wrong number of buckets (%zd, should be 1)\n", size);
+    exit(1);
+  }
+
+  char *collection;
+  result = bucket_mapping_collection("iplant", &collection);
+  if (result) {
+    exit(result);
+  }
+  if (!collection) {
+    fprintf(stderr, "ERROR: no collection for bucket 'iplant'!\n");
+    exit(1);
+  }
+  if (strncmp(collection, "iplant", MAX_STR_LEN)) {
+    fprintf(stderr, "ERROR: wrong collection for bucket 'iplant' ('%s', should be 'collection_1'\n)",
+            collection);
+    exit(1);
+  }
+
+  result = bucket_mapping_close();
+  if (result) {
+    exit(result);
+  }
+
+  dlclose(plugin);
+
+  return 0;
+}
+
+#endif
 
 #ifdef __cplusplus
 } // extern "C"

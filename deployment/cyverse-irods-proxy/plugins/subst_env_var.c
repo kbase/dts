@@ -73,17 +73,9 @@ int main(int argc, char *argv[]) {
     "  }\n"
     "}";
 
-  static const struct {
-    char name[MAX_STR_LEN];
-    char value[MAX_STR_LEN];
-  } env_vars[3] = {
-    {.name = "S3_ACCESS_KEY_ID", .value = "s3-user-1234567"},
-    {.name = "S3_SECRET_KEY", .value = "s3-sekret-1234567"},
-    {.name = "IRODS_USERNAME", .value = "irods-user"},
-  };
-  for (int i = 0; i < 3; ++i) {
-    setenv(env_vars[i].name, env_vars[i].value, 1);
-  }
+  setenv("S3_ACCESS_KEY_ID", "s3-user-1234567", 1);
+  setenv("S3_SECRET_KEY", "s3-sekret-1234567", 1);
+  setenv("IRODS_USERNAME", "irods-user", 1);
 
   char subst[MAX_STR_LEN] = {0};
   int result = subst_env_var(s, subst, MAX_STR_LEN);

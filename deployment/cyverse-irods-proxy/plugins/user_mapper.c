@@ -51,39 +51,39 @@ int user_mapping_init(const char* _json) {
   int i = 0;
   cJSON_ArrayForEach(item, config) {
     if (!cJSON_IsObject(item)) {
-      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' is not an object", item->string);
+      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' is not an object\n", item->string);
       global = (user_mappings_t){0};
       return 1;
     }
     if (!cJSON_HasObjectItem(item, "secret_key")) {
-      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' has no 'secret_key' field", item->string);
+      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' has no 'secret_key' field\n", item->string);
       global = (user_mappings_t){0};
       return 1;
     }
     if (!cJSON_HasObjectItem(item, "username")) {
-      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' has no 'username' field", item->string);
+      fprintf(stderr, "ERROR: mapping for S3 access key ID '%s' has no 'username' field\n", item->string);
       global = (user_mappings_t){0};
       return 1;
     }
 
     cJSON *secret_key = cJSON_GetObjectItemCaseSensitive(item, "secret_key");
     if (!cJSON_IsString(secret_key)) {
-      fprintf(stderr, "ERROR: S3 secret key for S3 access key ID '%s' is not a string", item->string);
+      fprintf(stderr, "ERROR: S3 secret key for S3 access key ID '%s' is not a string\n", item->string);
       global = (user_mappings_t){0};
       return 1;
     }
 
     cJSON *username   = cJSON_GetObjectItemCaseSensitive(item, "username");
     if (!cJSON_IsString(username)) {
-      fprintf(stderr, "ERROR: iRODS username for S3 access key ID '%s' is not a string", item->string);
+      fprintf(stderr, "ERROR: iRODS username for S3 access key ID '%s' is not a string\n", item->string);
       global = (user_mappings_t){0};
       return 1;
     }
 
     // replace any environment variables we find
-    subst_env_var(global.mappings[i].s3_access_key_id, item->string, MAX_STR_LEN);
-    subst_env_var(global.mappings[i].s3_secret_key, cJSON_GetStringValue(secret_key), MAX_STR_LEN);
-    subst_env_var(global.mappings[i].irods_username, cJSON_GetStringValue(username), MAX_STR_LEN);
+    subst_env_var(item->string, global.mappings[i].s3_access_key_id, MAX_STR_LEN);
+    subst_env_var(cJSON_GetStringValue(secret_key), global.mappings[i].s3_secret_key, MAX_STR_LEN);
+    subst_env_var(cJSON_GetStringValue(username), global.mappings[i].irods_username, MAX_STR_LEN);
     ++i;
   }
 
@@ -93,7 +93,7 @@ int user_mapping_init(const char* _json) {
 
 int user_mapping_irods_username(const char* _s3_access_key_id, char** _irods_username) {
   if (!global.num_mappings) {
-    fprintf(stderr, "ERROR: couldn't fetch iRODS username for S3 access key '%s' (invalid mapping state)", _s3_access_key_id);
+    fprintf(stderr, "ERROR: couldn't fetch iRODS username for S3 access key '%s' (invalid mapping state)\n", _s3_access_key_id);
     *_irods_username = NULL;
     return 1;
   }
@@ -109,7 +109,7 @@ int user_mapping_irods_username(const char* _s3_access_key_id, char** _irods_use
 
 int user_mapping_s3_secret_key(const char* _s3_access_key_id, char** _s3_secret_key) {
   if (!global.num_mappings) {
-    fprintf(stderr, "ERROR: couldn't fetch S3 secret key for access key '%s' (invalid mapping state)", _s3_access_key_id);
+    fprintf(stderr, "ERROR: couldn't fetch S3 secret key for access key '%s' (invalid mapping state)\n", _s3_access_key_id);
     *_s3_secret_key = NULL;
     return 1;
   }
@@ -153,7 +153,10 @@ int main(int argc, char *argv[]) {
 
   static const char *config_s =
     "{\n"
-    "  \"${user_NAME}\": \"${COLLECTION_NAME}\",\n"
+    "  \"${S3_ACCESS_KEY_ID}\": {\n"
+    "    \"secret_key\": \"${S3_SECRET_KEY}\",\n"
+    "    \"username\": \"${IRODS_USERNAME}\"\n"
+    "  }\n"
     "}";
 
   setenv("IRODS_USERNAME", "irods_user", 1);
@@ -168,7 +171,7 @@ int main(int argc, char *argv[]) {
 
   user_mapping_init = dlsym(plugin, "user_mapping_init");
   user_mapping_irods_username = dlsym(plugin, "user_mapping_irods_username");
-  user_mapping_s3_secret_key = dlsym(plugin, "user_mapping_s3_secret_key\n");
+  user_mapping_s3_secret_key = dlsym(plugin, "user_mapping_s3_secret_key");
   user_mapping_close = dlsym(plugin, "user_mapping_close");
   user_mapping_free = dlsym(plugin, "user_mapping_free");
 
@@ -199,7 +202,7 @@ int main(int argc, char *argv[]) {
   }
 
   char *s3_sekret;
-  result = user_mapping_irods_username("s3-user-1234567", &s3_sekret);
+  result = user_mapping_s3_secret_key("s3-user-1234567", &s3_sekret);
   if (result) {
     exit(result);
   }
@@ -207,9 +210,9 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "ERROR: no s3 secret for s3 access key 's3-user-1234567'!\n");
     exit(1);
   }
-  if (strncmp(irods_username, "s3-sekret-1234567", MAX_STR_LEN)) {
+  if (strncmp(s3_sekret, "s3-sekret-1234567", MAX_STR_LEN)) {
     fprintf(stderr, "ERROR: wrong s3 secret for s3 access key 's3-user-1234567' ('%s', should be 's3-sekret-1234567'\n)",
-            irods_username);
+            s3_sekret);
     exit(1);
   }
 

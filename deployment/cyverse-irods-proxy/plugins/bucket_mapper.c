@@ -57,8 +57,8 @@ int bucket_mapping_init(const char* _json) {
     }
 
     // replace any environment variables we find
-    subst_env_var(global.mappings[i].bucket, item->string, MAX_STR_LEN);
-    subst_env_var(global.mappings[i].collection, cJSON_GetStringValue(item), MAX_STR_LEN);
+    subst_env_var(item->string, global.mappings[i].bucket, MAX_STR_LEN);
+    subst_env_var(cJSON_GetStringValue(item), global.mappings[i].collection, MAX_STR_LEN);
     ++i;
   }
 
@@ -74,6 +74,7 @@ int bucket_mapping_list(bucket_mapping_entry_t** _buckets, size_t* _size) {
     return 1;
   }
   *_size = global.num_mappings;
+  *_buckets = calloc(*_size, sizeof(bucket_mapping_entry_t)); 
   for (int i = 0; i < global.num_mappings; ++i) {
     (*_buckets)[i] = (bucket_mapping_entry_t){
       .bucket = global.mappings[i].bucket,
@@ -105,6 +106,7 @@ int bucket_mapping_close() {
 }
 
 void bucket_mapping_free(void* _data) {
+  free(_data);
 }
 
 #endif
@@ -179,6 +181,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "ERROR: wrong number of buckets (%zd, should be 1)\n", size);
     exit(1);
   }
+  bucket_mapping_free(buckets);
 
   char *collection;
   result = bucket_mapping_collection("iplant", &collection);
@@ -189,7 +192,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "ERROR: no collection for bucket 'iplant'!\n");
     exit(1);
   }
-  if (strncmp(collection, "iplant", MAX_STR_LEN)) {
+  if (strncmp(collection, "collection_1", MAX_STR_LEN)) {
     fprintf(stderr, "ERROR: wrong collection for bucket 'iplant' ('%s', should be 'collection_1'\n)",
             collection);
     exit(1);

@@ -6,18 +6,18 @@ set(CMAKE_C_STANDARD 11)
 
 add_library(irods_s3_api_bucket_mapper MODULE
   plugins/bucket_mapper.c
-  plugins/subst_env_var.c
+  plugins/plugin_tools.c
   plugins/cJSON.c
 )
 add_library(irods_s3_api_user_mapper MODULE
   plugins/user_mapper.c
-  plugins/subst_env_var.c
+  plugins/plugin_tools.c
   plugins/cJSON.c
 )
 
 enable_testing()
 
-add_executable(test_subst_env_var plugins/subst_env_var.c)
+add_executable(test_subst_env_var plugins/plugin_tools.c plugins/cJSON.c)
 target_compile_definitions(test_subst_env_var PRIVATE TEST)
 add_test(test_subst_env_var test_subst_env_var)
 

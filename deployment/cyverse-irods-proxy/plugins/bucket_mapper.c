@@ -11,8 +11,7 @@ extern "C" {
 #ifndef TEST
 
 #include "bucket_mapping.h"
-#include "subst_env_var.h"
-#include "cJSON.h"
+#include "plugin_tools.h"
 
 typedef struct {
   struct {
@@ -27,20 +26,13 @@ typedef struct {
 static bucket_mappings_t global = {0};
 
 int bucket_mapping_init(const char* _json) {
-  cJSON *config = cJSON_Parse(_json);
-  if (!config) {
-    fprintf(stderr, "ERROR: couldn't parse JSON configuration\n");
+  cJSON *plugin_config = read_plugin_config_file(_json);
+  if (!plugin_config) {
     global = (bucket_mappings_t){0};
     return 1;
   }
 
-  if (!cJSON_IsObject(config)) {
-    fprintf(stderr, "ERROR: JSON configuration is not an object\n");
-    global = (bucket_mappings_t){0};
-    return 1;
-  }
-  
-  global.num_mappings = cJSON_GetArraySize(config);
+  global.num_mappings = cJSON_GetArraySize(plugin_config);
   if (global.num_mappings > MAX_NUM_MAPPINGS) {
     fprintf(stderr, "ERROR: Number of mappings (%d) exceeds maximum (%d)\n", global.num_mappings, MAX_NUM_MAPPINGS);
     global = (bucket_mappings_t){0};
@@ -49,7 +41,7 @@ int bucket_mapping_init(const char* _json) {
 
   cJSON *item;
   int i = 0;
-  cJSON_ArrayForEach(item, config) {
+  cJSON_ArrayForEach(item, plugin_config) {
     if (!cJSON_IsString(item)) {
       fprintf(stderr, "ERROR: mapping for bucket '%s' is not a string (collection)\n", item->string);
       global = (bucket_mappings_t){0};
@@ -62,7 +54,7 @@ int bucket_mapping_init(const char* _json) {
     ++i;
   }
 
-  cJSON_Delete(config);
+  cJSON_Delete(plugin_config);
   return 0;
 }
 
@@ -135,13 +127,14 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  static const char *config_s =
+  // see ../bucket-mapping.json for details
+  static const char *config_s = 
     "{\n"
-    "  \"${BUCKET_NAME}\": \"${COLLECTION_NAME}\"\n"
+    "  \"file_path\": \"../bucket-mapping.json\"\n"
     "}";
 
-  setenv("BUCKET_NAME", "iplant", 1);
-  setenv("COLLECTION_NAME", "collection_1", 1);
+  setenv("S3_BUCKET_NAME", "iplant", 1);
+  setenv("IRODS_COLLECTION", "collection_1", 1);
 
   void *plugin = dlopen(argv[1], RTLD_NOW);
   if (!plugin) {

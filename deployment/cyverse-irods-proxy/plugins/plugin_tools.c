@@ -3,11 +3,58 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "plugin_tools.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define MAX_STR_LEN 1024
+
+cJSON *read_plugin_config_file(const char *json_string) {
+  cJSON *config = cJSON_Parse(json_string);
+  if (!config) {
+    fprintf(stderr, "ERROR: couldn't parse JSON configuration\n");
+    return NULL;
+  }
+
+  if (!cJSON_IsObject(config)) {
+    fprintf(stderr, "ERROR: JSON configuration is not an object\n");
+    return NULL;
+  }
+
+  if (!cJSON_HasObjectItem(config, "file_path")) {
+    fprintf(stderr, "ERROR: JSON configuration object has no 'file_path' field\n");
+    return NULL;
+  }
+
+  cJSON *file_path = cJSON_GetObjectItem(config, "file_path");
+  if (!cJSON_IsString(file_path)) {
+    fprintf(stderr, "ERROR: JSON configuration object 'file_path' field is not a string\n");
+    return NULL;
+  }
+
+  char *file_path_str = cJSON_GetStringValue(file_path);
+  FILE *config_file = fopen(file_path_str, "r");
+  if (!config_file) {
+    fprintf(stderr, "ERROR: Couldn't open JSON configuration file '%s'\n", file_path_str);
+    return NULL;
+  }
+
+  fseek(config_file, 0, SEEK_END);
+  long size = ftell(config_file);
+  char *config_data = malloc(size);
+  rewind(config_file);
+  fread(config_data, sizeof(char), (size_t)size, config_file);
+  fclose(config_file);
+
+  cJSON *plugin_config = cJSON_Parse(config_data);
+
+  free(config_data);
+  cJSON_Delete(config);
+
+  return plugin_config;
+}
 
 // Replaces any environment variable name (${var}) in s with its value, placing the
 // string with substitutions in subst. No nested environment variables are allowed.

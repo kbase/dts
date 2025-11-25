@@ -14,3 +14,9 @@ add_library(irods_s3_api_user_mapper MODULE
   plugins/subst_env_var.c
   plugins/cJSON.c
 )
+
+enable_testing()
+
+add_executable(test_subst_env_var plugins/subst_env_var.c)
+target_compile_definitions(test_subst_env_var PUBLIC TEST)
+add_test(test_subst_env_var test_subst_env_var)

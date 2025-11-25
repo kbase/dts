@@ -355,28 +355,31 @@ func (m *manifestorState) updateStatus(transferId uuid.UUID, entry manifestEntry
 			if err != nil {
 				return false, err
 			}
+
+			err = journal.RecordTransfer(journal.Record{
+				Id:          transferId,
+				Source:      spec.Source,
+				Destination: spec.Destination,
+				Orcid:       spec.User.Orcid,
+				StartTime:   spec.TimeOfRequest,
+				StopTime:    time.Now(),
+				Status:      statusString,
+				PayloadSize: size,
+				NumFiles:    len(spec.FileIds),
+				Manifest:    pkg,
+			})
+			if err != nil {
+				slog.Error(err.Error())
+			}
+			publish(Message{
+				Description:    newStatus.Message,
+				TransferId:     transferId,
+				TransferStatus: newStatus,
+				Time:           time.Now(),
+			})
+		} else {
+			slog.Info(fmt.Sprintf("Transfer %s had no resources; not recording in journal", transferId.String()))
 		}
-		err = journal.RecordTransfer(journal.Record{
-			Id:          transferId,
-			Source:      spec.Source,
-			Destination: spec.Destination,
-			Orcid:       spec.User.Orcid,
-			StartTime:   spec.TimeOfRequest,
-			StopTime:    time.Now(),
-			Status:      statusString,
-			PayloadSize: size,
-			NumFiles:    len(spec.FileIds),
-			Manifest:    pkg,
-		})
-		if err != nil {
-			slog.Error(err.Error())
-		}
-		publish(Message{
-			Description:    newStatus.Message,
-			TransferId:     transferId,
-			TransferStatus: newStatus,
-			Time:           time.Now(),
-		})
 		return true, nil
 	} else {
 		return false, nil

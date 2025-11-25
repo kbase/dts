@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install iRODS
-RUN wget -qO - https://packages.irods.org/irods-signing-key.asc | apt-key add - && \
-    echo "deb [arch=amd64] https://packages.irods.org/apt/ $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/renci-irods.list && \
+RUN wget -qO - https://packages.irods.org/irods-signing-key.asc | gpg --dearmor -o /usr/share/keyrings/irods-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/irods-keyring.gpg] https://packages.irods.org/apt/ $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/renci-irods.list && \
     apt-get update && \
     apt-get install -y \
     irods-server \

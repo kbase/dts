@@ -6,7 +6,7 @@ iRODS requires a PostgreSQL DB instance to be available. The docker-compse confi
 
 To start up the containers in detached mode:
 ```
-podman compose up -d --build
+podman compose up -d --build --force-recreate
 ```
 
 To shut down the containers and remove volumes:

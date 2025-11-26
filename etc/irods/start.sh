@@ -18,15 +18,20 @@ fi
 
 # Start the iRODS server
 echo "Starting iRODS server..."
-su - irods -c "/usr/sbin/irodsServer"
+su - irods -c "/usr/sbin/irodsServer -d"
 
-# Check if the server started successfully
-if pgrep -u irods irodsServer > /dev/null; then
-    echo "iRODS server started successfully."
-    echo "Testing with ils... "
-    su - irods -c "ils"
-else
-    echo "Failed to start iRODS server."
-fi
+# Wait for iRODS server to start
+echo "Waiting for iRODS server to start..."
+for i in {1..30}; do
+    if su - irods -c "ils" 2>/dev/null; then
+        echo "iRODS server is up and running."
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "iRODS server failed to start within expected time."
+        exit 1
+    fi
+    sleep 2
+done
 
 tail -f /var/lib/irods/log/rodsLog.* 2>/dev/null || tail -f /dev/null

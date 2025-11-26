@@ -1,5 +1,6 @@
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject, DataObjectMeta
+import boto3
 import os
 
 # Connect to iRODS
@@ -24,7 +25,7 @@ with iRODSSession(
         print(f" - {obj.id}:{obj.name}")
 
     # Create a new collection (first removing it and any files/metadata if they exists)
-    new_coll_path = f'{home_path}/test_upload'
+    new_coll_path = f'{home_path}/test-bucket'
     if session.collections.exists(new_coll_path):
         print(f'Collection {new_coll_path} already exists. Removing it for clean test.')
         try:
@@ -84,5 +85,29 @@ with iRODSSession(
     )
     for result in query.all():
         print(f' - Found: {result[DataObject.name]} in collection {result[DataObject.collection_id]}')
+
+    # Now, try to access the files via S3 API
+    s3_client = boto3.client(
+        's3',
+        use_ssl=False,
+        endpoint_url='http://localhost:9010',
+        aws_access_key_id='s3_access_key',
+        aws_secret_access_key='s3_secret_key'
+    )
+
+    print(f"\nAccessing files in '{new_coll_path}' via S3 API:")
+    list_bucket_result = s3_client.list_buckets()
+    print("Buckets:")
+    for bucket in list_bucket_result.get("Buckets", []):
+        print(f" - {bucket['Name']}")
+    bucket_name = 'test-bucket'
+    print(f"\nObjects in bucket '{bucket_name}':")
+    objects = s3_client.list_objects_v2(Bucket=bucket_name)
+    for obj in objects.get("Contents", []):
+        print(f" - {obj['Key']}")
+        obj_data = s3_client.get_object(Bucket=bucket_name, Key=obj['Key'])
+        content = obj_data['Body'].read().decode('utf-8')
+        print(f'   Content: {content}')
+
 
 print("\nTest completed successfully.")

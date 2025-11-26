@@ -21,7 +21,7 @@ services:
   irods:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.irods_provider
     hostname: irods-provider
     depends_on:
       postgres:
@@ -43,6 +43,25 @@ services:
       - irods_net
     volumes:
       - irdata:/var/lib/irods
+    healthcheck:
+      test: ["CMD-SHELL", "su - irods -c 'ils' || exit 1"]
+      interval: 10s
+      timeout: 30s
+      retries: 10
+      start_period: 60s
+
+  irods_s3_api:
+    build:
+      context: .
+      dockerfile: Dockerfile.irods_s3_api
+    hostname: irods-s3-api
+    ports:
+      - "9010:9010"
+    networks:
+      - irods_net
+    depends_on:
+      irods:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -34,4 +34,24 @@ for i in {1..30}; do
     sleep 2
 done
 
+# Put a sample file into iRODS and verify its presence
+echo "Putting a sample file into iRODS..."
+echo "This is a sample file for iRODS." > /tmp/sample_file.txt
+su - irods -c "iput /tmp/sample_file.txt /tempZone/home/rods/sample_file.txt"
+echo "Verifying the sample file in iRODS..."
+if su - irods -c "ils /tempZone/home/rods/sample_file.txt" >/dev/null 2>&1; then
+    echo "Sample file successfully uploaded to iRODS."
+    echo "Checking contents of the sample file in iRODS:"
+    su - irods -c "iget /tempZone/home/rods/sample_file.txt /tmp/retrieved_sample_file.txt"
+    if cmp -s /tmp/sample_file.txt /tmp/retrieved_sample_file.txt; then
+      echo "File contents match."
+    else
+      echo "File contents do not match!"
+      exit 1
+    fi
+else
+    echo "Failed to upload sample file to iRODS."
+    exit 1
+fi
+
 tail -f /var/lib/irods/log/rodsLog.* 2>/dev/null || tail -f /dev/null

@@ -54,4 +54,10 @@ else
     exit 1
 fi
 
+# Make sure the collections expected by the S3 tests exist
+su - irods -c "imkdir -p /tempZone/home/rods/test-bucket"
+su - irods -c "imkdir -p /tempZone/home/rods/test-bucket-integration-irods-foo"
+su - irods -c "imkdir -p /tempZone/home/rods/test-bucket-integration-irods-bar"
+su - irods -c "imkdir -p /tempZone/home/rods/test-bucket-integration-irods-baz"
+
 tail -f /var/lib/irods/log/rodsLog.* 2>/dev/null || tail -f /dev/null

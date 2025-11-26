@@ -297,7 +297,10 @@ func registerDatabaseByEndpointProvider(dbName string, dbConf map[string]any) er
 		if ep, err := endpoints.NewEndpoint(epNameString); err == nil {
 			switch strings.Split(ep.Provider(), ":")[0] {
 			case "s3":
-				databases.RegisterDatabase(dbName, s3db.DatabaseConstructor(dbConf))
+				err := databases.RegisterDatabase(dbName, s3db.DatabaseConstructor(dbConf))
+				if err != nil {
+					return err
+				}
 			default:
 				return fmt.Errorf("endpoint '%s' for database '%s' has invalid provider '%s'", epNameString, dbName, ep.Provider())
 			}

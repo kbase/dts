@@ -1,3 +1,6 @@
 {
-  "test-bucket": "/tempZone/home/rods/test-bucket"
+  "test-bucket": "/tempZone/home/rods/test-bucket",
+  "test-bucket-integration-irods-foo": "/tempZone/home/rods/test-bucket-integration-irods-foo",
+  "test-bucket-integration-irods-bar": "/tempZone/home/rods/test-bucket-integration-irods-bar",
+  "test-bucket-integration-irods-baz": "/tempZone/home/rods/test-bucket-integration-irods-baz"
 }

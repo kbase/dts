@@ -38,6 +38,10 @@ jobs:
       run: docker compose -f docker-compose.yml up -d --build
 
     - name: Wait for iRODS S3 API to be ready
+      env:
+        AWS_ACCESS_KEY_ID: s3_access_key
+        AWS_SECRET_ACCESS_KEY: s3_secret_key
+        AWS_DEFAULT_REGION: us-east-1
       run: |
         echo "Waiting for iRODS S3 API to be ready..."
         for i in {1..30}; do

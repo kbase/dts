@@ -1,0 +1,71 @@
+{
+    "s3_server": {
+        "host": "0.0.0.0",
+        "port": 9010,
+        "log_level": "info",
+
+        "bucket_mapping": {
+            "plugin_path": "lib/irods_s3_api/plugins/bucket_mapping/libirods_s3_api_plugin-bucket_mapping-local_file.so",
+            "configuration": {
+                "file_path": "/plugin-config/file_mapping.json"
+            }
+        },
+
+        "user_mapping": {
+            "plugin_path": "lib/irods_s3_api/plugins/user_mapping/libirods_s3_api_plugin-user_mapping-local_file.so",
+            "configuration": {
+                "file_path": "/plugin-config/user_mapping.json"
+            }
+        },
+
+        "region": "us-east-1",
+
+        "multipart_upload_part_files_directory": "/tmp",
+
+        "requests": {
+            "threads": 3,
+            "max_size_of_request_body_in_bytes": 8388608,
+            "timeout_in_seconds": 30
+        },
+
+        "background_io": {
+            "threads": 6
+        }
+    },
+
+    "irods_client": {
+        "host": "irods-provider",
+        "port": 1247,
+        "zone": "tempZone",
+
+        "tls": {
+            "client_server_policy": "CS_NEG_REFUSE",
+            "ca_certificate_file": "",
+            "verify_server": "none",
+            "client_server_negotiation": "request_server_negotiation",
+            "encryption_algorithm": "AES-256-CBC",
+            "encryption_key_size": 32,
+            "encryption_hash_rounds": 16,
+            "encryption_salt_size": 8
+        },
+
+        "enable_4_2_compatibility": false,
+
+        "proxy_admin_account": {
+            "username": "rods",
+            "password": "rods"
+        },
+
+        "connection_pool": {
+            "size": 6,
+            "refresh_timeout_in_seconds": 600,
+            "max_retrievals_before_refresh": 16,
+            "refresh_when_resource_changes_detected": true
+        },
+
+        "resource": "demoResc",
+
+        "put_object_buffer_size_in_bytes": 8192,
+        "get_object_buffer_size_in_bytes": 8192
+    }
+}

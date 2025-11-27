@@ -1,0 +1,9 @@
+[project]
+name = "irods"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.41.5",
+    "python-irodsclient>=3.2.0",
+]

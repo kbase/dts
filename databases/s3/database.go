@@ -77,6 +77,8 @@ type Config struct {
 	DeleteAfter int `yaml:"delete_after,omitempty" mapstructure:"delete_after,omitempty"`
 	// Endpoint name
 	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
+	// Disable SSL (optional; default: false)
+	DisableSSL bool `yaml:"disable_ssl,omitempty" mapstructure:"disable_ssl,omitempty"`
 }
 
 type StagingRequest struct {
@@ -122,6 +124,7 @@ func NewDatabase(bucket string, cfg Config) (databases.Database, error) {
 			o.Region = cfg.Region
 		}
 		o.UsePathStyle = cfg.UsePathStyle
+		o.EndpointOptions.DisableHTTPS = cfg.DisableSSL
 	})
 	newDb.Bucket = bucket
 
@@ -303,21 +306,29 @@ func (db *Database) s3ObjectToDescriptor(key string) (map[string]any, error) {
 		return nil, fmt.Errorf("error retrieving metadata for S3 object %s: %v", key, err)
 	}
 
+	mediatype := aws.ToString(headOutput.ContentType)
+	if mediatype == "" {
+		mediatype = "application/octet-stream"
+	}
 	descriptor := map[string]any{
 		"id":        key,
 		"name":      filepath.Base(key),
 		"path":      key,
-		"mediatype": aws.ToString(headOutput.ContentType),
+		"mediatype": mediatype,
 		"bytes":     aws.ToInt64(headOutput.ContentLength),
 	}
 
 	// add ETag as checksum if available
 	if headOutput.ETag != nil {
 		descriptor["hash"] = strings.Trim(aws.ToString(headOutput.ETag), `"`)
+	} else {
+		descriptor["hash"] = ""
 	}
 
 	if headOutput.ContentEncoding != nil {
 		descriptor["encoding"] = aws.ToString(headOutput.ContentEncoding)
+	} else {
+		descriptor["encoding"] = ""
 	}
 	return descriptor, nil
 }

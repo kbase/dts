@@ -37,15 +37,6 @@ jobs:
       working-directory: etc/irods
       run: docker compose -f docker-compose.yml up -d --build
 
-    - name: Install AWS CLI
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y unzip curl
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-        unzip awscliv2.zip
-        sudo ./aws/install
-        aws --version
-
     - name: Wait for iRODS S3 API to be ready
       run: |
         echo "Waiting for iRODS S3 API to be ready..."

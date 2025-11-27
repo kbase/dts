@@ -607,9 +607,8 @@ func TestSearch(t *testing.T) {
 	results, err := db.Search(testOrcid, params)
 
 	if areValidCredentials {
-		// this call ^^^ times out, so we expect it to time out for now.
-		assert.NotNil(err, "NMDC search query somehow didn't time out?")
-		assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+		assert.Nil(err, "NMDC search query encountered an error")
+		assert.True(len(results.Descriptors) > 0, "NMDC search query returned no results")
 	} else {
 		// at least the mock service should work
 		assert.Nil(err, "NMDC search query encountered an error")
@@ -745,9 +744,8 @@ func TestDescriptors(t *testing.T) {
 	}
 	results, err := db.Search(testOrcid, params)
 	if areValidCredentials {
-		// this call ^^^ times out, so we expect an error.
-		assert.NotNil(err, "NMDC search query somehow didn't time out?")
-		assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+		assert.Nil(err, "NMDC search query encountered an error")
+		assert.True(len(results.Descriptors) > 0, "NMDC search query returned no results")
 		return
 	}
 	assert.Nil(err, "NMDC search query encountered an error")

@@ -10,13 +10,13 @@ using Docker or Podman:
 docker run -d -p 9000:9000 -p 9001:9001 -e "MINIO_ROOT_USER=minioadmin" -e "MINIO_ROOT_PASSWORD=minioadmin" minio/minio server /data --console-address ":9001"
 ```
 
-You will also need to start up the text iRODS environment:
+You will also need to start up the test iRODS environment:
 ```
 cd etc/irods
 docker compose up -d
 ```
 
-Then, you can the integrations tests with (from the root project folder):
+Then, you can run the integration tests with (from the root project folder):
 
 ```
 go test ./integration/...

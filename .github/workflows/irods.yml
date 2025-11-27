@@ -1,4 +1,6 @@
 name: irods-integration-tests
+permissions:
+  contents: read
 
 on:
   push:
@@ -34,7 +36,7 @@ jobs:
     - name: Set up iRODS and iRODS S3 API
       working-directory: etc/irods
       run: |
-        docker-compose -f docker-compose.yml up -d --build
+        docker compose -f docker-compose.yml up -d --build
         echo "Waiting for iRODS S3 API to be healthy..."
         for i in {1..30}; do
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9010/health)

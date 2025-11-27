@@ -673,9 +673,8 @@ func TestConcurrentTransfers(t *testing.T) {
 
 			resp, err := client.Do(req)
 			assert.Nil(err, "failed to perform request to cancel transfer")
-			defer resp.Body.Close()
-
 			assert.Equal(http.StatusAccepted, resp.StatusCode, "unexpected status code for cancel transfer")
+			resp.Body.Close()
 		}
 	}
 
@@ -716,7 +715,6 @@ func TestConcurrentTransfers(t *testing.T) {
 
 			resp, err := client.Do(req)
 			assert.Nil(err, "failed to perform request for destination database fetch metadata after processing")
-			defer resp.Body.Close()
 
 			assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for destination database fetch metadata after processing")
 			respBody, err := io.ReadAll(resp.Body)
@@ -738,6 +736,7 @@ func TestConcurrentTransfers(t *testing.T) {
 				_, ok = expectedFileNames[path]
 				assert.True(ok, "unexpected file path in destination metadata response after processing: %s", path)
 			}
+			resp.Body.Close()
 		}
 	}
 }

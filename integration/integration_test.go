@@ -821,6 +821,10 @@ func teardown(service services.TransferService) {
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("DTS_TEST_WITH_IRODS") == "true" {
+		slog.Info("Skipping integration test w/o iRODS support")
+		return
+	}
 	service := setup()
 	code := m.Run()
 	teardown(service)

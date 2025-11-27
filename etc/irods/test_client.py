@@ -1,5 +1,5 @@
 from irods.session import iRODSSession
-from irods.models import Collection, DataObject, DataObjectMeta
+from irods.models import DataObject, DataObjectMeta
 import boto3
 import os
 

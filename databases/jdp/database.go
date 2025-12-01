@@ -230,10 +230,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		}
 	}
 
-	for i := range descriptors {
+	for i := range fileIds {
 		descriptors[i] = descriptorsByFileId[fileIds[i]]
 	}
-	return descriptors, nil
+	return descriptors[:len(fileIds)], nil
 }
 
 func (db *Database) EndpointNames() []string {

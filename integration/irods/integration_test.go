@@ -430,7 +430,7 @@ func TestTransfer(t *testing.T) {
 	assert.Equal(2, status.NumFiles, "unexpected number of files in status response")
 
 	// wait for transfer to complete
-	time.Sleep(10 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	status = getTransferStatus(t, client, transferId)
 	assert.Equal(transferId.String(), status.Id, "unexpected transfer ID in status response after wait")

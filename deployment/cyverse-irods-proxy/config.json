@@ -1,192 +1,73 @@
 {
-    // Defines options that affect how the client-facing component of the
-    // server behaves.
     "s3_server": {
-        // The hostname or IP address to bind.
-        // "0.0.0.0" instructs the server to listen on all network interfaces.
         "host": "0.0.0.0",
-
-        // The port used to accept incoming client requests.
         "port": 9000,
-
-        // (Optional)
-        // The minimum log level needed before logging activity.
-        //
-        // The following values are supported:
-        // - trace
-        // - debug
-        // - info
-        // - warn
-        // - error
-        // - critical
         "log_level": "info",
 
-        // Defines options for the Bucket Mapping plugin system.
-        // See the section titled "Bucket Mapping" to learn more.
         "bucket_mapping": {
-            // The path to the plugin to load.
             "plugin_path": "/plugins/libirods_s3_api_bucket_mapper.so",
 
-            // Defines configuration required by the selected plugin. 
             "configuration": {
-              "file_path": "bucket-mapping.json"
+              "file_path": "/bucket-mapping.json"
             }
         },
 
-        // Defines options for the User Mapping plugin system.
-        // See the section titled "User Mapping" to learn more.
         "user_mapping": {
-            // The path to the plugin to load.
             "plugin_path": "/plugins/libirods_s3_api_user_mapper.so",
 
-            // Defines configuration required by the selected plugin. 
             "configuration": {
-              "file_path": "user-mapping.json"
+              "file_path": "/user-mapping.json"
             }
         },
 
-        // Defines the region the server will report as being a member of.
         "region": "us-west-1",
 
-        // Defines the location where part files are temporarily stored
-        // on the irods_s3_api server before being streamed to iRODS. 
         "multipart_upload_part_files_directory": "/tmp",
 
-        // Defines options that affect how client requests are handled.
         "requests": {
-            // The number of threads dedicated to servicing client requests.
-            // When adjusting this value, consider adjusting "background_io/threads"
-            // and "irods_client/connection_pool/size" as well.
             "threads": 3,
-
-            // The maximum size allowed for the body of a request.
             "max_size_of_request_body_in_bytes": 8388608,
-
-            // The amount of time allowed to service a request. If the timeout
-            // is exceeded, the client's connection is terminated immediately.
             "timeout_in_seconds": 30
         },
 
-        // Defines options that affect tasks running in the background.
-        // These options are primarily related to long-running tasks.
         "background_io": {
-            // The number of threads dedicated to background I/O.
             "threads": 6
         }
     },
 
-    // CyVerse iRODS connection information
-    // (https://learning.cyverse.org/ds/gocommands/configuration/#using-the-init-command)
     "irods_client": {
-        // The hostname or IP of the target iRODS server.
         "host": "data.cyverse.org",
-
-        // The port of the target iRODS server.
         "port": 1247,
-
-        // The zone of the target iRODS server.
         "zone": "iplant",
 
-        // Defines options for secure communication with the target iRODS server.
         "tls": {
-            // Controls whether the client and server communicate using TLS.
-            //
-            // The following values are supported:
-            // - CS_NEG_REFUSE:    Do not use secure communication.
-            // - CS_NEG_REQUIRE:   Demand secure communication.
-            // - CS_NEG_DONT_CARE: Let the server decide.
             "client_server_policy": "CS_NEG_REFUSE",
-
-            // The file containing trusted CA certificates in PEM format.
-            //
-            // Note that the certificates in this file are used in conjunction
-            // with the system default trusted certificates.
-            "ca_certificate_file": "<string>",
-
-            // Defines the level of server certificate authentication to
-            // perform.
-            //
-            // The following values are supported:
-            // - none:     Authentication is skipped.
-            // - cert:     The server verifies the certificate is signed by
-            //             a trusted CA.
-            // - hostname: Equivalent to "cert", but also verifies the FQDN
-            //             of the iRODS server matches either the common
-            //             name or one of the subjectAltNames.
-            "verify_server": "cert",
-
-            // Controls whether advanced negotiation is used.
-            //
-            // This option must be set to "request_server_negotiation" for
-            // establishing secure communication.
-            //
-            // This option is ignored when connected to an iRODS 5 server.
+            "ca_certificate_file": "",
+            "verify_server": "none",
             "client_server_negotiation": "request_server_negotiation",
-
-            // Defines the encryption algorithm used for secure communication.
             "encryption_algorithm": "AES-256-CBC",
-
-            // Defines the key size used for encryption.
             "encryption_key_size": 32,
-
-            // Defines the number of hash rounds used for encryption.
             "encryption_hash_rounds": 16,
-
-            // Defines the salt size used for encryption.
             "encryption_salt_size": 8
         },
 
-        // Controls how the S3 API communicates with the iRODS server.
-        //
-        // When set to true, the following applies:
-        // - Only APIs supported by the iRODS 4.2 series will be used.
-        // - Connection pool settings are ignored.
-        // - All HTTP requests will be served using a new iRODS connection.
-        //
-        // When set to false, the S3 API will take full advantage of the
-        // iRODS server's capabilities.
-        //
-        // This option should be used when the S3 API is configured to
-        // communicate with an iRODS 4.2 server.
         "enable_4_2_compatibility": false,
 
-        // The credentials for the rodsadmin user that will act as a proxy
-        // for all authenticated users.
         "proxy_admin_account": {
-            "username": "<string>",
-            "password": "<string>"
+            "username": "jeffcohere",
+            "password": ""
         },
 
-        // Defines options for the connection pool.
         "connection_pool": {
-            // The number of connections in the pool.
             "size": 6,
-
-            // (Optional)
-            // The amount of time that must pass before a connection is
-            // renewed (i.e. replaced).
             "refresh_timeout_in_seconds": 600,
-
-            // (Optional)
-            // The number of times a connection can be fetched from the pool
-            // before it is refreshed.
             "max_retrievals_before_refresh": 16,
-
-            // (Optional)
-            // Instructs the connection pool to track changes in resources.
-            // If a change is detected, all connections will be refreshed.
             "refresh_when_resource_changes_detected": true
         },
 
-        // The resource to target for all write operations.
-        "resource": "<string>",
+        "resource": "myResc",
 
-        // The buffer size used to read objects from the client
-        // and write to iRODS.
         "put_object_buffer_size_in_bytes": 8192,
-
-        // The buffer size used to read objects from iRODS
-        // and send to the client.
         "get_object_buffer_size_in_bytes": 8192
     }
 }

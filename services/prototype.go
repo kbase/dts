@@ -134,14 +134,6 @@ func (service *prototype) Close() {
 // Internals
 //-----------
 
-// Version numbers
-var majorVersion = 0
-var minorVersion = 10
-var patchVersion = 0
-
-// Version string
-var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)
-
 // Authorize clients for the DTS, returning information about the user
 // corresponding to the token in the header (or an error describing any issue
 // encountered).

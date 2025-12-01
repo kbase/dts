@@ -1,0 +1,65 @@
+name: irods-integration-tests
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+
+  irods-integration-tests:
+    name: iRODS Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+    
+    - name: Setting up Go 1.21
+      uses: actions/setup-go@v4
+      with:
+        go-version: ^1.21
+      id: go
+
+    - name: Checking out DTS
+      uses: actions/checkout@v4
+
+    - name: Set up MinIO
+      uses: infleet/minio-action@v0.0.1
+      with:
+        port: "9000"
+        version: "latest"
+        username: "minioadmin"
+        password: "minioadmin"
+
+    - name: Set up iRODS and iRODS S3 API
+      working-directory: etc/irods
+      run: docker compose -f docker-compose.yml up -d --build
+
+    - name: Wait for iRODS S3 API to be ready
+      env:
+        AWS_ACCESS_KEY_ID: s3_access_key
+        AWS_SECRET_ACCESS_KEY: s3_secret_key
+        AWS_DEFAULT_REGION: us-east-1
+      run: |
+        echo "Waiting for iRODS S3 API to be ready..."
+        for i in {1..30}; do
+          if aws --endpoint-url http://localhost:9010 s3 ls >/dev/null 2>&1; then
+            echo "iRODS S3 API is ready!"
+            exit 0
+          else
+            echo "iRODS S3 API not ready yet. Retrying in 5 seconds..."
+            sleep 5
+          fi
+        done
+        echo "iRODS S3 API did not become ready in time."
+        exit 1
+
+    - name: Building DTS
+      run: go build -v ./...
+
+    - name: Run iRODS Integration Tests
+      env:
+        DTS_TEST_WITH_IRODS: "true"
+      run: go test -v ./integration/irods/...

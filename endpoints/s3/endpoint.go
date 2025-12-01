@@ -88,6 +88,8 @@ type Config struct {
 	BaseURL string `yaml:"base_url,omitempty" mapstructure:"base_url,omitempty"`
 	// Whether to use path-style addressing
 	UsePathStyle bool `yaml:"use_path_style,omitempty" mapstructure:"use_path_style,omitempty"`
+	// Disable SSL (optional; default: false)
+	DisableSSL bool `yaml:"disable_ssl,omitempty" mapstructure:"disable_ssl,omitempty"`
 }
 
 // creates a new S3 endpoint from the provided configuration information
@@ -118,6 +120,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 			o.Region = ecfg.Region
 		}
 		o.UsePathStyle = ecfg.UsePathStyle
+		o.EndpointOptions.DisableHTTPS = ecfg.DisableSSL
 	})
 	newEndpoint.Downloader = manager.NewDownloader(newEndpoint.Client)
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)

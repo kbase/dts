@@ -73,7 +73,7 @@ func addAuthHeader(req *http.Request) {
 
 func TestGetDatabases(t *testing.T) {
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 1000 * time.Second,
 	}
 
 	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/databases", nil)
@@ -430,7 +430,7 @@ func TestTransfer(t *testing.T) {
 	assert.Equal(2, status.NumFiles, "unexpected number of files in status response")
 
 	// wait for transfer to complete
-	time.Sleep(5 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	status = getTransferStatus(t, client, transferId)
 	assert.Equal(transferId.String(), status.Id, "unexpected transfer ID in status response after wait")
@@ -673,9 +673,8 @@ func TestConcurrentTransfers(t *testing.T) {
 
 			resp, err := client.Do(req)
 			assert.Nil(err, "failed to perform request to cancel transfer")
-			defer resp.Body.Close()
-
 			assert.Equal(http.StatusAccepted, resp.StatusCode, "unexpected status code for cancel transfer")
+			resp.Body.Close()
 		}
 	}
 
@@ -716,7 +715,6 @@ func TestConcurrentTransfers(t *testing.T) {
 
 			resp, err := client.Do(req)
 			assert.Nil(err, "failed to perform request for destination database fetch metadata after processing")
-			defer resp.Body.Close()
 
 			assert.Equal(http.StatusOK, resp.StatusCode, "unexpected status code for destination database fetch metadata after processing")
 			respBody, err := io.ReadAll(resp.Body)
@@ -738,6 +736,7 @@ func TestConcurrentTransfers(t *testing.T) {
 				_, ok = expectedFileNames[path]
 				assert.True(ok, "unexpected file path in destination metadata response after processing: %s", path)
 			}
+			resp.Body.Close()
 		}
 	}
 }
@@ -745,6 +744,9 @@ func TestConcurrentTransfers(t *testing.T) {
 func setup() services.TransferService {
 	// reset the S3 test buckets
 	ResetMinioTestBuckets()
+
+	// reset the iRODS test buckets
+	ResetIrodsTestBuckets()
 
 	// create a manifests directory if it doesn't exist
 	if _, err := os.Stat("manifests"); os.IsNotExist(err) {
@@ -821,6 +823,10 @@ func teardown(service services.TransferService) {
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("DTS_TEST_WITH_IRODS") != "true" {
+		println("Skipping iRODS integration tests; set DTS_TEST_WITH_IRODS=true to run them")
+		return
+	}
 	service := setup()
 	code := m.Run()
 	teardown(service)

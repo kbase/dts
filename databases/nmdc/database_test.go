@@ -607,9 +607,14 @@ func TestSearch(t *testing.T) {
 	results, err := db.Search(testOrcid, params)
 
 	if areValidCredentials {
-		// this call ^^^ times out, so we expect it to time out for now.
-		assert.NotNil(err, "NMDC search query somehow didn't time out?")
-		assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+		expectTimeout := false // this call ^^^ often times out, so toggle this as needed
+		if expectTimeout {
+			assert.NotNil(err, "NMDC search query somehow didn't time out?")
+			assert.True(len(results.Descriptors) == 0, "NMDC search query returned results (hooray?)")
+		} else {
+			assert.Nil(err, "NMDC search query encountered an error")
+			assert.NotNil(results, "NMDC search query did not return results")
+		}
 	} else {
 		// at least the mock service should work
 		assert.Nil(err, "NMDC search query encountered an error")

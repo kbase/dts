@@ -40,7 +40,7 @@ type Database struct {
 
 type Config struct {
 	Endpoint                  string `yaml:"endpoint"`
-	KBaseUserFederationConfig `yaml:",inline"`
+	KBaseUserFederationConfig `yaml:",inline" mapstructure:",squash"`
 }
 
 func NewDatabase(conf Config) (databases.Database, error) {

@@ -6,6 +6,9 @@
 # DATA_DIRECTORY: an absolute path to the directory used by DTS to manage its
 #                 own data
 # DEBUG: true to enable debug-level logging, false to disable
+# DTS_JDP_SECRET: the shared secret for accessing the JGI Data Portal
+# DTS_NMDC_USER: the username for accessing the NMDC API
+# DTS_NMDC_PASSWORD: the password for accessing the NMDC API
 # GLOBUS_CLIENT_ID: the Globus client ID registered for the DTS application
 # GLOBUS_CLIENT_SECRET: the Globus client secret associated with the client ID
 # JDP_ENDPOINT_ID: a UUID identifying the JGI Data Portal Globus share
@@ -93,6 +96,7 @@ databases: # databases between which files can be transferred
     name: KBase Workspace Service (KSS)
     organization: KBase
     endpoint: globus-kbase
+    data_directory: /data
   nmdc:
     name: National Microbiome Data Collaborative
     organization: LBNL, PNNL, ORNL

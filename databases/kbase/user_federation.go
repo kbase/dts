@@ -56,7 +56,7 @@ type KBaseUserFederation struct {
 
 // configuration information for the KBase user federation subsystem
 type KBaseUserFederationConfig struct {
-	DataDirectory string `yaml:"data_directory"`
+	DataDirectory string `yaml:"data_directory" mapstructure:"data_directory"`
 }
 
 func newKBaseUserFederation(conf KBaseUserFederationConfig) (KBaseUserFederation, error) {

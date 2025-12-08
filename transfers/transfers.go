@@ -272,7 +272,9 @@ func registerDatabases(conf config.Config) error {
 			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
 		if constructor, found := dbConstructors[dbName]; found {
-			databases.RegisterDatabase(dbName, constructor(dbConf))
+			if err := databases.RegisterDatabase(dbName, constructor(dbConf)); err != nil {
+				slog.Error(err.Error())
+			}
 		} else {
 			// check the endpoint's provider to see whether we can construct one of the
 			// file-system-oriented databases

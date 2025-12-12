@@ -138,11 +138,15 @@ func (m *moverState) process(decoder *gob.Decoder) {
 	for running {
 		select {
 		case transferId := <-m.Channels.RequestMove:
-			moves, err := m.moveFiles(transferId)
-			if err == nil {
-				moveOperations[transferId] = moves
+			if _, found := moveOperations[transferId]; !found {
+				moves, err := m.moveFiles(transferId)
+				if err == nil {
+					moveOperations[transferId] = moves
+				}
+				m.Channels.Error <- err
+			} else {
+				m.Channels.Error <- fmt.Errorf("File move for transfer %s previously requested!", transferId.String())
 			}
-			m.Channels.Error <- err
 		case transferId := <-m.Channels.RequestCancellation:
 			if moves, found := moveOperations[transferId]; found {
 				err := m.cancel(moves)

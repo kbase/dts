@@ -145,7 +145,7 @@ func (m *moverState) process(decoder *gob.Decoder) {
 				}
 				m.Channels.Error <- err
 			} else {
-				m.Channels.Error <- fmt.Errorf("File move for transfer %s previously requested!", transferId.String())
+				m.Channels.Error <- fmt.Errorf("file move for transfer %s previously requested", transferId.String())
 			}
 		case transferId := <-m.Channels.RequestCancellation:
 			if moves, found := moveOperations[transferId]; found {

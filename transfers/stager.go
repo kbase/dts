@@ -274,13 +274,11 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (
 			if err != nil {
 				slog.Error(err.Error())
 			}
-
 		}
-	}
-
-	if newStatus.Code == TransferStatusActive {
-		if err := mover.MoveFiles(transferId); err != nil {
-			return completed, err
+		if newStatus.Code == TransferStatusActive {
+			if err := mover.MoveFiles(transferId); err != nil {
+				return completed, err
+			}
 		}
 	}
 	return completed, nil

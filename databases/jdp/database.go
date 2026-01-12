@@ -696,7 +696,7 @@ func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[strin
 // parameters
 func pageNumberAndSize(offset, maxNum int) (int, int) {
 	pageNumber := 1
-	pageSize := 100
+	pageSize := 50
 	if offset > 0 {
 		if maxNum == -1 {
 			pageSize = offset

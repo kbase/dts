@@ -866,7 +866,7 @@ func TestPageNumberAndSize(t *testing.T) {
 	assert := assert.New(t)
 	num, size := pageNumberAndSize(0, 0)
 	assert.Equal(1, num, "Page number for offset 0 and size 0 is incorrect")
-	assert.Equal(100, size, "Page size for offset 0 and size 0 is incorrect")
+	assert.Equal(50, size, "Page size for offset 0 and size 0 is incorrect")
 
 	num, size = pageNumberAndSize(0, 10)
 	assert.Equal(1, num, "Page number for offset 0 and size 10 is incorrect")

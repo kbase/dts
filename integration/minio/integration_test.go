@@ -478,8 +478,9 @@ func TestCancelTransfer(t *testing.T) {
 	client := &http.Client{
 		Timeout: 1000 * time.Second,
 	}
+	orcid := "0000-0000-1234-0000"
 	transfer, err := json.Marshal(services.TransferRequest{
-		Orcid:       "0000-0000-1234-0000",
+		Orcid:       orcid,
 		Source:      "db-foo",
 		Destination: "db-bar",
 		FileIds:     []string{"dir1/file3.txt", "dir1/file4.txt"},
@@ -505,7 +506,7 @@ func TestCancelTransfer(t *testing.T) {
 	slog.Info("Created transfer to be canceled", "id", transferIdString)
 
 	// cancel the transfer
-	req, err = http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString, nil)
+	req, err = http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString+"?orcid="+orcid, nil)
 	assert.Nil(err, "failed to create request to cancel transfer")
 	addAuthHeader(req)
 
@@ -564,10 +565,11 @@ func TestConcurrentTransfers(t *testing.T) {
 		Cancel        bool
 	}
 
+	orcid := "0000-0000-1234-0000"
 	transfers := []transferInfo{
 		{
 			Request: services.TransferRequest{
-				Orcid:       "0000-0000-1234-0000",
+				Orcid:       orcid,
 				Source:      "db-foo",
 				Destination: "db-baz",
 				FileIds:     []string{"file1.txt", "file2.txt"},
@@ -577,7 +579,7 @@ func TestConcurrentTransfers(t *testing.T) {
 		},
 		{
 			Request: services.TransferRequest{
-				Orcid:       "0000-0000-1234-0000",
+				Orcid:       orcid,
 				Source:      "db-foo",
 				Destination: "db-baz",
 				FileIds:     []string{"dir1/file3.txt", "dir1/file4.txt"},
@@ -587,7 +589,7 @@ func TestConcurrentTransfers(t *testing.T) {
 		},
 		{
 			Request: services.TransferRequest{
-				Orcid:       "0000-0000-1234-0000",
+				Orcid:       orcid,
 				Source:      "db-bar",
 				Destination: "db-foo",
 				FileIds:     []string{"file3.txt"},
@@ -597,7 +599,7 @@ func TestConcurrentTransfers(t *testing.T) {
 		},
 		{
 			Request: services.TransferRequest{
-				Orcid:       "0000-0000-1234-0000",
+				Orcid:       orcid,
 				Source:      "db-bar",
 				Destination: "db-baz",
 				FileIds:     []string{"file3.txt", "file4.txt"},
@@ -607,7 +609,7 @@ func TestConcurrentTransfers(t *testing.T) {
 		},
 		{
 			Request: services.TransferRequest{
-				Orcid:       "0000-0000-1234-0000",
+				Orcid:       orcid,
 				Source:      "db-foo",
 				Destination: "db-baz",
 				FileIds:     []string{"dir2/file5.txt", "dir2/subdir1/file6.txt"},
@@ -667,7 +669,7 @@ func TestConcurrentTransfers(t *testing.T) {
 			slog.Info("Cancelling transfer", "id", transferIdString)
 
 			// cancel the transfer
-			req, err := http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString, nil)
+			req, err := http.NewRequest("DELETE", testServiceURL+"/api/v1/transfers/"+transferIdString+"?orcid="+orcid, nil)
 			assert.Nil(err, "failed to create request to cancel transfer")
 			addAuthHeader(req)
 

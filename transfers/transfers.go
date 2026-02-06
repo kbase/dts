@@ -196,10 +196,10 @@ func Status(transferId uuid.UUID) (TransferStatus, error) {
 	return dispatcher.GetTransferStatus(transferId)
 }
 
-// Requests that the transfer with the given UUID be canceled. Clients should check
-// the status of the transfer separately.
-func Cancel(transferId uuid.UUID) error {
-	return dispatcher.CancelTransfer(transferId)
+// Requests that the transfer with the given UUID (initiated by the user with the given Orcid) be
+// canceled. Clients should check the status of the transfer separately.
+func Cancel(transferId uuid.UUID, orcid string) error {
+	return dispatcher.CancelTransfer(transferId, orcid)
 }
 
 //===========

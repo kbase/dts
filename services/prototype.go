@@ -771,10 +771,11 @@ func (service *prototype) deleteTransfer(ctx context.Context,
 	input *struct {
 		Authorization string    `header:"authorization" doc:"Authorization header with encoded access token"`
 		Id            uuid.UUID `path:"id" example:"de9a2d6a-f5c9-4322-b8a7-8121d83fdfc2" doc:"the UUID for the requested transfer"`
+		Orcid         string    `json:"orcid" query:"orcid" example:"1234-5678-9101=112X" doc:"The ORCID of the user that initiated the transfer"`
 	}) (*TaskDeletionOutput, error) {
 
 	// request that the task be canceled
-	err := transfers.Cancel(input.Id)
+	err := transfers.Cancel(input.Id, input.Orcid)
 	if err != nil {
 		return nil, err
 	}

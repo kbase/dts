@@ -700,7 +700,7 @@ func TestCreateAndCancelTransfer(t *testing.T) {
 		return statusResp, err
 	}
 	cancelTransfer := func() error {
-		resp, err := delete_(baseUrl + apiPrefix + fmt.Sprintf("transfers/%s", xferId.String()))
+		resp, err := delete_(baseUrl + apiPrefix + fmt.Sprintf("transfers/%s?orcid=%s", xferId.String(), orcid))
 		if err != nil {
 			return err
 		}

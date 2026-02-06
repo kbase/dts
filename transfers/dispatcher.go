@@ -60,11 +60,16 @@ type dispatcherState struct {
 	Channels dispatcherChannels
 }
 
+type transferCancellationRequest struct {
+	Id    uuid.UUID
+	Orcid string
+}
+
 type dispatcherChannels struct {
 	RequestTransfer  chan Specification // used by client to create a new transfer
 	ReturnTransferId chan uuid.UUID     // returns transfer ID to client
 
-	CancelTransfer chan uuid.UUID // used by client to cancel a transfer
+	CancelTransfer chan transferCancellationRequest // used by client to cancel a transfer
 
 	RequestStatus chan uuid.UUID      // used by client to request transfer status
 	ReturnStatus  chan TransferStatus // returns transfer status to client
@@ -77,7 +82,7 @@ func newDispatcherChannels(maxConnections int) dispatcherChannels {
 	return dispatcherChannels{
 		RequestTransfer:  make(chan Specification, maxConnections),
 		ReturnTransferId: make(chan uuid.UUID),
-		CancelTransfer:   make(chan uuid.UUID, maxConnections),
+		CancelTransfer:   make(chan transferCancellationRequest, maxConnections),
 		RequestStatus:    make(chan uuid.UUID, maxConnections),
 		ReturnStatus:     make(chan TransferStatus),
 		Error:            make(chan error),
@@ -128,8 +133,8 @@ func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatu
 	}
 }
 
-func (d *dispatcherState) CancelTransfer(transferId uuid.UUID) error {
-	d.Channels.CancelTransfer <- transferId
+func (d *dispatcherState) CancelTransfer(transferId uuid.UUID, orcid string) error {
+	d.Channels.CancelTransfer <- transferCancellationRequest{Id: transferId, Orcid: orcid}
 	err := <-d.Channels.Error
 	if err != nil {
 		slog.Error(fmt.Sprintf("Transfer %s: %s", transferId.String(), err.Error()))
@@ -155,14 +160,14 @@ func (d *dispatcherState) process() {
 			} else {
 				d.Channels.ReturnTransferId <- transferId
 			}
-		case transferId := <-d.Channels.CancelTransfer:
-			err := d.cancel(transferId)
+		case request := <-d.Channels.CancelTransfer:
+			err := d.cancel(request.Id, request.Orcid)
 			if err == nil {
-				status, err := store.GetStatus(transferId)
+				status, err := store.GetStatus(request.Id)
 				if err == nil {
 					publish(Message{
-						Description:    fmt.Sprintf("Canceling transfer %s", transferId),
-						TransferId:     transferId,
+						Description:    fmt.Sprintf("Canceling transfer %s", request.Id),
+						TransferId:     request.Id,
 						TransferStatus: status,
 						Time:           time.Now(),
 					})
@@ -272,11 +277,21 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 	return transferId, err
 }
 
-func (d *dispatcherState) cancel(transferId uuid.UUID) error {
+func (d *dispatcherState) cancel(transferId uuid.UUID, orcid string) error {
 	status, err := store.GetStatus(transferId)
 	if err != nil {
 		return err
 	}
+
+	// check that the requestor initiated the transfer
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return err
+	}
+	if spec.User.Orcid != orcid {
+		return fmt.Errorf("cannot cancel transfer %s: invalid Orcid", transferId.String())
+	}
+
 	switch status.Code {
 	case TransferStatusUnknown, TransferStatusSucceeded, TransferStatusFailed:
 		return nil

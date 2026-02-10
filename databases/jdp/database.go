@@ -307,6 +307,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		if err != nil {
 			return databases.StagingStatusUnknown, err
 		}
+		slog.Info(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d); results: %s", id.String(), request.Id, string(body)))
 		type JDPResult struct {
 			Status string `json:"status"` // "new", "pending", or "ready"
 		}

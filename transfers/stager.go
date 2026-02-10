@@ -234,12 +234,15 @@ func (s *stagerState) updateStatus(transferId uuid.UUID, staging stagingEntry) (
 		newStatus.Message = fmt.Sprintf("Transfer %s: file staging succeeded", transferId.String())
 		newStatus.Code = TransferStatusActive
 		completed = true
+		slog.Info(fmt.Sprintf("Staging status for transfer %s: succeeded", transferId.String()))
 	case databases.StagingStatusFailed:
 		newStatus.Code = TransferStatusFailed
 		newStatus.Message = fmt.Sprintf("Transfer %s: file staging failed", transferId.String())
 		completed = true
+		slog.Info(fmt.Sprintf("Staging status for transfer %s: failed", transferId.String()))
 	default: // still staging
 		newStatus.Code = TransferStatusStaging
+		slog.Info(fmt.Sprintf("Staging status for transfer %s: still staging", transferId.String()))
 	}
 
 	if newStatus.Code != oldStatus.Code {

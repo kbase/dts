@@ -326,6 +326,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		}
 		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized staging status string: %s", jdpResult.Status)
 	} else {
+		slog.Info(fmt.Sprintf("No staging request found for transfer with staging ID %s", id.String()))
 		return databases.StagingStatusUnknown, nil
 	}
 }
@@ -822,6 +823,7 @@ func (db *Database) pruneStagingRequests() {
 	for uuid, request := range db.StagingRequests {
 		requestAge := time.Since(request.Time)
 		if requestAge > db.DeleteAfter {
+			slog.Info(fmt.Sprintf("Pruning staging request with staging ID %s (request ID: %d) due to age (%s) exceeding limit of %s", uuid.String(), request.Id, requestAge.String(), db.DeleteAfter.String()))
 			delete(db.StagingRequests, uuid)
 		}
 	}

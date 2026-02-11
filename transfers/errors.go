@@ -94,3 +94,12 @@ type TransferNotFoundError struct {
 func (e TransferNotFoundError) Error() string {
 	return fmt.Sprintf("transfer not found: %s", e.Id.String())
 }
+
+type InvalidOrcidError struct {
+	Orcid  string
+	Message string
+}
+
+func (e InvalidOrcidError) Error() string {
+	return fmt.Sprintf("Invalid Orcid '%s' : %s", e.Orcid, e.Message)
+}

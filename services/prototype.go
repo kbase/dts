@@ -699,6 +699,8 @@ func (service *prototype) createTransfer(ctx context.Context,
 			return nil, huma.Error400BadRequest(err.Error())
 		case *databases.NotFoundError:
 			return nil, huma.Error404NotFound(err.Error())
+		case *transfers.InvalidOrcidError:
+			return nil, huma.Error401Unauthorized(err.Error())
 		default:
 			return nil, huma.Error500InternalServerError(err.Error())
 		}

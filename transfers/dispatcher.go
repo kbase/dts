@@ -23,6 +23,7 @@ package transfers
 
 import (
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -288,7 +289,13 @@ func validateSpecfication(spec Specification) error {
 		return err
 	}
 	_, err = destDb.LocalUser(spec.User.Orcid)
-	return err
+	if err != nil {
+		return &InvalidOrcidError{
+			Orcid:  spec.User.Orcid,
+			Message: err.Error(),
+		}
+	}
+	return nil
 }
 
 func (d *dispatcherState) cancel(transferId uuid.UUID, orcid string) error {

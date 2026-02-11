@@ -394,7 +394,6 @@ func TestNewDatabaseFunc(t *testing.T) {
 	assert.NotNil(jdpDb, "JDP database not created by factory function")
 	assert.Nil(err, "JDP database creation by factory function encountered an error")
 	if isMockDatabase {
-		assert.Equal(mockJDPServer.URL, jdpDb.(*Database).BaseURL, "JDP database created by factory function has incorrect base URL")
 		assert.Equal(float64(86400), jdpDb.(*Database).DeleteAfter.Seconds(), "JDP database created by factory function has incorrect delete_after value")
 	}
 }

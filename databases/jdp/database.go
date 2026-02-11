@@ -98,7 +98,6 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	// NOTE: we can't enable HSTS for JDP requests at this time, because the
 	// NOTE: server doesn't seem to support it. Maybe raise this issue with the
 	// NOTE: team?
-	slog.Info(fmt.Sprintf("Creating JDP database with endpoint '%s' and delete_after of %d seconds", conf.Endpoint, conf.DeleteAfter))
 	return &Database{
 		BaseURL: defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),
@@ -308,7 +307,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		if err != nil {
 			return databases.StagingStatusUnknown, err
 		}
-		slog.Info(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d); results: %s", id.String(), request.Id, string(body)))
+		slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d); results: %s", id.String(), request.Id, string(body)))
 		type JDPResult struct {
 			Status string `json:"status"` // "new", "pending", or "ready"
 		}
@@ -824,7 +823,7 @@ func (db *Database) pruneStagingRequests() {
 	for uuid, request := range db.StagingRequests {
 		requestAge := time.Since(request.Time)
 		if requestAge > db.DeleteAfter {
-			slog.Info(fmt.Sprintf("Pruning staging request with staging ID %s (request ID: %d) due to age (%s) exceeding limit of %s", uuid.String(), request.Id, requestAge.String(), db.DeleteAfter.String()))
+			slog.Debug(fmt.Sprintf("Pruning staging request with staging ID %s (request ID: %d): age (%s) exceeds limit (%s)", uuid.String(), request.Id, requestAge.String(), db.DeleteAfter.String()))
 			delete(db.StagingRequests, uuid)
 		}
 	}

@@ -239,6 +239,11 @@ func (d *dispatcherState) start() error {
 // creates a transfer from the given specification and starts things moving; returns a UUID for the
 // transfer, the number of files in the payload, and/or an error
 func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
+    err := validateSpecfication(spec)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+
 	transferId, err := store.NewTransfer(spec)
 	if err != nil {
 		return uuid.UUID{}, err
@@ -275,6 +280,15 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 	}
 
 	return transferId, err
+}
+
+func validateSpecfication(spec Specification) error {
+	destDb, err := databases.NewDatabase(spec.Destination)
+	if err != nil {
+		return err
+	}
+	_, err = destDb.LocalUser(spec.User.Orcid)
+	return err
 }
 
 func (d *dispatcherState) cancel(transferId uuid.UUID, orcid string) error {

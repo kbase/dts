@@ -23,7 +23,6 @@ package transfers
 
 import (
 	"encoding/gob"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"

@@ -239,7 +239,7 @@ func (d *dispatcherState) start() error {
 // creates a transfer from the given specification and starts things moving; returns a UUID for the
 // transfer, the number of files in the payload, and/or an error
 func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
-    err := validateSpecification(spec)
+	err := validateSpecification(spec)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
@@ -295,7 +295,7 @@ func validateSpecification(spec Specification) error {
 	_, err = destDb.LocalUser(spec.User.Orcid)
 	if err != nil {
 		return &InvalidOrcidError{
-			Orcid:  spec.User.Orcid,
+			Orcid:   spec.User.Orcid,
 			Message: err.Error(),
 		}
 	}

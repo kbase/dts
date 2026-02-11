@@ -96,7 +96,7 @@ func (e TransferNotFoundError) Error() string {
 }
 
 type InvalidOrcidError struct {
-	Orcid  string
+	Orcid   string
 	Message string
 }
 

@@ -566,8 +566,8 @@ func TestNewDatabase(t *testing.T) {
 	// test with incorrectly specified endpoint
 	badConfig = conf
 	badConfig.Endpoints = struct {
-		Nersc string "yaml:\"nersc\""
-		Emsl  string "yaml:\"emsl\""
+		Nersc string "yaml:\"nersc\" mapstructure:\"nersc\""
+		Emsl  string "yaml:\"emsl\" mapstructure:\"emsl\""
 	}{}
 	db, err = NewDatabase(badConfig)
 	assert.Nil(db, "NMDC database created with incorrectly specified endpoint")
@@ -576,8 +576,8 @@ func TestNewDatabase(t *testing.T) {
 	// test without nersc and emsl endpoints
 	badConfig = conf
 	badConfig.Endpoints = struct {
-		Nersc string "yaml:\"nersc\""
-		Emsl  string "yaml:\"emsl\""
+		Nersc string "yaml:\"nersc\" mapstructure:\"nersc\""
+		Emsl  string "yaml:\"emsl\" mapstructure:\"emsl\""
 	}{
 		Nersc: "globus-nmdc-nersc",
 		Emsl:  "globus-nmdc-not-emsl",

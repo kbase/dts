@@ -67,11 +67,11 @@ type Database struct {
 // configuration parameters for a JDP database
 type Config struct {
 	// JDP-compatible endpoint name
-	Endpoint string `yaml:"endpoint"`
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
 	// credentials for the JDP database
-	Credential auth.Credential `yaml:"credential"`
+	Credential auth.Credential `yaml:"credential" mapstructure:"credential"`
 	// time after which information about a completed transfer is deleted (seconds)
-	DeleteAfter int `yaml:"delete_after"`
+	DeleteAfter int `yaml:"delete_after" mapstructure:"delete_after"`
 }
 
 type StagingRequest struct {
@@ -307,6 +307,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		if err != nil {
 			return databases.StagingStatusUnknown, err
 		}
+		slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d); results: %s", id.String(), request.Id, string(body)))
 		type JDPResult struct {
 			Status string `json:"status"` // "new", "pending", or "ready"
 		}
@@ -325,6 +326,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		}
 		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized staging status string: %s", jdpResult.Status)
 	} else {
+		slog.Info(fmt.Sprintf("No staging request found for transfer with staging ID %s", id.String()))
 		return databases.StagingStatusUnknown, nil
 	}
 }
@@ -821,6 +823,7 @@ func (db *Database) pruneStagingRequests() {
 	for uuid, request := range db.StagingRequests {
 		requestAge := time.Since(request.Time)
 		if requestAge > db.DeleteAfter {
+			slog.Debug(fmt.Sprintf("Pruning staging request with staging ID %s (request ID: %d): age (%s) exceeds limit (%s)", uuid.String(), request.Id, requestAge.String(), db.DeleteAfter.String()))
 			delete(db.StagingRequests, uuid)
 		}
 	}

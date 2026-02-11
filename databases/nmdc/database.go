@@ -61,14 +61,14 @@ type Database struct {
 
 type Config struct {
 	// Credentials for database
-	Credential auth.Credential `yaml:"credential"`
+	Credential auth.Credential `yaml:"credential" mapstructure:"credential"`
 	// NMDC-compatible endpoints
 	Endpoints struct {
-		Nersc string `yaml:"nersc"`
-		Emsl  string `yaml:"emsl"`
-	} `yaml:"endpoints"`
+		Nersc string `yaml:"nersc" mapstructure:"nersc"`
+		Emsl  string `yaml:"emsl" mapstructure:"emsl"`
+	} `yaml:"endpoints" mapstructure:"endpoints"`
 	// Base URL for NMDC API
-	BaseURL string `yaml:"base_url,omitempty"`
+	BaseURL string `yaml:"base_url,omitempty" mapstructure:"base_url,omitempty"`
 }
 
 func NewDatabase(conf Config) (databases.Database, error) {

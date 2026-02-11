@@ -269,6 +269,7 @@ func registerDatabases(conf config.Config) error {
 		}
 		// add a transaction pruning time, if not specified
 		if _, found := dbConf["delete_after"]; !found {
+			slog.Debug(fmt.Sprintf("No 'delete_after' pruning time specified for database '%s'; using default of %d", dbName, conf.Service.DeleteAfter))
 			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
 		if constructor, found := dbConstructors[dbName]; found {

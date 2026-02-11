@@ -98,6 +98,7 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	// NOTE: we can't enable HSTS for JDP requests at this time, because the
 	// NOTE: server doesn't seem to support it. Maybe raise this issue with the
 	// NOTE: team?
+	slog.Info(fmt.Sprintf("Creating JDP database with endpoint '%s' and delete_after of %d seconds", conf.Endpoint, conf.DeleteAfter))
 	return &Database{
 		BaseURL: defaultBaseURL,
 		//Client:          databases.SecureHttpClient(),

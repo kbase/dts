@@ -45,6 +45,7 @@ databases:
     organization: Joint Genome Institute
     endpoint: globus-jdp
     credential: jdp
+    delete_after: 86400
 endpoints:
   globus-jdp:
     name: Globus NERSC DTN
@@ -392,6 +393,24 @@ func TestNewDatabaseFunc(t *testing.T) {
 	jdpDb, err := createFunc()
 	assert.NotNil(jdpDb, "JDP database not created by factory function")
 	assert.Nil(err, "JDP database creation by factory function encountered an error")
+	if isMockDatabase {
+		assert.Equal(mockJDPServer.URL, jdpDb.(*Database).BaseURL, "JDP database created by factory function has incorrect base URL")
+        assert.Equal(86400, jdpDb.(*Database).DeleteAfter.Seconds(), "JDP database created by factory function has incorrect delete_after value")	
+	}
+}
+
+func TestNewDatabaseFuncWithYAMLKeys(t *testing.T) {
+    assert := assert.New(t)
+    // Simulate how transfers.go builds the config map (from YAML, with snake_case keys)
+    var confMap map[string]any
+    err := yaml.Unmarshal([]byte(setTestEnvVars(jdpDbConfig)), &confMap)
+    assert.Nil(err, "Failed to unmarshal config data for JDP database")
+    createFunc := DatabaseConstructor(confMap)
+    jdpDb, err := createFunc()
+    assert.NotNil(jdpDb, "JDP database not created by factory function")
+    assert.Nil(err, "JDP database creation by factory function encountered an error")
+    assert.Equal(float64(86400), jdpDb.(*Database).DeleteAfter.Seconds(),
+        "JDP database created by factory function has incorrect delete_after value")
 }
 
 func TestSpecificSearchParameters(t *testing.T) {

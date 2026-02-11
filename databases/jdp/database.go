@@ -67,11 +67,11 @@ type Database struct {
 // configuration parameters for a JDP database
 type Config struct {
 	// JDP-compatible endpoint name
-	Endpoint string `yaml:"endpoint"`
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
 	// credentials for the JDP database
-	Credential auth.Credential `yaml:"credential"`
+	Credential auth.Credential `yaml:"credential" mapstructure:"credential"`
 	// time after which information about a completed transfer is deleted (seconds)
-	DeleteAfter int `yaml:"delete_after"`
+	DeleteAfter int `yaml:"delete_after" mapstructure:"delete_after"`
 }
 
 type StagingRequest struct {

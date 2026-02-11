@@ -239,7 +239,7 @@ func (d *dispatcherState) start() error {
 // creates a transfer from the given specification and starts things moving; returns a UUID for the
 // transfer, the number of files in the payload, and/or an error
 func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
-    err := validateSpecfication(spec)
+    err := validateSpecification(spec)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
@@ -282,11 +282,16 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 	return transferId, err
 }
 
-func validateSpecfication(spec Specification) error {
+func validateSpecification(spec Specification) error {
 	destDb, err := databases.NewDatabase(spec.Destination)
 	if err != nil {
-		return err
+		_, err2 := endpoints.ParseCustomSpec(spec.Destination)
+		if err2 != nil {
+			return fmt.Errorf("Invalid destination: %s", spec.Destination)
+		}
+		return nil
 	}
+
 	_, err = destDb.LocalUser(spec.User.Orcid)
 	if err != nil {
 		return &InvalidOrcidError{

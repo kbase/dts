@@ -287,7 +287,7 @@ func validateSpecification(spec Specification) error {
 	if err != nil {
 		_, err2 := endpoints.ParseCustomSpec(spec.Destination)
 		if err2 != nil {
-			return fmt.Errorf("Invalid destination: %s", spec.Destination)
+			return fmt.Errorf("invalid destination: %s", spec.Destination)
 		}
 		return nil
 	}

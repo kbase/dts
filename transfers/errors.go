@@ -101,5 +101,5 @@ type InvalidOrcidError struct {
 }
 
 func (e InvalidOrcidError) Error() string {
-	return fmt.Sprintf("Invalid Orcid '%s' : %s", e.Orcid, e.Message)
+	return fmt.Sprintf("invalid ORCID '%s': %s", e.Orcid, e.Message)
 }

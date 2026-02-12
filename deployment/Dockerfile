@@ -104,7 +104,7 @@ RUN env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a
 
 # Here's the alpine Docker container. If you ever want to peek at its contents,
 # type `docker run -it alpine /bin/ls`.
-FROM alpine:3.22.2
+FROM alpine:3.23.3
 
 # Process environment variable build arguments
 ARG USERNAME=gsuser

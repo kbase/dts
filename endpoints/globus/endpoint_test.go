@@ -257,7 +257,8 @@ func TestGlobusTransfer(t *testing.T) {
 	assert.Nil(err)
 
 	// wait for the task to register in the system
-	for {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
 		_, err = source.Status(taskId)
 		if err == nil {
 			break
@@ -265,11 +266,14 @@ func TestGlobusTransfer(t *testing.T) {
 			time.Sleep(1 * time.Second)
 		}
 	}
-	assert.Nil(err)
+	if err != nil {
+		t.Fatalf("Timed out waiting for transfer task to register: %v", err)
+	}
 
 	// now wait for it to complete
 	var status endpoints.TransferStatus
-	for {
+	deadline = time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
 		status, err = source.Status(taskId)
 		assert.Nil(err)
 		if status.Code == endpoints.TransferStatusSucceeded ||
@@ -278,6 +282,9 @@ func TestGlobusTransfer(t *testing.T) {
 		} else { // not yet finished
 			time.Sleep(1 * time.Second)
 		}
+	}
+	if status.Code != endpoints.TransferStatusSucceeded && status.Code != endpoints.TransferStatusFailed {
+		t.Fatal("Timed out waiting for transfer to complete")
 	}
 	assert.Equal(endpoints.TransferStatusSucceeded, status.Code)
 }
@@ -326,7 +333,8 @@ func TestGlobusTransferCancellation(t *testing.T) {
 	assert.Nil(err)
 
 	// wait for the task to show up
-	for {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
 		_, err = source.Status(taskId)
 		if err == nil {
 			break
@@ -334,7 +342,9 @@ func TestGlobusTransferCancellation(t *testing.T) {
 			time.Sleep(1 * time.Second)
 		}
 	}
-	assert.Nil(err)
+	if err != nil {
+		t.Fatalf("Timed out waiting for transfer task to register: %v", err)
+	}
 
 	err = source.Cancel(taskId)
 	assert.Nil(err)

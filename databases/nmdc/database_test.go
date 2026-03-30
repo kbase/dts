@@ -166,6 +166,26 @@ const mockWorkflowResponse string = `{
 	]
 }`
 
+const mockNmdcSchemaDataObjectSetResponse string = `{
+	"resources": [
+		{
+			"id": "nmdc:do-1234-abcde56789",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		},
+		{
+			"id": "nmdc:do-5678-efghij12345",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		}
+	],
+	"next_page_token": null
+}`
+
 const mockWorkflowTooManyStudiesResponse string = `{
 	"id": "nmdc:wf-too-many-studies",
 	"name": "Mock Workflow with Too Many Studies",
@@ -289,7 +309,43 @@ func createMockNmdcServer() *httptest.Server {
 			})
 			return
 		default:
-			if strings.HasPrefix(r.URL.Path, "/studies/") {
+			if strings.HasPrefix(r.URL.Path, "/nmdcschema/data_object_set") {
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
+				filterParam := r.URL.Query().Get("filter")
+				if filterParam == "" {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "missing filter parameter",
+					})
+					return
+				}
+				// parse filter to check for $in query on id field
+				var filter map[string]any
+				if err := json.Unmarshal([]byte(filterParam), &filter); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid filter JSON",
+					})
+					return
+				}
+				if idFilter, ok := filter["id"].(map[string]any); ok {
+					if inList, ok := idFilter["$in"].([]any); ok && len(inList) > 0 {
+						w.WriteHeader(http.StatusOK)
+						w.Write([]byte(mockNmdcSchemaDataObjectSetResponse))
+						return
+					}
+				}
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"resources": [], "next_page_token": null}`))
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/studies/") {
 				// return mock search results for study: /studies/nmdc:sty-11-r2h77870
 				token := r.Header.Get("Authorization")
 				if token != "Bearer "+mockNmdcSecret {

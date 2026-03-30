@@ -199,17 +199,50 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 		return nil, err
 	}
 
-	// construct data resource descriptors from the IDs and make lists of
-	// workflow executions and data generations (for metadata)
-	dataObjects := make([]DataObject, len(fileIds))
-	for i, fileId := range fileIds {
-		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
+	// fetch data objects in batches using MongoDB $in filter via nmdcschema endpoint
+	const batchSize = 200
+	dataObjects := make([]DataObject, 0, len(fileIds))
+	for start := 0; start < len(fileIds); start += batchSize {
+		end := start + batchSize
+		if end > len(fileIds) {
+			end = len(fileIds)
+		}
+		batch := fileIds[start:end]
+
+		idsJSON, err := json.Marshal(batch)
 		if err != nil {
 			return nil, err
 		}
-		err = json.Unmarshal(body, &dataObjects[i])
-		if err != nil {
-			return nil, err
+		filter := fmt.Sprintf(`{"id":{"$in":%s}}`, string(idsJSON))
+
+		// paginate through results for this batch
+		pageToken := ""
+		for {
+			params := url.Values{}
+			params.Set("filter", filter)
+			params.Set("max_page_size", strconv.Itoa(batchSize))
+			if pageToken != "" {
+				params.Set("page_token", pageToken)
+			}
+
+			body, err := db.get("nmdcschema/data_object_set", params)
+			if err != nil {
+				return nil, err
+			}
+
+			var result struct {
+				Resources     []DataObject `json:"resources"`
+				NextPageToken *string      `json:"next_page_token"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				return nil, err
+			}
+			dataObjects = append(dataObjects, result.Resources...)
+
+			if result.NextPageToken == nil || *result.NextPageToken == "" {
+				break
+			}
+			pageToken = *result.NextPageToken
 		}
 	}
 

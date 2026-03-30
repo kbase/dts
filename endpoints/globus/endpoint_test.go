@@ -38,30 +38,36 @@ import (
 )
 
 // we test our Globus endpoint implementation using two endpoints:
-// * Source: A read-only source endpoint provided by Globus for ESnet customers
+// * Source: A read-only source endpoint provided by ESnet for testing
 //   (https://fasterdata.es.net/performance-testing/DTNs/)
+//   We try multiple ESnet DTNs and use the first one that is available.
 // * Destination: A test endpoint specified by UUID via the environment variable
 //   DTS_GLOBUS_TEST_ENDPOINT
 
-const (
-	sourceEndpointName = "ESnet Sunnyvalue DTN (Anonymous read-only testing)"
-	sourceEndpointId   = "8409a10b-de09-4670-a886-2c0b33f0fe25"
-)
-
-// source database files by ID (on above read-only source endpoint)
-var sourceFilesById = map[string]string{
-	"1": "5MB-in-tiny-files/a/a/a-a-1KB.dat",
-	"2": "5MB-in-tiny-files/b/b/b-b-1KB.dat",
-	"3": "5MB-in-tiny-files/c/c/c-c-1KB.dat",
+// ESnet DTN endpoints available for anonymous read-only testing.
+// We try them in order and use the first one with accessible test files.
+type esnetDTN struct {
+	Name string
+	Id   string
 }
 
-var sourceConfig string = fmt.Sprintf(`
-name: %s
-id: %s
-credential:
-  id: ${DTS_GLOBUS_CLIENT_ID}
-  secret: ${DTS_GLOBUS_CLIENT_SECRET}
-`, sourceEndpointName, sourceEndpointId)
+var esnetDTNs = []esnetDTN{
+	{"ESnet Sunnyvale DTN", "8409a10b-de09-4670-a886-2c0b33f0fe25"},
+	{"ESnet Chicago DTN", "ece400da-0182-4777-91d6-27a1808f8371"},
+	{"ESnet Houston DTN", "78f14af7-a8a3-488f-b42d-8c6fa4dfc2ac"},
+	{"ESnet Washington DTN", "64b7e306-edb7-4b17-8b25-9033517eca8b"},
+}
+
+// source database files by ID (on above read-only source endpoints)
+var sourceFilesById = map[string]string{
+	"1": "/storage/5MB-in-tiny-files/a/a/a-a-1KB.dat",
+	"2": "/storage/5MB-in-tiny-files/b/b/b-b-1KB.dat",
+	"3": "/storage/5MB-in-tiny-files/c/c/c-c-1KB.dat",
+}
+
+// resolved at init time by selectSourceEndpoint
+var sourceConfig string
+var sourceAvailable bool
 
 var destConfig string = `
 name: DTS Globus Test Endpoint
@@ -117,6 +123,50 @@ func checkGlobusEnvVars() bool {
 		}
 	}
 	return true
+}
+
+// selectSourceEndpoint tries each ESnet DTN in order and returns the config
+// string for the first one whose test files are accessible. It sets
+// sourceConfig and sourceAvailable package-level vars.
+func selectSourceEndpoint() {
+	if !checkGlobusEnvVars() {
+		// No credentials — use the first DTN as a placeholder for mock tests
+		dtn := esnetDTNs[0]
+		sourceConfig = fmt.Sprintf("name: %s\nid: %s\ncredential:\n  id: ${DTS_GLOBUS_CLIENT_ID}\n  secret: ${DTS_GLOBUS_CLIENT_SECRET}\n", dtn.Name, dtn.Id)
+		sourceAvailable = false
+		return
+	}
+
+	for _, dtn := range esnetDTNs {
+		cfgStr := fmt.Sprintf("name: %s\nid: %s\ncredential:\n  id: ${DTS_GLOBUS_CLIENT_ID}\n  secret: ${DTS_GLOBUS_CLIENT_SECRET}\n", dtn.Name, dtn.Id)
+		conf, err := getConfigFromYAML(cfgStr)
+		if err != nil {
+			continue
+		}
+		ep, err := NewEndpoint(conf)
+		if err != nil {
+			continue
+		}
+		// probe: check that a known test file is accessible
+		descriptors := []map[string]any{
+			{"id": "1", "path": sourceFilesById["1"]},
+		}
+		staged, err := ep.FilesStaged(descriptors)
+		if err == nil && staged {
+			sourceConfig = cfgStr
+			sourceAvailable = true
+			fmt.Printf("Using ESnet DTN: %s (%s)\n", dtn.Name, dtn.Id)
+			return
+		}
+	}
+
+	// none available
+	sourceConfig = fmt.Sprintf("name: %s\nid: %s\ncredential:\n  id: ${DTS_GLOBUS_CLIENT_ID}\n  secret: ${DTS_GLOBUS_CLIENT_SECRET}\n", esnetDTNs[0].Name, esnetDTNs[0].Id)
+	sourceAvailable = false
+}
+
+func init() {
+	selectSourceEndpoint()
 }
 
 func TestGlobusConstructor(t *testing.T) {
@@ -177,6 +227,9 @@ func TestGlobusFilesStaged(t *testing.T) {
 	if !checkGlobusEnvVars() {
 		t.Skip("Skipping Globus files staged test due to missing environment variables.")
 	}
+	if !sourceAvailable {
+		t.Skip("Skipping: no ESnet DTN source endpoint is currently available.")
+	}
 	conf, err := getConfigFromYAML(sourceConfig)
 	assert.Nil(err)
 	endpoint, err := NewEndpoint(conf)
@@ -230,6 +283,9 @@ func TestGlobusTransfer(t *testing.T) {
 	assert := assert.New(t)
 	if !checkGlobusEnvVars() {
 		t.Skip("Skipping Globus transfer test due to missing environment variables.")
+	}
+	if !sourceAvailable {
+		t.Skip("Skipping: no ESnet DTN source endpoint is currently available.")
 	}
 	var sourceConf Config
 	var destConf Config
@@ -310,6 +366,9 @@ func TestGlobusTransferCancellation(t *testing.T) {
 	assert := assert.New(t)
 	if !checkGlobusEnvVars() {
 		t.Skip("Skipping Globus transfer cancellation test due to missing environment variables.")
+	}
+	if !sourceAvailable {
+		t.Skip("Skipping: no ESnet DTN source endpoint is currently available.")
 	}
 	sourceConf, err := getConfigFromYAML(sourceConfig)
 	assert.Nil(err)

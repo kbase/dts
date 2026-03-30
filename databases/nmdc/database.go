@@ -638,6 +638,9 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]any {
 	// fill in some particulars
 	objectCredit := studyCredit
+	if objectCredit.ResourceType == "" {
+		objectCredit.ResourceType = "dataset"
+	}
 	objectCredit.Descriptions = append(objectCredit.Descriptions,
 		credit.Description{
 			DescriptionText: dataObject.Description,

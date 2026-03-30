@@ -828,8 +828,18 @@ func TestDescriptors(t *testing.T) {
 	assert.Nil(err, "NMDC resource query encountered an error")
 	assert.True(len(descriptors) >= expectedCount, // can include biosample metadata!
 		"NMDC resource query didn't return all results")
-	for i, desc := range descriptors[:expectedCount] {
-		nmdcSearchResult := results.Descriptors[i]
+	// build a lookup map from search results by ID for order-independent matching
+	searchResultsByID := make(map[string]map[string]any)
+	for _, sr := range results.Descriptors {
+		searchResultsByID[sr["id"].(string)] = sr
+	}
+	for _, desc := range descriptors[:expectedCount] {
+		descID := desc["id"].(string)
+		nmdcSearchResult, ok := searchResultsByID[descID]
+		if !ok {
+			t.Errorf("Descriptor ID %s not found in search results", descID)
+			continue
+		}
 		assert.Equal(nmdcSearchResult["id"], desc["id"], "Resource ID mismatch")
 		assert.Equal(nmdcSearchResult["name"], desc["name"], "Resource name mismatch")
 		assert.Equal(nmdcSearchResult["path"], desc["path"], "Resource path mismatch")

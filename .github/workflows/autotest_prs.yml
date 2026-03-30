@@ -49,6 +49,7 @@ jobs:
 
     - name: Testing DTS against real services
       id: test
+      if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
       shell: bash
       env:
         DTS_KBASE_DEV_TOKEN: ${{ secrets.DTS_KBASE_DEV_TOKEN }}
@@ -89,3 +90,4 @@ jobs:
     - name: Fail if tests failed
       if: steps.test.outcome == 'failure' || steps.test-mock.outcome == 'failure'
       run: exit 1
+

@@ -23,7 +23,6 @@ package nmdc
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -469,7 +468,7 @@ type DataObject struct {
 	Id                     string   `json:"id"`
 	Name                   string   `json:"name"`
 	Description            string   `json:"description"`
-	WasGeneratedBy         string   `json:"was_generated_by"`
+	WasGeneratedBy         string   `json:"was_generated_by,omitempty"`
 	AlternativeIdentifiers []string `json:"alternative_identifiers,omitempty"`
 }
 
@@ -672,12 +671,13 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 }
 
 // fetch credit and biosample metadata related to the given workflow execution ID
+// if the workflow id is empty, of unknown format, or associated with raw data, we return empty metadata to allow the transfer to proceed
 func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]any, error) {
 	var relatedCredit credit.CreditMetadata
 	var relatedBiosample map[string]any // pure-JSON representation
 
 	if workflowExecId == "" {
-		return relatedCredit, relatedBiosample, errors.New("no workflow execution ID provided")
+		return relatedCredit, relatedBiosample, nil
 	}
 
 	if strings.Contains(workflowExecId, "nmdc:wf") {
@@ -719,13 +719,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		return relatedCredit, relatedBiosample, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
-		return credit.CreditMetadata{}, nil, &UnexpectedRawDataFilesError{
-			WorkflowID: workflowExecId,
-		}
+		return relatedCredit, relatedBiosample, nil
 	}
-	return credit.CreditMetadata{}, nil, UnsupportedWorkflowTypeError{
-		WorkflowId: workflowExecId,
-	}
+	return relatedCredit, relatedBiosample, nil
 }
 
 var idCategoryLabels = map[string]string{

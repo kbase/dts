@@ -952,7 +952,7 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 
 	// check no workflow id
 	relatedCredit, relatedBiosample, err := dbNmdc.creditAndBiosampleForWorkflow("")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
 
@@ -971,13 +971,13 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 
 	// check invalid workflow id indicating raw data
 	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:omg-invalid-workflow-id")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID should return no biosample")
 
 	// check with invalid workflow id format
 	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("invalid-workflow-id-format")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
 

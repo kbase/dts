@@ -310,6 +310,8 @@ func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (
 	atLeastOneMoveFailed := false
 	movesAllSucceeded := true
 	newStatus.NumFiles = 0
+	newStatus.NumFilesTransferred = 0
+	newStatus.NumFilesSkipped = 0
 	for i, move := range moves {
 		source, err := endpoints.NewEndpoint(move.SourceEndpoint)
 		if err != nil {

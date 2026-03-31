@@ -108,7 +108,7 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	}
 	db := &Database{
 		BaseURL: baseUrl,
-		Client:  databases.SecureHttpClient(time.Second * 20),
+		Client:  databases.SecureHttpClient(time.Second * 120),
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": conf.Endpoints.Nersc,
 			"https://nmdcdemo.emsl.pnnl.gov/":       conf.Endpoints.Emsl,

@@ -215,7 +215,6 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 
 	// if any file IDs don't have corresponding descriptors, find out which ones and issue an error
 	if len(descriptorsByFileId) < len(fileIds) {
-		slog.Debug(fmt.Sprintf("Requested %d files, but obtained %d descriptors", len(descriptors), len(fileIds)))
 		missingResources := make([]string, 0)
 		for _, fileId := range fileIds {
 			if _, found := descriptorsByFileId[fileId]; !found {
@@ -308,7 +307,6 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 		if err != nil {
 			return databases.StagingStatusUnknown, err
 		}
-		slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d); results: %s", id.String(), request.Id, string(body)))
 		type JDPResult struct {
 			Status string `json:"status"` // "new", "pending", or "ready"
 		}
@@ -323,9 +321,10 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 			"ready":   databases.StagingStatusSucceeded,
 		}
 		if status, ok := statusForString[jdpResult.Status]; ok {
+			slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d): %s", jdpResult.Status))
 			return status, nil
 		}
-		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized staging status string: %s", jdpResult.Status)
+		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized JDP staging status string: %s", jdpResult.Status)
 	} else {
 		slog.Info(fmt.Sprintf("No staging request found for transfer with staging ID %s", id.String()))
 		return databases.StagingStatusUnknown, nil

@@ -43,6 +43,7 @@ type Database interface {
 	SpecificSearchParameters() map[string]any
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
+	// NOTE: returned results must not contain duplicate file IDs!
 	Search(orcid string, params SearchParameters) (SearchResults, error)
 	// Returns a slice of Frictionless descriptors associated with files with the
 	// given IDs that are visible to the user with the given ORCID. A descriptor can
@@ -53,12 +54,14 @@ type Database interface {
 	// appear only in a transfer manifest. If any data descriptors are returned
 	// by this call, the number of descriptors returned will exceed the number of
 	// requested file IDs by the number of data descriptors.
+	// NOTE: you may assume that there are no duplicate file IDs
 	Descriptors(orcid string, fileIds []string) ([]map[string]any, error)
 	// Returns a list of endpoint names that can be used as sources or destinations
 	// for transfer with this database
 	EndpointNames() []string
 	// begins staging the files visible to the user with the given ORCID for
 	// transfer, returning a UUID representing the staging operation
+	// NOTE: you may assume that there are no duplicate file IDs
 	StageFiles(orcid string, fileIds []string) (uuid.UUID, error)
 	// returns the status of a given staging operation
 	StagingStatus(id uuid.UUID) (StagingStatus, error)

@@ -200,6 +200,7 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		return nil, err
 	}
 
+	// get a de-duped list of descriptors
 	descriptors, err := descriptorsFromResponseBody(body, nil)
 	if err != nil {
 		return nil, err
@@ -208,28 +209,28 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 	// reorder the descriptors to match that of the requested file IDs, and track file IDs that aren't
 	// matched to descriptors
 	descriptorsByFileId := make(map[string]map[string]any)
-	fileIdsFound := make(map[string]bool)
 	for _, descriptor := range descriptors {
 		descriptorsByFileId[descriptor["id"].(string)] = descriptor
-		fileIdsFound[descriptor["id"].(string)] = true
 	}
 
 	// if any file IDs don't have corresponding descriptors, find out which ones and issue an error
-	if len(descriptors) < len(fileIds) {
+	if len(descriptorsByFileId) < len(fileIds) {
+		slog.Debug(fmt.Sprintf("Requested %d files, but obtained %d descriptors", len(descriptors), len(fileIds)))
 		missingResources := make([]string, 0)
 		for _, fileId := range fileIds {
-			if _, found := fileIdsFound[fileId]; !found {
+			if _, found := descriptorsByFileId[fileId]; !found {
 				missingResources = append(missingResources, fileId)
 			}
 		}
 		if len(missingResources) > 0 {
-			return nil, databases.ResourcesNotFoundError{
+			return nil, &databases.ResourcesNotFoundError{
 				Database:    "JDP",
 				ResourceIds: missingResources,
 			}
 		}
 	}
 
+	descriptors = make([]map[string]any, len(fileIds))
 	for i := range fileIds {
 		descriptors[i] = descriptorsByFileId[fileIds[i]]
 	}
@@ -657,7 +658,8 @@ func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error)
 	}
 }
 
-// this helper extracts files for the JDP /search GET query with given parameters
+// this helper extracts files for the JDP /search GET query with given parameters, returning a
+// de-duped list of descriptors
 func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[string]any, error) {
 	type JDPResults struct {
 		Organisms []Organism `json:"organisms"`
@@ -669,26 +671,30 @@ func descriptorsFromResponseBody(body []byte, extraFields []string) ([]map[strin
 	}
 
 	descriptors := make([]map[string]any, 0)
+	idsEncountered := make(map[string]bool)
 
 	for _, org := range jdpResults.Organisms {
 		for _, file := range org.Files {
 			descriptor := descriptorFromOrganismAndFile(org, file)
-
-			// add any requested additional metadata
-			if extraFields != nil {
-				extras := make(map[string]any)
-				for _, field := range extraFields {
-					switch field {
-					case "project_id":
-						extras["project_id"] = org.Id
-					case "img_taxon_oid":
-						extras["img_taxon_oid"] = file.Metadata.IMG.TaxonOID
+			descriptorId := descriptor["id"].(string)
+			if _, found := idsEncountered[descriptorId]; !found {
+				// add any requested additional metadata
+				if extraFields != nil {
+					extras := make(map[string]any)
+					for _, field := range extraFields {
+						switch field {
+						case "project_id":
+							extras["project_id"] = org.Id
+						case "img_taxon_oid":
+							extras["img_taxon_oid"] = file.Metadata.IMG.TaxonOID
+						}
 					}
+					descriptor["extra"] = extras
 				}
-				descriptor["extra"] = extras
-			}
 
-			descriptors = append(descriptors, descriptor)
+				descriptors = append(descriptors, descriptor)
+				idsEncountered[descriptorId] = true
+			}
 		}
 	}
 	return descriptors, nil

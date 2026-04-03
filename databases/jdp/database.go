@@ -181,29 +181,43 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		indexForId[strippedFileIds[i]] = i
 	}
 
+	// NOTE: the JDP search/by_file_ids/ endpoint (unofficial, undocumented!) only seems to
+	// NOTE: accept around 50 file IDs at a time, so we have to batch our requests
+
+	batchSize := 50
+	numBatches := len(strippedFileIds) / batchSize
+	if numBatches*batchSize < len(strippedFileIds) {
+		numBatches++
+	}
+
+	var descriptors []map[string]any
+
 	type MetadataRequest struct {
 		Ids                []string `json:"ids"`
 		Aggregations       bool     `json:"aggregations"`
 		IncludePrivateData int      `json:"include_private_data"`
 	}
-	data, err := json.Marshal(MetadataRequest{
-		Ids:                strippedFileIds,
-		Aggregations:       true,
-		IncludePrivateData: 1,
-	})
-	if err != nil {
-		return nil, err
-	}
+	for b := range numBatches {
+		data, err := json.Marshal(MetadataRequest{
+			Ids:                strippedFileIds[batchSize*b : batchSize*(b+1)],
+			Aggregations:       true,
+			IncludePrivateData: 1,
+		})
+		if err != nil {
+			return nil, err
+		}
 
-	body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
+		body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
 
-	// get a de-duped list of descriptors
-	descriptors, err := descriptorsFromResponseBody(body, nil)
-	if err != nil {
-		return nil, err
+		// get a de-duped list of descriptors
+		batchDescriptors, err := descriptorsFromResponseBody(body, nil)
+		if err != nil {
+			return nil, err
+		}
+		descriptors = append(descriptors, batchDescriptors...)
 	}
 
 	// reorder the descriptors to match that of the requested file IDs, and track file IDs that aren't

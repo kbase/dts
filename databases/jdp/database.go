@@ -335,7 +335,7 @@ func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error)
 			"ready":   databases.StagingStatusSucceeded,
 		}
 		if status, ok := statusForString[jdpResult.Status]; ok {
-			slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d): %s", jdpResult.Status))
+			slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d): %s", id, request.Id, jdpResult.Status))
 			return status, nil
 		}
 		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized JDP staging status string: %s", jdpResult.Status)

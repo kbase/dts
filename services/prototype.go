@@ -404,14 +404,14 @@ func databaseError(err error) error {
 	if err != nil {
 		slog.Error(err.Error())
 		switch err.(type) {
-		case *databases.InvalidSearchParameter:
+		case *transfers.NoFilesRequestedError, *databases.InvalidSearchParameter:
 			return huma.Error400BadRequest(err.Error(), err)
-		case *databases.UnavailableError:
-			return huma.Error503ServiceUnavailable(err.Error(), err)
-		case *databases.PermissionDeniedError, *databases.UnauthorizedError:
+		case *databases.PermissionDeniedError, *databases.UnauthorizedError, *transfers.InvalidOrcidError:
 			return huma.Error401Unauthorized(err.Error(), err)
 		case *databases.NotFoundError, *databases.ResourcesNotFoundError, *databases.ResourceEndpointNotFoundError:
 			return huma.Error404NotFound(err.Error(), err)
+		case *databases.UnavailableError:
+			return huma.Error503ServiceUnavailable(err.Error(), err)
 		default:
 			return huma.Error500InternalServerError(err.Error(), err)
 		}
@@ -694,16 +694,7 @@ func (service *prototype) createTransfer(ctx context.Context,
 	})
 	if err != nil {
 		slog.Error(err.Error())
-		switch err.(type) {
-		case *transfers.NoFilesRequestedError:
-			return nil, huma.Error400BadRequest(err.Error())
-		case *databases.NotFoundError:
-			return nil, huma.Error404NotFound(err.Error())
-		case *transfers.InvalidOrcidError:
-			return nil, huma.Error401Unauthorized(err.Error())
-		default:
-			return nil, huma.Error500InternalServerError(err.Error())
-		}
+		return nil, databaseError(err)
 	}
 	return &TransferOutput{
 		Body: TransferResponse{

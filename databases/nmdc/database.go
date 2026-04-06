@@ -23,7 +23,6 @@ package nmdc
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -109,7 +108,7 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	}
 	db := &Database{
 		BaseURL: baseUrl,
-		Client:  databases.SecureHttpClient(time.Second * 20),
+		Client:  databases.SecureHttpClient(time.Second * 120),
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": conf.Endpoints.Nersc,
 			"https://nmdcdemo.emsl.pnnl.gov/":       conf.Endpoints.Emsl,
@@ -199,17 +198,50 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 		return nil, err
 	}
 
-	// construct data resource descriptors from the IDs and make lists of
-	// workflow executions and data generations (for metadata)
-	dataObjects := make([]DataObject, len(fileIds))
-	for i, fileId := range fileIds {
-		body, err := db.get(fmt.Sprintf("data_objects/%s", fileId), url.Values{})
+	// fetch data objects in batches using MongoDB $in filter via nmdcschema endpoint
+	const batchSize = 200
+	dataObjects := make([]DataObject, 0, len(fileIds))
+	for start := 0; start < len(fileIds); start += batchSize {
+		end := start + batchSize
+		if end > len(fileIds) {
+			end = len(fileIds)
+		}
+		batch := fileIds[start:end]
+
+		idsJSON, err := json.Marshal(batch)
 		if err != nil {
 			return nil, err
 		}
-		err = json.Unmarshal(body, &dataObjects[i])
-		if err != nil {
-			return nil, err
+		filter := fmt.Sprintf(`{"id":{"$in":%s}}`, string(idsJSON))
+
+		// paginate through results for this batch
+		pageToken := ""
+		for {
+			params := url.Values{}
+			params.Set("filter", filter)
+			params.Set("max_page_size", strconv.Itoa(batchSize))
+			if pageToken != "" {
+				params.Set("page_token", pageToken)
+			}
+
+			body, err := db.get("nmdcschema/data_object_set", params)
+			if err != nil {
+				return nil, err
+			}
+
+			var result struct {
+				Resources     []DataObject `json:"resources"`
+				NextPageToken *string      `json:"next_page_token"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				return nil, err
+			}
+			dataObjects = append(dataObjects, result.Resources...)
+
+			if result.NextPageToken == nil || *result.NextPageToken == "" {
+				break
+			}
+			pageToken = *result.NextPageToken
 		}
 	}
 
@@ -436,7 +468,7 @@ type DataObject struct {
 	Id                     string   `json:"id"`
 	Name                   string   `json:"name"`
 	Description            string   `json:"description"`
-	WasGeneratedBy         string   `json:"was_generated_by"`
+	WasGeneratedBy         string   `json:"was_generated_by,omitempty"`
 	AlternativeIdentifiers []string `json:"alternative_identifiers,omitempty"`
 }
 
@@ -606,6 +638,9 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]any {
 	// fill in some particulars
 	objectCredit := studyCredit
+	if objectCredit.ResourceType == "" {
+		objectCredit.ResourceType = "dataset"
+	}
 	objectCredit.Descriptions = append(objectCredit.Descriptions,
 		credit.Description{
 			DescriptionText: dataObject.Description,
@@ -639,12 +674,13 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 }
 
 // fetch credit and biosample metadata related to the given workflow execution ID
+// if the workflow id is empty, of unknown format, or associated with raw data, we return empty metadata to allow the transfer to proceed
 func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]any, error) {
 	var relatedCredit credit.CreditMetadata
 	var relatedBiosample map[string]any // pure-JSON representation
 
 	if workflowExecId == "" {
-		return relatedCredit, relatedBiosample, errors.New("no workflow execution ID provided")
+		return relatedCredit, relatedBiosample, nil
 	}
 
 	if strings.Contains(workflowExecId, "nmdc:wf") {
@@ -686,13 +722,9 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		return relatedCredit, relatedBiosample, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
-		return credit.CreditMetadata{}, nil, &UnexpectedRawDataFilesError{
-			WorkflowID: workflowExecId,
-		}
+		return relatedCredit, relatedBiosample, nil
 	}
-	return credit.CreditMetadata{}, nil, UnsupportedWorkflowTypeError{
-		WorkflowId: workflowExecId,
-	}
+	return relatedCredit, relatedBiosample, nil
 }
 
 var idCategoryLabels = map[string]string{

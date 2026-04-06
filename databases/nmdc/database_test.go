@@ -166,6 +166,26 @@ const mockWorkflowResponse string = `{
 	]
 }`
 
+const mockNmdcSchemaDataObjectSetResponse string = `{
+	"resources": [
+		{
+			"id": "nmdc:do-1234-abcde56789",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 1",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		},
+		{
+			"id": "nmdc:do-5678-efghij12345",
+			"name": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"description": "Metagenomes and environmental data from the Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"title": "Tara Oceans Mediterranean Sea Expedition 2013 - Data Object 2",
+			"was_generated_by": "nmdc:wf-1234-abcde56789"
+		}
+	],
+	"next_page_token": null
+}`
+
 const mockWorkflowTooManyStudiesResponse string = `{
 	"id": "nmdc:wf-too-many-studies",
 	"name": "Mock Workflow with Too Many Studies",
@@ -289,7 +309,43 @@ func createMockNmdcServer() *httptest.Server {
 			})
 			return
 		default:
-			if strings.HasPrefix(r.URL.Path, "/studies/") {
+			if strings.HasPrefix(r.URL.Path, "/nmdcschema/data_object_set") {
+				token := r.Header.Get("Authorization")
+				if token != "Bearer "+mockNmdcSecret {
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid credentials",
+					})
+					return
+				}
+				filterParam := r.URL.Query().Get("filter")
+				if filterParam == "" {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "missing filter parameter",
+					})
+					return
+				}
+				// parse filter to check for $in query on id field
+				var filter map[string]any
+				if err := json.Unmarshal([]byte(filterParam), &filter); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "invalid filter JSON",
+					})
+					return
+				}
+				if idFilter, ok := filter["id"].(map[string]any); ok {
+					if inList, ok := idFilter["$in"].([]any); ok && len(inList) > 0 {
+						w.WriteHeader(http.StatusOK)
+						w.Write([]byte(mockNmdcSchemaDataObjectSetResponse))
+						return
+					}
+				}
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"resources": [], "next_page_token": null}`))
+				return
+			} else if strings.HasPrefix(r.URL.Path, "/studies/") {
 				// return mock search results for study: /studies/nmdc:sty-11-r2h77870
 				token := r.Header.Get("Authorization")
 				if token != "Bearer "+mockNmdcSecret {
@@ -772,8 +828,18 @@ func TestDescriptors(t *testing.T) {
 	assert.Nil(err, "NMDC resource query encountered an error")
 	assert.True(len(descriptors) >= expectedCount, // can include biosample metadata!
 		"NMDC resource query didn't return all results")
-	for i, desc := range descriptors[:expectedCount] {
-		nmdcSearchResult := results.Descriptors[i]
+	// build a lookup map from search results by ID for order-independent matching
+	searchResultsByID := make(map[string]map[string]any)
+	for _, sr := range results.Descriptors {
+		searchResultsByID[sr["id"].(string)] = sr
+	}
+	for _, desc := range descriptors[:expectedCount] {
+		descID := desc["id"].(string)
+		nmdcSearchResult, ok := searchResultsByID[descID]
+		if !ok {
+			t.Errorf("Descriptor ID %s not found in search results", descID)
+			continue
+		}
 		assert.Equal(nmdcSearchResult["id"], desc["id"], "Resource ID mismatch")
 		assert.Equal(nmdcSearchResult["name"], desc["name"], "Resource name mismatch")
 		assert.Equal(nmdcSearchResult["path"], desc["path"], "Resource path mismatch")
@@ -896,7 +962,7 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 
 	// check no workflow id
 	relatedCredit, relatedBiosample, err := dbNmdc.creditAndBiosampleForWorkflow("")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
 
@@ -915,13 +981,13 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 
 	// check invalid workflow id indicating raw data
 	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:omg-invalid-workflow-id")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID should return no biosample")
 
 	// check with invalid workflow id format
 	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("invalid-workflow-id-format")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should error")
+	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should not error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
 	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
 

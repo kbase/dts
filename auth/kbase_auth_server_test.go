@@ -128,7 +128,7 @@ func getKbaseToken() (string, bool) {
 	}
 	devToken := os.Getenv("DTS_KBASE_DEV_TOKEN")
 	if len(devToken) == 0 {
-		panic("DTS_KBASE_DEV_TOKEN environment variable not set, cannot run KBase auth server tests")
+		return "", false
 	}
 	return devToken, true
 }
@@ -223,7 +223,9 @@ func TestClient(t *testing.T) {
 	if ok {
 		// this test requires a valid developer token with an associated ORCID
 		server, _ := NewKBaseAuthServer(devToken)
-		assert.NotNil(server)
+		if server == nil {
+			t.Fatal("Authentication server not created with valid token")
+		}
 		user, err := server.User()
 		assert.Nil(err)
 
@@ -235,7 +237,9 @@ func TestClient(t *testing.T) {
 			func(cfg *KBaseAuthServerConfig) {
 				cfg.BaseURL = mockKBaseServer.URL
 			})
-		assert.NotNil(server, "Authentication server not created with valid token")
+		if server == nil {
+			t.Fatal("Authentication server not created with valid token")
+		}
 		user, err := server.User()
 		assert.Nil(err, "User() triggered an error with valid token")
 

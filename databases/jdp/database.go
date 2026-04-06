@@ -198,8 +198,10 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		IncludePrivateData int      `json:"include_private_data"`
 	}
 	for b := range numBatches {
+		begin := batchSize * b
+		end := min(batchSize*(b+1), len(strippedFileIds))
 		data, err := json.Marshal(MetadataRequest{
-			Ids:                strippedFileIds[batchSize*b : batchSize*(b+1)],
+			Ids:                strippedFileIds[begin:end],
 			Aggregations:       true,
 			IncludePrivateData: 1,
 		})

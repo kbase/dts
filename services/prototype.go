@@ -585,6 +585,13 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	}
 	ids := strings.Split(input.Ids, ",")
 
+	// have we been given duplicate IDs?
+	duplicates := duplicateFileIds(ids)
+	if duplicates != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("The following requested file IDs have duplicates, which are forbidden: %s",
+			strings.Join(duplicates, ", ")))
+	}
+
 	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
 		len(ids), input.Database))
 	db, err := databases.NewDatabase(input.Database)
@@ -627,10 +634,10 @@ type TransferOutput struct {
 
 // returns a string slice containing file IDs in the TransferRequest that have duplicates, or nil
 // if no duplicates are found
-func DuplicateFileIds(transferRequest TransferRequest) []string {
+func duplicateFileIds(fileIds []string) []string {
 	fileIdsEncountered := make(map[string]struct{})
 	var duplicates []string
-	for _, fileId := range transferRequest.FileIds {
+	for _, fileId := range fileIds {
 		if _, found := fileIdsEncountered[fileId]; found {
 			duplicates = append(duplicates, fileId)
 		} else {
@@ -662,7 +669,7 @@ func (service *prototype) createTransfer(ctx context.Context,
 	user.Orcid = input.Body.Orcid
 
 	// inspect the list of files, making sure there are no duplicates
-	duplicates := DuplicateFileIds(input.Body)
+	duplicates := duplicateFileIds(input.Body.FileIds)
 	if duplicates != nil {
 		return nil, huma.Error400BadRequest(fmt.Sprintf("The following requested file IDs have duplicates, which are forbidden: %s",
 			strings.Join(duplicates, ", ")))

@@ -43,7 +43,7 @@ type Database interface {
 	SpecificSearchParameters() map[string]any
 	// search for files visible to the user with the given ORCID using the given
 	// parameters
-	// NOTE: returned results must not contain duplicate file IDs!
+	// NOTE: returned results will not contain duplicate file IDs!
 	Search(orcid string, params SearchParameters) (SearchResults, error)
 	// Returns a slice of Frictionless descriptors associated with files with the
 	// given IDs that are visible to the user with the given ORCID. A descriptor can

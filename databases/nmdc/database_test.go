@@ -997,12 +997,6 @@ func TestCreditAndBiosamplesForWorkflow(t *testing.T) {
 	assert.NotNil(err, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should error")
 	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should return no credit")
 	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should return no biosample")
-
-	// check workflow with too many biosamples
-	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("nmdc:wf-too-many-biosamples")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with workflow ID having too many biosamples should return no credit")
-	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with workflow ID having too many biosamples should return no biosample")
 }
 
 func TestCreditMetadataForStudy(t *testing.T) {

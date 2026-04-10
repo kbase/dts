@@ -598,7 +598,7 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 			if err != nil {
 				return nil, nil, err
 			}
-			for biosample := range biosamples {
+			for _, biosample := range biosamples {
 				biosamplesForWorkflow[workflowId] = append(biosamplesForWorkflow[workflowId], biosample)
 			}
 		}

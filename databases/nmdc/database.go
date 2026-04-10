@@ -588,14 +588,18 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 	// create data object descriptors and fill in metadata
 	dataObjectDescriptors := make([]map[string]any, len(dataObjects))
 	creditForWorkflow := make(map[string]credit.CreditMetadata)
-	biosampleForWorkflow := make(map[string]any)
+	biosamplesForWorkflow := make(map[string][]any)
 	for i, dataObject := range dataObjects {
 		workflowId := dataObject.WasGeneratedBy
 		if _, found := creditForWorkflow[workflowId]; !found {
 			var err error
-			creditForWorkflow[workflowId], biosampleForWorkflow[workflowId], err = db.creditAndBiosampleForWorkflow(workflowId)
+			var biosamples []map[string]any
+			creditForWorkflow[workflowId], biosamples, err = db.creditAndBiosamplesForWorkflow(workflowId)
 			if err != nil {
 				return nil, nil, err
+			}
+			for biosample := range biosamples {
+				biosamplesForWorkflow[workflowId] = append(biosamplesForWorkflow[workflowId], biosample)
 			}
 		}
 		dataObjectDescriptors[i] = db.createDataObjectDescriptor(dataObject, creditForWorkflow[workflowId])
@@ -603,29 +607,31 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 
 	// create biosample descriptors
 	biosampleDescriptors := make([]map[string]any, 0)
-	for _, b := range biosampleForWorkflow {
-		biosample := b.(map[string]any)
-		var studyIds []string
-		switch s := biosample["associated_studies"].(type) {
-		case string:
-			studyIds = []string{s}
-		case []any:
-			for _, si := range s {
-				studyId, ok := si.(string)
-				if ok {
-					studyIds = append(studyIds, studyId)
+	for _, samples := range biosamplesForWorkflow {
+		for _, sample := range samples {
+			biosample := sample.(map[string]any)
+			var studyIds []string
+			switch s := biosample["associated_studies"].(type) {
+			case string:
+				studyIds = []string{s}
+			case []any:
+				for _, si := range s {
+					studyId, ok := si.(string)
+					if ok {
+						studyIds = append(studyIds, studyId)
+					}
 				}
+			default: // nil, for example
 			}
-		default: // nil, for example
-		}
-		for _, studyId := range studyIds {
-			if biosample["associated_studies"] != nil {
-				descriptor := map[string]any{
-					"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
-					"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
-					"data":  biosample,
+			for _, studyId := range studyIds {
+				if biosample["associated_studies"] != nil {
+					descriptor := map[string]any{
+						"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
+						"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
+						"data":  biosample,
+					}
+					biosampleDescriptors = append(biosampleDescriptors, descriptor)
 				}
-				biosampleDescriptors = append(biosampleDescriptors, descriptor)
 			}
 		}
 	}
@@ -675,12 +681,12 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 
 // fetch credit and biosample metadata related to the given workflow execution ID
 // if the workflow id is empty, of unknown format, or associated with raw data, we return empty metadata to allow the transfer to proceed
-func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit.CreditMetadata, map[string]any, error) {
+func (db *Database) creditAndBiosamplesForWorkflow(workflowExecId string) (credit.CreditMetadata, []map[string]any, error) {
 	var relatedCredit credit.CreditMetadata
-	var relatedBiosample map[string]any // pure-JSON representation
+	var relatedBiosamples []map[string]any // pure-JSON representation
 
 	if workflowExecId == "" {
-		return relatedCredit, relatedBiosample, nil
+		return relatedCredit, relatedBiosamples, nil
 	}
 
 	if strings.Contains(workflowExecId, "nmdc:wf") {
@@ -709,22 +715,16 @@ func (db *Database) creditAndBiosampleForWorkflow(workflowExecId string) (credit
 		}
 
 		// biosample metadata
-		if len(workflowExec.Biosamples) == 1 {
-			relatedBiosample = workflowExec.Biosamples[0].(map[string]any)
-		} else if len(workflowExec.Biosamples) > 1 {
-			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
-				Identifier:   workflowExecId,
-				ResourceType: "biosamples",
-				Count:        len(workflowExec.Biosamples),
-			}
+		for _, biosample := range workflowExec.Biosamples {
+			relatedBiosamples = append(relatedBiosamples, biosample.(map[string]any))
 		}
 
-		return relatedCredit, relatedBiosample, nil
+		return relatedCredit, relatedBiosamples, nil
 	} else if strings.Contains(workflowExecId, "nmdc:om") {
 		// data object is raw data; we don't fetch such metadata
-		return relatedCredit, relatedBiosample, nil
+		return relatedCredit, relatedBiosamples, nil
 	}
-	return relatedCredit, relatedBiosample, nil
+	return relatedCredit, relatedBiosamples, nil
 }
 
 var idCategoryLabels = map[string]string{

@@ -951,7 +951,7 @@ func TestCreateDataObjectDescriptor(t *testing.T) {
 	assert.Equal(dataObject.URL, creditMeta.Url, "Data object descriptor credit URL mismatch")
 }
 
-func TestCreditAndBiosampleForWorkflow(t *testing.T) {
+func TestCreditAndBiosamplesForWorkflow(t *testing.T) {
 	assert := assert.New(t)
 	if areValidCredentials {
 		// skip mock server tests
@@ -961,47 +961,48 @@ func TestCreditAndBiosampleForWorkflow(t *testing.T) {
 	dbNmdc := db.(*Database)
 
 	// check no workflow id
-	relatedCredit, relatedBiosample, err := dbNmdc.creditAndBiosampleForWorkflow("")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
+	relatedCredit, relatedBiosamples, err := dbNmdc.creditAndBiosamplesForWorkflow("")
+	assert.Nil(err, "creditAndBiosamplesForWorkflow with no workflow ID should not error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with no workflow ID should return no credit")
+	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with no workflow ID should return no biosamples")
 
 	// check valid workflow id
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-1234-abcde56789")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with valid workflow ID should not error")
+	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("nmdc:wf-1234-abcde56789")
+	assert.Nil(err, "creditAndBiosamplesForWorkflow with valid workflow ID should not error")
 	assert.Equal("", relatedCredit.Identifier,
-		"creditAndBiosampleForWorkflow returned non-empty credit identifier")
+		"creditAndBiosamplesForWorkflow returned non-empty credit identifier")
 	assert.Equal("Tara Oceans Mediterranean Sea Expedition 2013", relatedCredit.Titles[0].Title,
-		"creditAndBiosampleForWorkflow returned incorrect credit name")
+		"creditAndBiosamplesForWorkflow returned incorrect credit name")
 	assert.Equal("dataset", relatedCredit.ResourceType,
-		"creditAndBiosampleForWorkflow returned incorrect credit resource type")
-	assert.NotNil(relatedBiosample, "creditAndBiosampleForWorkflow with valid workflow ID should return biosample")
-	assert.Equal("nmdc:bs-1234-abcde56789", relatedBiosample["id"],
-		"creditAndBiosampleForWorkflow returned incorrect biosample ID")
+		"creditAndBiosamplesForWorkflow returned incorrect credit resource type")
+	assert.NotNil(relatedBiosamples, "creditAndBiosamplesForWorkflow with valid workflow ID should return biosample")
+	assert.Equal(1, len(relatedBiosamples), "creditAndBiosamplesForWorkflow returned incorrect number of biosamples")
+	assert.Equal("nmdc:bs-1234-abcde56789", relatedBiosamples[0]["id"],
+		"creditAndBiosamplesForWorkflow returned incorrect biosample ID")
 
 	// check invalid workflow id indicating raw data
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:omg-invalid-workflow-id")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID should return no biosample")
+	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("nmdc:omg-invalid-workflow-id")
+	assert.Nil(err, "creditAndBiosamplesForWorkflow with invalid workflow ID should not error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with invalid workflow ID should return no credit")
+	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with invalid workflow ID should return no biosample")
 
 	// check with invalid workflow id format
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("invalid-workflow-id-format")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
+	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("invalid-workflow-id-format")
+	assert.Nil(err, "creditAndBiosamplesForWorkflow with invalid workflow ID format should not error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with invalid workflow ID format should return no credit")
+	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with invalid workflow ID format should return no biosample")
 
 	// check workflow with too many studies
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-studies")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many studies should error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no biosample")
+	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("nmdc:wf-too-many-studies")
+	assert.NotNil(err, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should error")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should return no credit")
+	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with workflow ID having too many studies should return no biosample")
 
 	// check workflow with too many biosamples
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-biosamples")
+	relatedCredit, relatedBiosamples, err = dbNmdc.creditAndBiosamplesForWorkflow("nmdc:wf-too-many-biosamples")
 	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no biosample")
+	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosamplesForWorkflow with workflow ID having too many biosamples should return no credit")
+	assert.Nil(relatedBiosamples, "creditAndBiosamplesForWorkflow with workflow ID having too many biosamples should return no biosample")
 }
 
 func TestCreditMetadataForStudy(t *testing.T) {

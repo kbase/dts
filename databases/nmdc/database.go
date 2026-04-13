@@ -585,12 +585,16 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 // returns descriptors for data objects and related biosample metadata
 // using workflow execution IDs (can be expensive)
 func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]any, []map[string]any, error) {
-	// create data object descriptors and fill in metadata
-	dataObjectDescriptors := make([]map[string]any, len(dataObjects))
+	// assemble a set of workflows related to data objects
+	workflows := make(map[string]bool)
+	for _, dataObject := range dataObjects {
+		workflows[dataObject.WasGeneratedBy] = true
+	}
+
+	// fetch biosamples and credit metadata associated with workflows
 	creditForWorkflow := make(map[string]credit.CreditMetadata)
 	biosamplesForWorkflow := make(map[string][]any)
-	for i, dataObject := range dataObjects {
-		workflowId := dataObject.WasGeneratedBy
+	for workflowId := range workflows {
 		if _, found := creditForWorkflow[workflowId]; !found {
 			var err error
 			var biosamples []map[string]any
@@ -602,7 +606,12 @@ func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObj
 				biosamplesForWorkflow[workflowId] = append(biosamplesForWorkflow[workflowId], biosample)
 			}
 		}
-		dataObjectDescriptors[i] = db.createDataObjectDescriptor(dataObject, creditForWorkflow[workflowId])
+	}
+
+	// create data object descriptors and fill in metadata
+	dataObjectDescriptors := make([]map[string]any, len(dataObjects))
+	for i, dataObject := range dataObjects {
+		dataObjectDescriptors[i] = db.createDataObjectDescriptor(dataObject, creditForWorkflow[dataObject.WasGeneratedBy])
 	}
 
 	// create biosample descriptors

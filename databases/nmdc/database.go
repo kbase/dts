@@ -101,14 +101,13 @@ func NewDatabase(conf Config) (databases.Database, error) {
 
 	// fetch functional endpoint names and map URLs to them
 	// (see https://nmdc-documentation.readthedocs.io/en/latest/howto_guides/globus.html)
-	// NOTE: we prevent redirects from HTTPS -> HTTP!
 	baseUrl := defaultBaseApiURL
 	if conf.BaseURL != "" {
 		baseUrl = conf.BaseURL
 	}
 	db := &Database{
 		BaseURL: baseUrl,
-		Client:  databases.SecureHttpClient(time.Second * 120),
+		Client:  databases.SecureHttpClient(time.Second * 120), // prevent HTTPS -> HTTP redirect!
 		EndpointForHost: map[string]string{
 			"https://data.microbiomedata.org/data/": conf.Endpoints.Nersc,
 			"https://nmdcdemo.emsl.pnnl.gov/":       conf.Endpoints.Emsl,
@@ -145,7 +144,6 @@ func (db Database) SpecificSearchParameters() map[string]any {
 		"filter":         "",
 		"sort":           "",
 		"sample_id":      "",
-		"study_id":       "",
 		"extra":          []string{},
 	}
 }
@@ -171,22 +169,22 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	}
 
 	// NOTE: NMDC doesn't do "search" at the moment, so we interpret a query as
-	// NOTE: a filter
-	if params.Query != "" {
-		p.Add("filter", params.Query)
-	}
-
-	var descriptors []map[string]any
-	var err error
-	if p.Has("study_id") { // fetch data objects associated with this study
-		descriptors, err = db.createDataObjectDescriptorsForStudy(p.Get("study_id"))
-	} else {
-		var dataObjects []DataObject
-		dataObjects, err = db.dataObjects(p)
-		if err != nil {
-			return databases.SearchResults{}, err
+	// NOTE: the study with which desired data objects are associated
+	if params.Query == "" {
+		return databases.SearchResults{}, &databases.InvalidSearchQuery{
+			Database: "nmdc",
+			Message:  "no query provided",
 		}
-		descriptors, _, err = db.createDataObjectAndBiosampleDescriptors(dataObjects)
+	} else if !isValidStudyId(params.Query) {
+		return databases.SearchResults{}, &databases.InvalidSearchQuery{
+			Database: "nmdc",
+			Message:  fmt.Sprintf("invalid study ID: %s", params.Query),
+		}
+	}
+	studyId := params.Query
+	descriptors, err := db.createDataObjectDescriptorsForStudy(studyId)
+	if err != nil {
+		return databases.SearchResults{}, err
 	}
 	return databases.SearchResults{
 		Descriptors: descriptors,
@@ -198,59 +196,81 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 		return nil, err
 	}
 
-	// fetch data objects in batches using MongoDB $in filter via nmdcschema endpoint
-	const batchSize = 200
-	dataObjects := make([]DataObject, 0, len(fileIds))
-	for start := 0; start < len(fileIds); start += batchSize {
-		end := start + batchSize
-		if end > len(fileIds) {
-			end = len(fileIds)
-		}
-		batch := fileIds[start:end]
-
-		idsJSON, err := json.Marshal(batch)
-		if err != nil {
-			return nil, err
-		}
-		filter := fmt.Sprintf(`{"id":{"$in":%s}}`, string(idsJSON))
-
-		// paginate through results for this batch
-		pageToken := ""
-		for {
-			params := url.Values{}
-			params.Set("filter", filter)
-			params.Set("max_page_size", strconv.Itoa(batchSize))
-			if pageToken != "" {
-				params.Set("page_token", pageToken)
-			}
-
-			body, err := db.get("nmdcschema/data_object_set", params)
-			if err != nil {
-				return nil, err
-			}
-
-			var result struct {
-				Resources     []DataObject `json:"resources"`
-				NextPageToken *string      `json:"next_page_token"`
-			}
-			if err := json.Unmarshal(body, &result); err != nil {
-				return nil, err
-			}
-			dataObjects = append(dataObjects, result.Resources...)
-
-			if result.NextPageToken == nil || *result.NextPageToken == "" {
-				break
-			}
-			pageToken = *result.NextPageToken
-		}
-	}
-
-	// fetch metadata for data objects and biosamples and turn them into descriptors
-	dataObjectDescriptors, biosampleDescriptors, err := db.createDataObjectAndBiosampleDescriptors(dataObjects)
+	studyIds, dataObjectIds, err := parseFileIds(fileIds)
 	if err != nil {
 		return nil, err
 	}
-	return slices.Concat(dataObjectDescriptors, biosampleDescriptors), nil
+
+	// fetch metadata by study
+
+	dataObjectIdsByStudy := make(map[string][]string)
+	for i, studyId := range studyIds {
+		if _, found := dataObjectIdsByStudy[studyId]; !found {
+			dataObjectIdsByStudy[studyId] = append(dataObjectIdsByStudy[studyId], dataObjectIds[i])
+		}
+	}
+
+	var descriptors []map[string]any
+	for studyId, dataObjectIds := range dataObjectIdsByStudy {
+		// fetch data objects in batches using MongoDB $in filter via nmdcschema endpoint
+		const batchSize = 200
+		dataObjects := make([]DataObject, 0, len(dataObjectIds))
+		for start := 0; start < len(dataObjectIds); start += batchSize {
+			end := start + batchSize
+			if end > len(dataObjectIds) {
+				end = len(dataObjectIds)
+			}
+			batch := dataObjectIds[start:end]
+
+			idsJSON, err := json.Marshal(batch)
+			if err != nil {
+				return nil, err
+			}
+			filter := fmt.Sprintf(`{"id":{"$in":%s}}`, string(idsJSON))
+
+			// paginate through results for this batch
+			pageToken := ""
+			for {
+				params := url.Values{}
+				params.Set("filter", filter)
+				params.Set("max_page_size", strconv.Itoa(batchSize))
+				if pageToken != "" {
+					params.Set("page_token", pageToken)
+				}
+
+				body, err := db.get("nmdcschema/data_object_set", params)
+				if err != nil {
+					return nil, err
+				}
+
+				var result struct {
+					Resources     []DataObject `json:"resources"`
+					NextPageToken *string      `json:"next_page_token"`
+				}
+				if err := json.Unmarshal(body, &result); err != nil {
+					return nil, err
+				}
+				dataObjects = append(dataObjects, result.Resources...)
+
+				if result.NextPageToken == nil || *result.NextPageToken == "" {
+					break
+				}
+				pageToken = *result.NextPageToken
+			}
+		}
+
+		// fetch credit metadata associated with the study
+		credit, err := db.creditMetadataForStudy(studyId)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, dataObject := range dataObjects {
+			descriptors = append(descriptors, db.createDataObjectDescriptor(dataObject, credit))
+		}
+	}
+
+	return descriptors, nil
 }
 
 func (db Database) EndpointNames() []string {
@@ -309,6 +329,36 @@ const (
 	defaultBaseApiURL  = "https://api.microbiomedata.org/"           // mongoDB
 	defaultBaseDataURL = "https://data-dev.microbiomedata.org/data/" // postgres (use in future)
 )
+
+func isValidStudyId(s string) bool {
+	return strings.HasPrefix(s, "nmdc:") && len(s) >= 6
+}
+
+func isValidDataObjectId(s string) bool {
+	return strings.HasPrefix(s, "nmdc:") && len(s) >= 6
+}
+
+func isValidFileId(s string) bool {
+	lastColon := strings.LastIndex(s, ":")
+	return lastColon != -1 && isValidStudyId(s[:lastColon]) && isValidDataObjectId("nmdc"+s[lastColon:])
+}
+
+func parseFileIds(fileIds []string) (studyIds, dataObjectIds []string, err error) {
+	studyIds = make([]string, len(fileIds))
+	dataObjectIds = make([]string, len(fileIds))
+	for i, fileId := range fileIds {
+		if !isValidFileId(fileId) {
+			err = &databases.InvalidResourceIdError{
+				Database:   "nmdc",
+				ResourceId: fileId,
+			}
+		}
+		lastColon := strings.LastIndex(fileId, ":")
+		studyIds[i] = fileId[:lastColon]
+		dataObjectIds[i] = "nmdc" + fileId[lastColon:]
+	}
+	return
+}
 
 //------------------------------
 // Access to NMDC API endpoints
@@ -541,24 +591,13 @@ func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 	return dataObjectResults.Results, err
 }
 
-// returns descriptors for data objects for a given study
+// returns descriptors for all data objects for a given study
 func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]any, error) {
-	// fetch the study and its metadata
-	resource := fmt.Sprintf("studies/%s", studyId)
-	body, err := db.get(resource, url.Values{})
-	if err != nil {
-		return nil, err
-	}
-	var study Study
-	err = json.Unmarshal(body, &study)
-	if err != nil {
-		return nil, err
-	}
-	relatedCredit := db.creditMetadataForStudy(study)
+	relatedCredit, err := db.creditMetadataForStudy(studyId)
 
 	// fetch the data objects for the study
-	resource = fmt.Sprintf("data_objects/study/%s", studyId)
-	body, err = db.get(resource, url.Values{})
+	resource := fmt.Sprintf("data_objects/study/%s", studyId)
+	body, err := db.get(resource, url.Values{})
 	if err != nil {
 		return nil, err
 	}
@@ -582,70 +621,10 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 	return descriptors, nil
 }
 
-// returns descriptors for data objects and related biosample metadata
-// using workflow execution IDs (can be expensive)
-func (db Database) createDataObjectAndBiosampleDescriptors(dataObjects []DataObject) ([]map[string]any, []map[string]any, error) {
-	// assemble a set of workflows related to data objects
-	workflows := make(map[string]bool)
-	for _, dataObject := range dataObjects {
-		workflows[dataObject.WasGeneratedBy] = true
-	}
-
-	// fetch biosamples and credit metadata associated with workflows
-	creditForWorkflow := make(map[string]credit.CreditMetadata)
-	biosamplesForWorkflow := make(map[string][]any)
-	for workflowId := range workflows {
-		if _, found := creditForWorkflow[workflowId]; !found {
-			var err error
-			var biosamples []map[string]any
-			creditForWorkflow[workflowId], biosamples, err = db.creditAndBiosamplesForWorkflow(workflowId)
-			if err != nil {
-				return nil, nil, err
-			}
-			for _, biosample := range biosamples {
-				biosamplesForWorkflow[workflowId] = append(biosamplesForWorkflow[workflowId], biosample)
-			}
-		}
-	}
-
-	// create data object descriptors and fill in metadata
-	dataObjectDescriptors := make([]map[string]any, len(dataObjects))
-	for i, dataObject := range dataObjects {
-		dataObjectDescriptors[i] = db.createDataObjectDescriptor(dataObject, creditForWorkflow[dataObject.WasGeneratedBy])
-	}
-
-	// create biosample descriptors
-	biosampleDescriptors := make([]map[string]any, 0)
-	for _, samples := range biosamplesForWorkflow {
-		for _, sample := range samples {
-			biosample := sample.(map[string]any)
-			var studyIds []string
-			switch s := biosample["associated_studies"].(type) {
-			case string:
-				studyIds = []string{s}
-			case []any:
-				for _, si := range s {
-					studyId, ok := si.(string)
-					if ok {
-						studyIds = append(studyIds, studyId)
-					}
-				}
-			default: // nil, for example
-			}
-			for _, studyId := range studyIds {
-				if biosample["associated_studies"] != nil {
-					descriptor := map[string]any{
-						"name":  fmt.Sprintf("biosample-metadata-for-study-%s", studyId),
-						"title": fmt.Sprintf("NMDC biosample metadata for study %s", studyId),
-						"data":  biosample,
-					}
-					biosampleDescriptors = append(biosampleDescriptors, descriptor)
-				}
-			}
-		}
-	}
-
-	return dataObjectDescriptors, biosampleDescriptors, nil
+func ѕtudyIdFromFileId(fileId string) string {
+	// the file ID is <nmdc-study-id>:<nmdc-dataobject-id-without-nmdc-prefix>
+	lastColon := strings.LastIndex(fileId, ":") // we assume lastColon != -1
+	return fileId[:lastColon]
 }
 
 // returns a descriptor for the given data object, including the given credit
@@ -678,62 +657,14 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 	// strip the host from the resource's path and assign it an endpoint
 	for hostURL, endpoint := range db.EndpointForHost {
 		if strings.Contains(descriptor["path"].(string), hostURL) {
-			path := strings.Replace(descriptor["path"].(string), hostURL, "", 1)
-			// URL-encode the path to prevent "nmdc:" from being interpreted as a URL protocol
-			descriptor["path"] = url.QueryEscape(path)
+			// scrub the host URL and escape the colon so it passes Frictionless validation
+			descriptor["path"] = strings.Replace(descriptor["path"].(string), hostURL, "", 1)
+			descriptor["path"] = strings.ReplaceAll(descriptor["path"].(string), ":", "\\:")
 			descriptor["endpoint"] = endpoint
 		}
 	}
 
 	return descriptor
-}
-
-// fetch credit and biosample metadata related to the given workflow execution ID
-// if the workflow id is empty, of unknown format, or associated with raw data, we return empty metadata to allow the transfer to proceed
-func (db *Database) creditAndBiosamplesForWorkflow(workflowExecId string) (credit.CreditMetadata, []map[string]any, error) {
-	var relatedCredit credit.CreditMetadata
-	var relatedBiosamples []map[string]any // pure-JSON representation
-
-	if workflowExecId == "" {
-		return relatedCredit, relatedBiosamples, nil
-	}
-
-	if strings.Contains(workflowExecId, "nmdc:wf") {
-		// data object is an analysis product; workflow execution has metadata
-
-		resource := fmt.Sprintf("workflow_executions/%s/related_resources", workflowExecId)
-		body, err := db.get(resource, url.Values{})
-		if err != nil {
-			return credit.CreditMetadata{}, nil, err
-		}
-		var workflowExec WorkflowExecution
-		err = json.Unmarshal(body, &workflowExec)
-		if err != nil {
-			return credit.CreditMetadata{}, nil, err
-		}
-
-		// credit metadata
-		if len(workflowExec.Studies) == 1 {
-			relatedCredit = db.creditMetadataForStudy(workflowExec.Studies[0])
-		} else if len(workflowExec.Studies) > 1 {
-			return credit.CreditMetadata{}, nil, &TooManyRecordsError{
-				Identifier:   workflowExecId,
-				ResourceType: "studies",
-				Count:        len(workflowExec.Studies),
-			}
-		}
-
-		// biosample metadata
-		for _, biosample := range workflowExec.Biosamples {
-			relatedBiosamples = append(relatedBiosamples, biosample.(map[string]any))
-		}
-
-		return relatedCredit, relatedBiosamples, nil
-	} else if strings.Contains(workflowExecId, "nmdc:om") {
-		// data object is raw data; we don't fetch such metadata
-		return relatedCredit, relatedBiosamples, nil
-	}
-	return relatedCredit, relatedBiosamples, nil
 }
 
 var idCategoryLabels = map[string]string{
@@ -744,7 +675,19 @@ var idCategoryLabels = map[string]string{
 }
 
 // extracts credit metadata from the given study
-func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
+func (db Database) creditMetadataForStudy(studyId string) (credit.CreditMetadata, error) {
+	// fetch the study and its metadata
+	resource := fmt.Sprintf("studies/%s", studyId)
+	body, err := db.get(resource, url.Values{})
+	if err != nil {
+		return credit.CreditMetadata{}, err
+	}
+	var study Study
+	err = json.Unmarshal(body, &study)
+	if err != nil {
+		return credit.CreditMetadata{}, err
+	}
+
 	// NOTE: principal investigator role is included with credit associations
 	contributors := make([]credit.Contributor, len(study.CreditAssociations))
 	for i, association := range study.CreditAssociations {
@@ -806,7 +749,7 @@ func (db Database) creditMetadataForStudy(study Study) credit.CreditMetadata {
 		RelatedIdentifiers: relatedIdentifiers,
 		ResourceType:       "dataset",
 		Titles:             titles,
-	}
+	}, nil
 }
 
 // returns the page number and page size corresponding to the given Pagination
@@ -938,13 +881,12 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 	for name, jsonValue := range params {
 		var ok bool
 		switch name {
-		case "activity_id", "data_object_id", "filter", "sort", "sample_id",
-			"study_id":
+		case "activity_id", "data_object_id", "filter", "sort", "sample_id":
 			var value string
 			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "nmdc",
-					Message:  fmt.Sprintf("Invalid value for parameter %s (must be string)", name),
+					Message:  fmt.Sprintf("invalid value for parameter %s (must be string)", name),
 				}
 			}
 			p.Add(name, value)
@@ -953,7 +895,7 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "nmdc",
-					Message:  "Invalid NMDC requested extra field given (must be comma-delimited string)",
+					Message:  "invalid NMDC requested extra field given (must be comma-delimited string)",
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)
@@ -965,7 +907,7 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				} else {
 					return &databases.InvalidSearchParameter{
 						Database: "nmdc",
-						Message:  fmt.Sprintf("Invalid requested extra field: %s", fieldValue),
+						Message:  fmt.Sprintf("invalid requested extra field: %s", fieldValue),
 					}
 				}
 			}
@@ -974,7 +916,7 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 			if value, ok = jsonValue.(string); !ok {
 				return &databases.InvalidSearchParameter{
 					Database: "nmdc",
-					Message:  "Invalid NMDC requested extra field given (must be comma-delimited string)",
+					Message:  "invalid NMDC requested extra field given (must be comma-delimited string)",
 				}
 			}
 			acceptedValues := paramSpec["extra"].([]string)

@@ -56,7 +56,7 @@ func (e TooManyRecordsError) Error() string {
 		e.ResourceType, e.Identifier, e.Count)
 }
 
-// This error type indicates unsupported extra fields were included in a NMDC search.
+// This error type indicates unsupported extra fields were included in a search.
 type ExtraFieldsInSearchError struct {
 	StudyID string
 	Fields  []string

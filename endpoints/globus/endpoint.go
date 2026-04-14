@@ -329,7 +329,7 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 				if event.IsError {
 					// does this error indicate that the transfer has failed?
 					switch event.Code {
-					case "FILE_NOT_FOUND": // requested file is not where we thought!
+					case "FILE_NOT_FOUND", "PERMISSION_DENIED":
 						return endpoints.TransferStatus{
 							Code:                endpoints.TransferStatusFailed,
 							Message:             fmt.Sprintf("Transfer failed: %s (%s)", event.Description, event.Details),
@@ -337,7 +337,7 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 							NumFilesSkipped:     response.FilesSkipped,
 							NumFilesTransferred: response.FilesTransferred,
 						}, nil
-					default: // just propagate other errors
+					default: // not sure what this is -- just propagate
 						return endpoints.TransferStatus{},
 							fmt.Errorf("%s (%s):\n%s", event.Description, event.Code,
 								event.Details)

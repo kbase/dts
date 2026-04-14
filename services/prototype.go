@@ -404,7 +404,8 @@ func databaseError(err error) error {
 	if err != nil {
 		slog.Error(err.Error())
 		switch err.(type) {
-		case *transfers.NoFilesRequestedError, *databases.InvalidSearchParameter:
+		case *transfers.NoFilesRequestedError, *databases.InvalidSearchQuery,
+			*databases.InvalidSearchParameter, *databases.InvalidResourceIdError:
 			return huma.Error400BadRequest(err.Error(), err)
 		case *databases.PermissionDeniedError, *databases.UnauthorizedError, *transfers.InvalidOrcidError:
 			return huma.Error401Unauthorized(err.Error(), err)
@@ -576,7 +577,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	// is the database valid?
 	_, ok := config.Databases[input.Database]
 	if !ok {
-		return nil, fmt.Errorf("database %s not found", input.Database)
+		return nil, huma.Error404NotFound(fmt.Sprintf("database %s not found", input.Database))
 	}
 
 	// have we been given any IDs?
@@ -596,7 +597,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		len(ids), input.Database))
 	db, err := databases.NewDatabase(input.Database)
 	if err != nil {
-		return nil, err
+		return nil, databaseError(err)
 	}
 
 	// FIXME: for now, if a user ORCID is not specified, use the authorized user's ORCID
@@ -608,7 +609,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	descriptors, err := db.Descriptors(orcid, ids)
 	if err != nil {
 		slog.Error(err.Error())
-		return nil, err
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
 
 	// validate the descriptors and send them along
@@ -616,7 +617,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		err = validator.Validate(descriptor, "data-resource", validator.MustInMemoryRegistry())
 		if err != nil {
 			slog.Error(err.Error())
-			return nil, err
+			return nil, huma.Error500InternalServerError(err.Error())
 		}
 	}
 	return &FileMetadataOutput{

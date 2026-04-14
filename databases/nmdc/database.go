@@ -594,6 +594,9 @@ func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
 // returns descriptors for all data objects for a given study
 func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]any, error) {
 	relatedCredit, err := db.creditMetadataForStudy(studyId)
+	if err != nil {
+		return nil, err
+	}
 
 	// fetch the data objects for the study
 	resource := fmt.Sprintf("data_objects/study/%s", studyId)
@@ -619,12 +622,6 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 		}
 	}
 	return descriptors, nil
-}
-
-func ѕtudyIdFromFileId(fileId string) string {
-	// the file ID is <nmdc-study-id>:<nmdc-dataobject-id-without-nmdc-prefix>
-	lastColon := strings.LastIndex(fileId, ":") // we assume lastColon != -1
-	return fileId[:lastColon]
 }
 
 // returns a descriptor for the given data object, including the given credit

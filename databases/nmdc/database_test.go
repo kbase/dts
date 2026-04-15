@@ -789,7 +789,7 @@ func TestDescriptors(t *testing.T) {
 	assert.NotNil(results, "NMDC search query did not return results")
 	fileIds := make([]string, len(results.Descriptors))
 	for i, descriptor := range results.Descriptors {
-		fileIds[i] = studyId + strings.Replace(descriptor["id"].(string), "nmdc:", "", 1)
+		fileIds[i] = descriptor["id"].(string)
 	}
 	descriptors, err := db.Descriptors(testOrcid, fileIds[:expectedCount])
 	if areValidCredentials {
@@ -824,29 +824,6 @@ func TestDescriptors(t *testing.T) {
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).Identifier, desc["credit"].(credit.CreditMetadata).Identifier, "Resource credit ID mismatch")
 		assert.Equal(nmdcSearchResult["credit"].(credit.CreditMetadata).ResourceType, desc["credit"].(credit.CreditMetadata).ResourceType, "Resource credit resource type mismatch")
 	}
-}
-
-func TestDataObjects(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dbNmdc := db.(*Database)
-	params := url.Values{}
-	params.Add("sample_id", "nmdc:bs-1234-abcde56789")
-	dataObjects, err := dbNmdc.dataObjects(params)
-	assert.Nil(err, "dataObjects encountered an error")
-	assert.Equal(2, len(dataObjects), "dataObjects returned incorrect number of data objects")
-	assert.Equal("nmdc:do-1234-abcde56789", dataObjects[0].Id, "dataObjects returned incorrect first data object ID")
-	assert.Equal("nmdc:do-5678-efghij12345", dataObjects[1].Id, "dataObjects returned incorrect second data object ID")
-
-	// include unsupported extra fields in search params
-	params.Add("extra", "some_field,some_other_field")
-	dataObjects, err = dbNmdc.dataObjects(params)
-	assert.NotNil(err, "dataObjects with unsupported field did not encounter an error")
-	assert.Nil(dataObjects, "dataObjects with unsupported field returned data objects")
 }
 
 func TestCreateDataObjectDescriptor(t *testing.T) {

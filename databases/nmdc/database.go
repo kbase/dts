@@ -266,6 +266,7 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 		}
 
 		for _, dataObject := range dataObjects {
+			dataObject.StudyId = studyId
 			descriptors = append(descriptors, db.createDataObjectDescriptor(dataObject, credit))
 		}
 	}
@@ -518,6 +519,7 @@ type DataObject struct {
 	Id                     string   `json:"id"`
 	Name                   string   `json:"name"`
 	Description            string   `json:"description"`
+	StudyId                string   `json:"study_id,omitempty"`
 	WasGeneratedBy         string   `json:"was_generated_by,omitempty"`
 	AlternativeIdentifiers []string `json:"alternative_identifiers,omitempty"`
 }
@@ -567,30 +569,6 @@ type WorkflowExecution struct {
 	Biosamples []any   `json:"biosamples"`
 }
 
-// fetches metadata for data objects based on the given URL search parameters
-func (db Database) dataObjects(params url.Values) ([]DataObject, error) {
-	// extract any requested "extra" metadata fields (and scrub them from params)
-	if params.Has("extra") {
-		// currently no extra fields are supported
-		return nil, &ExtraFieldsInSearchError{
-			StudyID: params.Get("study_id"),
-			Fields:  strings.Split(params.Get("extra"), ","),
-		}
-	}
-
-	body, err := db.get("data_objects/", params)
-	type DataObjectResults struct {
-		// NOTE: we only extract the results field for now
-		Results []DataObject `json:"results"`
-	}
-	if err != nil {
-		return nil, err
-	}
-	var dataObjectResults DataObjectResults
-	err = json.Unmarshal(body, &dataObjectResults)
-	return dataObjectResults.Results, err
-}
-
 // returns descriptors for all data objects for a given study
 func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[string]any, error) {
 	relatedCredit, err := db.creditMetadataForStudy(studyId)
@@ -618,6 +596,7 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 	descriptors := make([]map[string]any, 0)
 	for _, objectSet := range objectSets {
 		for _, dataObject := range objectSet.DataObjects {
+			dataObject.StudyId = studyId
 			descriptors = append(descriptors, db.createDataObjectDescriptor(dataObject, relatedCredit))
 		}
 	}
@@ -645,7 +624,7 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 		"description": dataObject.Description,
 		"format":      formatFromType(dataObject.Type),
 		"hash":        dataObject.MD5Checksum,
-		"id":          dataObject.Id,
+		"id":          dataObject.StudyId + strings.ReplaceAll(dataObject.Id, "nmdc:", ""),
 		"mediatype":   mimetypeForFile(dataObject.URL),
 		"name":        dataResourceName(dataObject.Name),
 		"path":        dataObject.URL,

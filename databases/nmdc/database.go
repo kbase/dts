@@ -602,6 +602,7 @@ func (db Database) createDataObjectDescriptorsForStudy(studyId string) ([]map[st
 
 // returns a descriptor for the given data object, including the given credit
 // metadata (mined from the study to which the data object belongs)
+// NOTE: the ѕtudy to which the data object belongs іs identified in its StudyId field
 func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit credit.CreditMetadata) map[string]any {
 	// fill in some particulars
 	objectCredit := studyCredit

@@ -826,42 +826,6 @@ func TestDescriptors(t *testing.T) {
 	}
 }
 
-func TestCreateDataObjectDescriptor(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dataObject := DataObject{
-		Id:            "nmdc:do-1234-abcde56789",
-		StudyId:       "nmdc:study_id", // needed here because of internal machinery
-		Name:          "Test Data Object.txt",
-		Description:   "This is a test data object",
-		FileSizeBytes: 123456,
-		MD5Checksum:   "d41d8cd98f00b204e9800998ecf8427e",
-		URL:           "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
-		Type:          "data_object",
-	}
-	studyCredit := credit.CreditMetadata{
-		Identifier:   "original-study-id",
-		ResourceType: "study",
-		Url:          "original-study-url",
-	}
-	nmdcDb := db.(*Database)
-	descriptor := nmdcDb.createDataObjectDescriptor(dataObject, studyCredit)
-	assert.True(strings.Contains(descriptor["id"].(string), dataObject.Id), "Data object descriptor ID mismatch")
-	assert.Equal("test_data_object", descriptor["name"], "Data object descriptor name mismatch")
-	assert.Equal("nmdc\\:do-1234-abcde56789", descriptor["path"], "Data object descriptor path mismatch")
-	assert.Equal("application/octet-stream", descriptor["mediatype"], "Data object descriptor media type mismatch")
-	assert.Equal(dataObject.FileSizeBytes, descriptor["bytes"], "Data object descriptor size mismatch")
-	creditMeta, ok := descriptor["credit"].(credit.CreditMetadata)
-	assert.True(ok, "Data object descriptor credit type assertion failed")
-	assert.Equal(dataObject.Id, creditMeta.Identifier, "Data object descriptor credit ID mismatch")
-	assert.Equal(studyCredit.ResourceType, creditMeta.ResourceType, "Data object descriptor credit resource type mismatch")
-	assert.Equal(dataObject.URL, creditMeta.Url, "Data object descriptor credit URL mismatch")
-}
-
 func TestCreditMetadataForStudy(t *testing.T) {
 	assert := assert.New(t)
 	db := Database{

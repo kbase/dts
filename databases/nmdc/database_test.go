@@ -772,8 +772,9 @@ func TestDescriptors(t *testing.T) {
 		db = getMockNmdcDatabase(t)
 		expectedCount = 2
 	}
+	studyId := "nmdc:sty-11-r2h77870"
 	params := databases.SearchParameters{
-		Query: "nmdc:sty-11-r2h77870",
+		Query: studyId,
 	}
 	results, err := db.Search(testOrcid, params)
 	if areValidCredentials {
@@ -788,7 +789,7 @@ func TestDescriptors(t *testing.T) {
 	assert.NotNil(results, "NMDC search query did not return results")
 	fileIds := make([]string, len(results.Descriptors))
 	for i, descriptor := range results.Descriptors {
-		fileIds[i] = descriptor["id"].(string)
+		fileIds[i] = studyId + strings.Replace(descriptor["id"].(string), "nmdc:", "", 1)
 	}
 	descriptors, err := db.Descriptors(testOrcid, fileIds[:expectedCount])
 	if areValidCredentials {

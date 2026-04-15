@@ -354,12 +354,14 @@ func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (
 		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return newStatus, err
 		}
-		publish(Message{
-			Description:    newStatus.Message,
-			TransferId:     transferId,
-			TransferStatus: newStatus,
-			Time:           time.Now(),
-		})
+		if newStatus.Code != oldStatus.Code {
+			publish(Message{
+				Description:    newStatus.Message,
+				TransferId:     transferId,
+				TransferStatus: newStatus,
+				Time:           time.Now(),
+			})
+		}
 	}
 
 	return newStatus, nil

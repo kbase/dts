@@ -202,12 +202,9 @@ func (db Database) Descriptors(orcid string, fileIds []string) ([]map[string]any
 	}
 
 	// fetch metadata by study
-
 	dataObjectIdsByStudy := make(map[string][]string)
 	for i, studyId := range studyIds {
-		if _, found := dataObjectIdsByStudy[studyId]; !found {
-			dataObjectIdsByStudy[studyId] = append(dataObjectIdsByStudy[studyId], dataObjectIds[i])
-		}
+		dataObjectIdsByStudy[studyId] = append(dataObjectIdsByStudy[studyId], dataObjectIds[i])
 	}
 
 	var descriptors []map[string]any

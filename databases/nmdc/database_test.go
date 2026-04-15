@@ -801,7 +801,7 @@ func TestDescriptors(t *testing.T) {
 		}
 	}
 	assert.Nil(err, "NMDC resource query encountered an error")
-	assert.True(len(descriptors) >= expectedCount, // can include biosample metadata!
+	assert.Equal(len(descriptors), expectedCount, // can include biosample metadata!
 		"NMDC resource query didn't return all results")
 	// build a lookup map from search results by ID for order-independent matching
 	searchResultsByID := make(map[string]map[string]any)

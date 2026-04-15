@@ -240,10 +240,6 @@ var mockNmdcSecret string = "testsecret"
 var mockNerscEndpoint string = "globus-nmdc-nersc"
 var mockEmslEndpoint string = "globus-nmdc-emsl"
 
-// since NMDC doesn't support search queries at this time, we search for
-// data objects related to a study
-var nmdcSearchParams map[string]any
-
 // Creates a mock NMDC server for testing
 func createMockNmdcServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -547,10 +543,6 @@ func setup() {
 	}
 	endpoints.RegisterEndpointProvider("globus", globus.EndpointConstructor)
 
-	// construct NMDC-specific search parameters for a study
-	nmdcSearchParams = make(map[string]any)
-	nmdcSearchParams["study_id"] = "nmdc:sty-11-r2h77870"
-
 	// check for valid NMDC credentials
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 	if orcid != "" {
@@ -657,8 +649,7 @@ func TestSearch(t *testing.T) {
 	assert.Contains(endpointNames, mockEmslEndpoint, "NMDC database missing EMSL endpoint")
 
 	params := databases.SearchParameters{
-		Query:    "",
-		Specific: nmdcSearchParams,
+		Query: "nmdc:sty-11-r2h77870",
 	}
 	results, err := db.Search(testOrcid, params)
 
@@ -675,22 +666,6 @@ func TestSearch(t *testing.T) {
 		assert.True(len(results.Descriptors) >= 2,
 			"NMDC search query didn't return all results")
 	}
-
-	// check with parameters that don't include a study_id
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	mockDb := getMockNmdcDatabase(t)
-	params = databases.SearchParameters{
-		Query: "",
-		Specific: map[string]any{
-			"sample_id": "nmdc:bs-1234-abcde56789",
-		},
-	}
-	results, err = mockDb.Search(testOrcid, params)
-	assert.Nil(err, "NMDC search query without study_id encountered an error")
-	assert.NotNil(results, "NMDC search query without study_id did not return results")
 }
 
 func TestSimpleFunctions(t *testing.T) {
@@ -798,8 +773,7 @@ func TestDescriptors(t *testing.T) {
 		expectedCount = 2
 	}
 	params := databases.SearchParameters{
-		Query:    "",
-		Specific: nmdcSearchParams,
+		Query: "nmdc:sty-11-r2h77870",
 	}
 	results, err := db.Search(testOrcid, params)
 	if areValidCredentials {
@@ -911,7 +885,9 @@ func TestCreateDataObjectDescriptor(t *testing.T) {
 
 func TestCreditMetadataForStudy(t *testing.T) {
 	assert := assert.New(t)
-	db := Database{}
+	db := Database{
+		BaseURL: defaultBaseApiURL,
+	}
 	study := Study{
 		Id:    "nmdc:sty-11-r2h77870",
 		Title: "Primary Title",
@@ -959,60 +935,52 @@ func TestCreditMetadataForStudy(t *testing.T) {
 	}
 	credit, err := db.creditMetadataForStudy(study.Id)
 	assert.Nil(err, "Credit metadata retrieval failed")
-	assert.Equal("Jane Doe", credit.Contributors[0].Name,
+	assert.Equal("Mitchel J. Doktycz", credit.Contributors[0].Name,
 		"Credit metadata first contributor name is incorrect")
-	assert.Equal("Jane", credit.Contributors[0].GivenName,
+	assert.Equal("Mitchel", credit.Contributors[0].GivenName,
 		"Credit metadata first contributor given name is incorrect")
-	assert.Equal("Doe", credit.Contributors[0].FamilyName,
+	assert.Equal("Doktycz", credit.Contributors[0].FamilyName,
 		"Credit metadata first contributor family name is incorrect")
-	assert.Equal("creator", credit.Contributors[0].ContributorRoles,
+	assert.Equal("Principal Investigator,Conceptualization", credit.Contributors[0].ContributorRoles,
 		"Credit metadata first contributor role is incorrect")
-	assert.Equal("John Smith", credit.Contributors[1].Name,
+	assert.Equal("Joseph C. Ellis", credit.Contributors[1].Name,
 		"Credit metadata second contributor name is incorrect")
-	assert.Equal("John", credit.Contributors[1].GivenName,
+	assert.Equal("Joseph", credit.Contributors[1].GivenName,
 		"Credit metadata second contributor given name is incorrect")
-	assert.Equal("Smith", credit.Contributors[1].FamilyName,
+	assert.Equal("Ellis", credit.Contributors[1].FamilyName,
 		"Credit metadata second contributor family name is incorrect")
-	assert.Equal("0000-0002-1825-0097", credit.Contributors[1].ContributorId,
+	assert.Equal("orcid:0000-0002-2510-977X", credit.Contributors[1].ContributorId,
 		"Credit metadata second contributor ORCID is incorrect")
-	assert.Equal("contributor,tester", credit.Contributors[1].ContributorRoles,
+	assert.Equal("Formal Analysis", credit.Contributors[1].ContributorRoles,
 		"Credit metadata second contributor first role is incorrect")
-	assert.Equal("Cher", credit.Contributors[2].Name,
+	assert.Equal("Daniel Jacobson", credit.Contributors[2].Name,
 		"Credit metadata third contributor name is incorrect")
-	assert.Equal("Cher", credit.Contributors[2].GivenName,
+	assert.Equal("Daniel", credit.Contributors[2].GivenName,
 		"Credit metadata third contributor given name is incorrect")
-	assert.Equal("", credit.Contributors[2].FamilyName,
+	assert.Equal("Jacobson", credit.Contributors[2].FamilyName,
 		"Credit metadata third contributor family name is incorrect")
-	assert.Equal("singer", credit.Contributors[2].ContributorRoles,
+	assert.Equal("Conceptualization,Formal Analysis,Funding acquisition,Investigation,Methodology,Supervision,Writing original draft,Writing review and editing", credit.Contributors[2].ContributorRoles,
 		"Credit metadata third contributor role is incorrect")
-	assert.Equal("Primary Title", credit.Titles[0].Title,
+	assert.Equal("Bio-Scales: Defining plant gene function and its connection to ecosystem nitrogen and carbon cycle", credit.Titles[0].Title,
 		"Credit metadata primary title is incorrect")
-	assert.Equal("Secondary Title", credit.Titles[1].Title,
-		"Credit metadata first alternative title is incorrect")
-	assert.Equal("Tertiary Title", credit.Titles[2].Title,
-		"Credit metadata second alternative title is incorrect")
-	assert.Equal("10.1234/example.doi.1", credit.RelatedIdentifiers[0].Id,
+	assert.Equal("doi:10.46936/10.25585/60000017", credit.RelatedIdentifiers[0].Id,
 		"Credit metadata primary DOI is incorrect")
 	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[0].RelationshipType,
 		"Credit metadata primary DOI relationship type is incorrect")
-	assert.Equal("", credit.RelatedIdentifiers[0].Description,
+	assert.Equal("Awarded proposal DOI", credit.RelatedIdentifiers[0].Description,
 		"Credit metadata primary DOI description is incorrect")
-	assert.Equal("10.5678/example.doi.2", credit.RelatedIdentifiers[1].Id,
+	assert.Equal("doi:10.25345/C58K7520G", credit.RelatedIdentifiers[1].Id,
 		"Credit metadata dataset DOI is incorrect")
 	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[1].RelationshipType,
 		"Credit metadata dataset DOI relationship type is incorrect")
 	assert.Equal("Dataset DOI", credit.RelatedIdentifiers[1].Description,
 		"Credit metadata dataset DOI description is incorrect")
-	assert.Equal(2, len(credit.Funding),
+	assert.Equal(1, len(credit.Funding),
 		"Credit metadata funding source count is incorrect")
 	assert.Equal("ROR:01bj3aw27", credit.Funding[0].Funder.OrganizationId,
 		"Credit metadata first funding source organization ID is incorrect")
 	assert.Equal("United States Department of Energy", credit.Funding[0].Funder.OrganizationName,
 		"Credit metadata first funding source name is incorrect")
-	assert.Equal("", credit.Funding[1].Funder.OrganizationId,
-		"Unrecognized funding source should have empty Funder instance")
-	assert.Equal("", credit.Funding[1].Funder.OrganizationName,
-		"Unrecognized funding source should have empty Funder instance")
 }
 
 func TestPageNumberAndSize(t *testing.T) {
@@ -1095,17 +1063,17 @@ func TestDataResourceName(t *testing.T) {
 
 func TestAddSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	db := Database{}
+	db := Database{
+		BaseURL: defaultBaseApiURL,
+	}
 	validParams := map[string]any{
-		"study_id":       "nmdc:sty-11-r2h77870",
 		"data_object_id": "nmdc:do-1234-abcde56789",
 	}
 	p := url.Values{}
+	p.Set("Query", "nmdc:sty-11-r2h77870")
 	p.Set("existing_param", "existing_value")
 	err := db.addSpecificSearchParameters(validParams, &p)
 	assert.Nil(err, "Adding NMDC specific search parameters encountered an error")
-	assert.Equal("nmdc:sty-11-r2h77870", p.Get("study_id"),
-		"NMDC specific search parameter 'study_id' has incorrect value")
 	assert.Equal("nmdc:do-1234-abcde56789", p.Get("data_object_id"),
 		"NMDC specific search parameter 'data_object_id' has incorrect value")
 	assert.Equal("existing_value", p.Get("existing_param"),
@@ -1113,12 +1081,11 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 
 	invalidParams := []map[string]any{
 		{"invalid_param": "some_value"},
-		{"study_id": 12345},                                     // invalid type
 		{"data_object_id": []string{"nmdc:do-1234-abcde56789"}}, // invalid type
 		{"extra": "invalid_field,other_invalid_field"},          // invalid value
-		{"extra": 23456},                                        // invalid type
-		{"fields": "invalid_field"},                             // invalid value
-		{"fields": 34567},                                       // invalid type
+		{"extra": 23456},            // invalid type
+		{"fields": "invalid_field"}, // invalid value
+		{"fields": 34567},           // invalid type
 	}
 	for _, params := range invalidParams {
 		p := url.Values{}

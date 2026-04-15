@@ -624,7 +624,7 @@ func (db Database) createDataObjectDescriptor(dataObject DataObject, studyCredit
 		"description": dataObject.Description,
 		"format":      formatFromType(dataObject.Type),
 		"hash":        dataObject.MD5Checksum,
-		"id":          dataObject.StudyId + strings.ReplaceAll(dataObject.Id, "nmdc:", ""),
+		"id":          dataObject.StudyId + strings.ReplaceAll(dataObject.Id, "nmdc:", ":"),
 		"mediatype":   mimetypeForFile(dataObject.URL),
 		"name":        dataResourceName(dataObject.Name),
 		"path":        dataObject.URL,

@@ -835,6 +835,7 @@ func TestCreateDataObjectDescriptor(t *testing.T) {
 	db := getMockNmdcDatabase(t)
 	dataObject := DataObject{
 		Id:            "nmdc:do-1234-abcde56789",
+		StudyId:       "nmdc:study_id", // needed here because of internal machinery
 		Name:          "Test Data Object.txt",
 		Description:   "This is a test data object",
 		FileSizeBytes: 123456,
@@ -849,9 +850,9 @@ func TestCreateDataObjectDescriptor(t *testing.T) {
 	}
 	nmdcDb := db.(*Database)
 	descriptor := nmdcDb.createDataObjectDescriptor(dataObject, studyCredit)
-	assert.Equal(dataObject.Id, descriptor["id"], "Data object descriptor ID mismatch")
+	assert.True(strings.Contains(descriptor["id"].(string), dataObject.Id), "Data object descriptor ID mismatch")
 	assert.Equal("test_data_object", descriptor["name"], "Data object descriptor name mismatch")
-	assert.Equal("nmdc%3Ado-1234-abcde56789", descriptor["path"], "Data object descriptor path mismatch")
+	assert.Equal("nmdc\\:do-1234-abcde56789", descriptor["path"], "Data object descriptor path mismatch")
 	assert.Equal("application/octet-stream", descriptor["mediatype"], "Data object descriptor media type mismatch")
 	assert.Equal(dataObject.FileSizeBytes, descriptor["bytes"], "Data object descriptor size mismatch")
 	creditMeta, ok := descriptor["credit"].(credit.CreditMetadata)

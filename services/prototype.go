@@ -69,7 +69,7 @@ func NewDTSPrototype() (TransferService, error) {
 	huma.Get(api, "/api/v1/databases/{db}/search-parameters", service.getDatabaseSearchParameters)
 	huma.Get(api, "/api/v1/files", service.searchDatabase)
 	huma.Post(api, "/api/v1/files", service.searchDatabaseWithSpecificParams)
-	huma.Get(api, "/api/v1/files/by-id", service.fetchFileMetadata)
+	huma.Post(api, "/api/v1/files/by-id", service.fetchFileMetadata)
 	huma.Post(api, "/api/v1/transfers", service.createTransfer)
 	huma.Get(api, "/api/v1/transfers/{id}", service.getTransferStatus)
 	huma.Delete(api, "/api/v1/transfers/{id}", service.deleteTransfer)
@@ -561,30 +561,27 @@ type FileMetadataOutput struct {
 // fetches file metadata given a list of file identifiers
 func (service *prototype) fetchFileMetadata(ctx context.Context,
 	input *struct {
-		Authorization string `header:"authorization" doc:"Authorization header with encoded access token"`
-		Database      string `json:"database" query:"database" example:"jdp" doc:"The ID of the database for which file metadata is fetched"`
-		Orcid         string `json:"orcid" query:"orcid" example:"1234-5678-9101-112X" doc:"The ORCID of the user requesting metadata"`
-		Ids           string `json:"ids" query:"ids" example:"JDP:6101cc0f2b1f2eeea564c978" doc:"A comma-separated list of file IDs"`
-		Offset        int    `json:"offset" query:"offset" example:"100" doc:"Metadata records begin at the given offset"`
-		Limit         int    `json:"limit" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
+		Authorization string              `header:"authorization" doc:"Authorization header with encoded access token"`
+		Body          FileMetadataRequest `doc:"Contains all file metadata request parameters"`
 	}) (*FileMetadataOutput, error) {
 
 	user, err := authorize(input.Authorization)
 	if err != nil {
 		return nil, err
 	}
+	print(input.Body.Orcid)
 
 	// is the database valid?
-	_, ok := config.Databases[input.Database]
+	_, ok := config.Databases[input.Body.Database]
 	if !ok {
-		return nil, huma.Error404NotFound(fmt.Sprintf("database %s not found", input.Database))
+		return nil, huma.Error404NotFound(fmt.Sprintf("database %s not found", input.Body.Database))
 	}
 
 	// have we been given any IDs?
-	if strings.TrimSpace(input.Ids) == "" {
+	if strings.TrimSpace(input.Body.Ids) == "" {
 		return nil, huma.Error400BadRequest("No file IDs were provided!")
 	}
-	ids := strings.Split(input.Ids, ",")
+	ids := strings.Split(input.Body.Ids, ",")
 
 	// have we been given duplicate IDs?
 	duplicates := duplicateFileIds(ids)
@@ -594,14 +591,14 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	}
 
 	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
-		len(ids), input.Database))
-	db, err := databases.NewDatabase(input.Database)
+		len(ids), input.Body.Database))
+	db, err := databases.NewDatabase(input.Body.Database)
 	if err != nil {
 		return nil, databaseError(err)
 	}
 
 	// FIXME: for now, if a user ORCID is not specified, use the authorized user's ORCID
-	orcid := input.Orcid
+	orcid := input.Body.Orcid
 	if orcid == "" {
 		orcid = user.Orcid
 	}
@@ -622,7 +619,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	}
 	return &FileMetadataOutput{
 		Body: FileMetadataResponse{
-			Database:    input.Database,
+			Database:    input.Body.Database,
 			Descriptors: descriptors,
 		},
 	}, nil

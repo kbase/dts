@@ -68,6 +68,16 @@ func (e UnavailableError) Error() string {
 }
 
 // This error type is returned when an invalid database-specific search
+// query is specified
+type InvalidSearchQuery struct {
+	Database, Message string
+}
+
+func (e InvalidSearchQuery) Error() string {
+	return fmt.Sprintf("Invalid search query for database '%s': %s", e.Database, e.Message)
+}
+
+// This error type is returned when an invalid database-specific search
 // parameter is specified
 type InvalidSearchParameter struct {
 	Database, Message string
@@ -116,6 +126,16 @@ type PermissionDeniedError struct {
 func (e PermissionDeniedError) Error() string {
 	return fmt.Sprintf("Can't access resource '%s' in database '%s': permission denied",
 		e.ResourceId, e.Database)
+}
+
+// this error type is returned when an invalid resource identifier is encountered
+type InvalidResourceIdError struct {
+	Database   string
+	ResourceId string
+}
+
+func (e InvalidResourceIdError) Error() string {
+	return fmt.Sprintf("Invalid resource for database '%s': %s", e.Database, e.ResourceId)
 }
 
 // this error type is returned when one or more resources are requested and is not found

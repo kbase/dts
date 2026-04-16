@@ -190,8 +190,17 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	if err != nil {
 		return manifestEntry{}, err
 	}
+	oldStatus, err := store.GetStatus(transferId)
+	if err != nil {
+		return manifestEntry{}, err
+	}
+	newStatus := oldStatus // in case an operation causes a transfer failure
+
 	manifest, err := m.generateManifest(transferId, spec)
 	if err != nil {
+		newStatus.Code = TransferStatusFailed
+		newStatus.Message = fmt.Sprintf("couldn't generate manifest: %s", err.Error())
+		store.SetStatus(transferId, newStatus)
 		return manifestEntry{}, err
 	}
 
@@ -200,15 +209,24 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	if ok && len(resources) > 0 {
 		pkg, err := datapackage.New(manifest, ".")
 		if err != nil {
+			newStatus.Code = TransferStatusFailed
+			newStatus.Message = fmt.Sprintf("manifest failed validation: %s", err.Error())
+			store.SetStatus(transferId, newStatus)
 			return manifestEntry{}, err
 		}
 		if err := pkg.SaveDescriptor(filename); err != nil {
+			newStatus.Code = TransferStatusFailed
+			newStatus.Message = fmt.Sprintf("couldn't create manifest file: %s", err.Error())
+			store.SetStatus(transferId, newStatus)
 			return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
 		}
 	} else {
 		// if no resources were transferred, just create an empty file
 		f, err := os.Create(filename)
 		if err != nil {
+			newStatus.Code = TransferStatusFailed
+			newStatus.Message = fmt.Sprintf("couldn't create manifest file: %s", err.Error())
+			store.SetStatus(transferId, newStatus)
 			return manifestEntry{}, fmt.Errorf("creating manifest file: %s", err.Error())
 		}
 		f.Close()

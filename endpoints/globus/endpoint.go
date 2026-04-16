@@ -314,6 +314,9 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 		var eventList EventList
 		json.Unmarshal(body, &eventList)
 		if response.NiceStatus == "AUTH" {
+			// sometimes Globus throws an AUTH error here during a network burp, so we
+			// ignore it and report a failed status check (after all, we can't get here
+			// without AUTHing successfully!)
 			for _, event := range eventList.Data {
 				if event.IsError {
 					slog.Debug(fmt.Sprintf("Globus task %s: status check failed with AUTH error below (probably bogus, ignoring): ", id.String()))
@@ -321,16 +324,24 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 				}
 			}
 		} else {
-			// it's probably real
-			// find the first error event
+			// it's probably real, so find the first error event
 			for _, event := range eventList.Data {
 				if event.IsError {
-					// sometimes Globus throws an AUTH error here during a network burp, so we
-					// ignore it and report a failed status check (after all, we can't get here
-					// without AUTHing successfully!)
-					return endpoints.TransferStatus{},
-						fmt.Errorf("%s (%s):\n%s", event.Description, event.Code,
-							event.Details)
+					// does this error indicate that the transfer has failed?
+					switch event.Code {
+					case "FILE_NOT_FOUND", "PERMISSION_DENIED":
+						return endpoints.TransferStatus{
+							Code:                endpoints.TransferStatusFailed,
+							Message:             fmt.Sprintf("Transfer failed: %s (%s)", event.Description, event.Details),
+							NumFiles:            response.Files,
+							NumFilesSkipped:     response.FilesSkipped,
+							NumFilesTransferred: response.FilesTransferred,
+						}, nil
+					default: // not sure what this is -- just propagate
+						return endpoints.TransferStatus{},
+							fmt.Errorf("%s (%s):\n%s", event.Description, event.Code,
+								event.Details)
+					}
 				}
 			}
 			// fall back to the "nice status"

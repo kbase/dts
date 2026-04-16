@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -181,7 +182,11 @@ func (m *moverState) process(decoder *gob.Decoder) {
 						if err != nil {
 							slog.Error(err.Error())
 						}
-					} else { // failed -- write an entry to the journal
+					}
+					if status, err = store.GetStatus(transferId); err != nil {
+						slog.Error(err.Error())
+					}
+					if status.Code == TransferStatusFailed { // failed -- write an entry to the journal
 						spec, err := store.GetSpecification(transferId)
 						if err == nil {
 							var size uint64
@@ -249,7 +254,7 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 			path := descriptor["path"].(string)
 			destinationPath := filepath.Join(destinationFolder, path)
 			files[i] = endpoints.FileTransfer{
-				SourcePath:      path,
+				SourcePath:      strings.ReplaceAll(path, "\\:", ":"),
 				DestinationPath: destinationPath,
 				Hash:            descriptor["hash"].(string),
 			}
@@ -349,12 +354,14 @@ func (m *moverState) updateStatus(transferId uuid.UUID, moves []moveOperation) (
 		if err := store.SetStatus(transferId, newStatus); err != nil {
 			return newStatus, err
 		}
-		publish(Message{
-			Description:    newStatus.Message,
-			TransferId:     transferId,
-			TransferStatus: newStatus,
-			Time:           time.Now(),
-		})
+		if newStatus.Code != oldStatus.Code {
+			publish(Message{
+				Description:    newStatus.Message,
+				TransferId:     transferId,
+				TransferStatus: newStatus,
+				Time:           time.Now(),
+			})
+		}
 	}
 
 	return newStatus, nil

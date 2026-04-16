@@ -240,10 +240,6 @@ var mockNmdcSecret string = "testsecret"
 var mockNerscEndpoint string = "globus-nmdc-nersc"
 var mockEmslEndpoint string = "globus-nmdc-emsl"
 
-// since NMDC doesn't support search queries at this time, we search for
-// data objects related to a study
-var nmdcSearchParams map[string]any
-
 // Creates a mock NMDC server for testing
 func createMockNmdcServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -547,10 +543,6 @@ func setup() {
 	}
 	endpoints.RegisterEndpointProvider("globus", globus.EndpointConstructor)
 
-	// construct NMDC-specific search parameters for a study
-	nmdcSearchParams = make(map[string]any)
-	nmdcSearchParams["study_id"] = "nmdc:sty-11-r2h77870"
-
 	// check for valid NMDC credentials
 	orcid := os.Getenv("DTS_KBASE_TEST_ORCID")
 	if orcid != "" {
@@ -657,8 +649,7 @@ func TestSearch(t *testing.T) {
 	assert.Contains(endpointNames, mockEmslEndpoint, "NMDC database missing EMSL endpoint")
 
 	params := databases.SearchParameters{
-		Query:    "",
-		Specific: nmdcSearchParams,
+		Query: "nmdc:sty-11-r2h77870",
 	}
 	results, err := db.Search(testOrcid, params)
 
@@ -675,22 +666,6 @@ func TestSearch(t *testing.T) {
 		assert.True(len(results.Descriptors) >= 2,
 			"NMDC search query didn't return all results")
 	}
-
-	// check with parameters that don't include a study_id
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	mockDb := getMockNmdcDatabase(t)
-	params = databases.SearchParameters{
-		Query: "",
-		Specific: map[string]any{
-			"sample_id": "nmdc:bs-1234-abcde56789",
-		},
-	}
-	results, err = mockDb.Search(testOrcid, params)
-	assert.Nil(err, "NMDC search query without study_id encountered an error")
-	assert.NotNil(results, "NMDC search query without study_id did not return results")
 }
 
 func TestSimpleFunctions(t *testing.T) {
@@ -797,9 +772,9 @@ func TestDescriptors(t *testing.T) {
 		db = getMockNmdcDatabase(t)
 		expectedCount = 2
 	}
+	studyId := "nmdc:sty-11-r2h77870"
 	params := databases.SearchParameters{
-		Query:    "",
-		Specific: nmdcSearchParams,
+		Query: studyId,
 	}
 	results, err := db.Search(testOrcid, params)
 	if areValidCredentials {
@@ -826,7 +801,7 @@ func TestDescriptors(t *testing.T) {
 		}
 	}
 	assert.Nil(err, "NMDC resource query encountered an error")
-	assert.True(len(descriptors) >= expectedCount, // can include biosample metadata!
+	assert.Equal(len(descriptors), expectedCount, // can include biosample metadata!
 		"NMDC resource query didn't return all results")
 	// build a lookup map from search results by ID for order-independent matching
 	searchResultsByID := make(map[string]map[string]any)
@@ -851,162 +826,11 @@ func TestDescriptors(t *testing.T) {
 	}
 }
 
-func TestDataObjects(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dbNmdc := db.(*Database)
-	params := url.Values{}
-	params.Add("sample_id", "nmdc:bs-1234-abcde56789")
-	dataObjects, err := dbNmdc.dataObjects(params)
-	assert.Nil(err, "dataObjects encountered an error")
-	assert.Equal(2, len(dataObjects), "dataObjects returned incorrect number of data objects")
-	assert.Equal("nmdc:do-1234-abcde56789", dataObjects[0].Id, "dataObjects returned incorrect first data object ID")
-	assert.Equal("nmdc:do-5678-efghij12345", dataObjects[1].Id, "dataObjects returned incorrect second data object ID")
-
-	// include unsupported extra fields in search params
-	params.Add("extra", "some_field,some_other_field")
-	dataObjects, err = dbNmdc.dataObjects(params)
-	assert.NotNil(err, "dataObjects with unsupported field did not encounter an error")
-	assert.Nil(dataObjects, "dataObjects with unsupported field returned data objects")
-}
-
-func TestCreateDataObjectAndBiosampleDescriptors(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dbNmdc := db.(*Database)
-
-	dataObjects := []DataObject{
-		{
-			Id:             "nmdc:do-1234-abcde56789",
-			Name:           "Test Data Object 1.txt",
-			Description:    "This is test data object 1",
-			FileSizeBytes:  123456,
-			MD5Checksum:    "d41d8cd98f00b204e9800998ecf8427e",
-			URL:            "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
-			Type:           "data_object",
-			WasGeneratedBy: "nmdc:wf-1234-abcde56789",
-		},
-		{
-			Id:             "nmdc:do-5678-efghij12345",
-			Name:           "Test Data Object 2.txt",
-			Description:    "This is test data object 2",
-			FileSizeBytes:  654321,
-			MD5Checksum:    "0cc175b9c0f1b6a831c399e269772661",
-			URL:            "https://data.microbiomedata.org/data/nmdc:do-5678-efghij12345",
-			Type:           "data_object",
-			WasGeneratedBy: "nmdc:wf-1234-abcde56789",
-		},
-	}
-	dataDesc, bioDesc, err := dbNmdc.createDataObjectAndBiosampleDescriptors(dataObjects)
-	assert.Nil(err, "createDataObjectAndBiosampleDescriptors encountered an error")
-	assert.Equal(2, len(dataDesc), "createDataObjectAndBiosampleDescriptors returned incorrect number of data object descriptors")
-	assert.Equal("nmdc:do-1234-abcde56789", dataDesc[0]["id"], "createDataObjectAndBiosampleDescriptors returned incorrect first data object ID")
-	assert.Equal("nmdc:do-5678-efghij12345", dataDesc[1]["id"], "createDataObjectAndBiosampleDescriptors returned incorrect second data object ID")
-	assert.NotNil(bioDesc, "createDataObjectAndBiosampleDescriptors returned nil biosample descriptor")
-	assert.Equal(2, len(bioDesc), "createDataObjectAndBiosampleDescriptors returned incorrect number of biosample descriptors")
-	assert.Equal("biosample-metadata-for-study-nmdc:sty-11-r2h77870", bioDesc[0]["name"], "createDataObjectAndBiosampleDescriptors returned incorrect biosample ID")
-	assert.Equal("biosample-metadata-for-study-nmdc:sty-22-x3y4z56789", bioDesc[1]["name"], "createDataObjectAndBiosampleDescriptors returned incorrect biosample ID")
-}
-
-func TestCreateDataObjectDescriptor(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dataObject := DataObject{
-		Id:            "nmdc:do-1234-abcde56789",
-		Name:          "Test Data Object.txt",
-		Description:   "This is a test data object",
-		FileSizeBytes: 123456,
-		MD5Checksum:   "d41d8cd98f00b204e9800998ecf8427e",
-		URL:           "https://data.microbiomedata.org/data/nmdc:do-1234-abcde56789",
-		Type:          "data_object",
-	}
-	studyCredit := credit.CreditMetadata{
-		Identifier:   "original-study-id",
-		ResourceType: "study",
-		Url:          "original-study-url",
-	}
-	nmdcDb := db.(*Database)
-	descriptor := nmdcDb.createDataObjectDescriptor(dataObject, studyCredit)
-	assert.Equal(dataObject.Id, descriptor["id"], "Data object descriptor ID mismatch")
-	assert.Equal("test_data_object", descriptor["name"], "Data object descriptor name mismatch")
-	assert.Equal("nmdc%3Ado-1234-abcde56789", descriptor["path"], "Data object descriptor path mismatch")
-	assert.Equal("application/octet-stream", descriptor["mediatype"], "Data object descriptor media type mismatch")
-	assert.Equal(dataObject.FileSizeBytes, descriptor["bytes"], "Data object descriptor size mismatch")
-	creditMeta, ok := descriptor["credit"].(credit.CreditMetadata)
-	assert.True(ok, "Data object descriptor credit type assertion failed")
-	assert.Equal(dataObject.Id, creditMeta.Identifier, "Data object descriptor credit ID mismatch")
-	assert.Equal(studyCredit.ResourceType, creditMeta.ResourceType, "Data object descriptor credit resource type mismatch")
-	assert.Equal(dataObject.URL, creditMeta.Url, "Data object descriptor credit URL mismatch")
-}
-
-func TestCreditAndBiosampleForWorkflow(t *testing.T) {
-	assert := assert.New(t)
-	if areValidCredentials {
-		// skip mock server tests
-		return
-	}
-	db := getMockNmdcDatabase(t)
-	dbNmdc := db.(*Database)
-
-	// check no workflow id
-	relatedCredit, relatedBiosample, err := dbNmdc.creditAndBiosampleForWorkflow("")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with no workflow ID should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with no workflow ID should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with no workflow ID should return no biosample")
-
-	// check valid workflow id
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-1234-abcde56789")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with valid workflow ID should not error")
-	assert.Equal("", relatedCredit.Identifier,
-		"creditAndBiosampleForWorkflow returned non-empty credit identifier")
-	assert.Equal("Tara Oceans Mediterranean Sea Expedition 2013", relatedCredit.Titles[0].Title,
-		"creditAndBiosampleForWorkflow returned incorrect credit name")
-	assert.Equal("dataset", relatedCredit.ResourceType,
-		"creditAndBiosampleForWorkflow returned incorrect credit resource type")
-	assert.NotNil(relatedBiosample, "creditAndBiosampleForWorkflow with valid workflow ID should return biosample")
-	assert.Equal("nmdc:bs-1234-abcde56789", relatedBiosample["id"],
-		"creditAndBiosampleForWorkflow returned incorrect biosample ID")
-
-	// check invalid workflow id indicating raw data
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:omg-invalid-workflow-id")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID should return no biosample")
-
-	// check with invalid workflow id format
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("invalid-workflow-id-format")
-	assert.Nil(err, "creditAndBiosampleForWorkflow with invalid workflow ID format should not error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with invalid workflow ID format should return no biosample")
-
-	// check workflow with too many studies
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-studies")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many studies should error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many studies should return no biosample")
-
-	// check workflow with too many biosamples
-	relatedCredit, relatedBiosample, err = dbNmdc.creditAndBiosampleForWorkflow("nmdc:wf-too-many-biosamples")
-	assert.NotNil(err, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should error")
-	assert.Equal(credit.CreditMetadata{}, relatedCredit, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no credit")
-	assert.Nil(relatedBiosample, "creditAndBiosampleForWorkflow with workflow ID having too many biosamples should return no biosample")
-}
-
 func TestCreditMetadataForStudy(t *testing.T) {
 	assert := assert.New(t)
-	db := Database{}
+	db := Database{
+		BaseURL: defaultBaseApiURL,
+	}
 	study := Study{
 		Id:    "nmdc:sty-11-r2h77870",
 		Title: "Primary Title",
@@ -1052,61 +876,54 @@ func TestCreditMetadataForStudy(t *testing.T) {
 			"NSF",
 		},
 	}
-	credit := db.creditMetadataForStudy(study)
-	assert.Equal("Jane Doe", credit.Contributors[0].Name,
+	credit, err := db.creditMetadataForStudy(study.Id)
+	assert.Nil(err, "Credit metadata retrieval failed")
+	assert.Equal("Mitchel J. Doktycz", credit.Contributors[0].Name,
 		"Credit metadata first contributor name is incorrect")
-	assert.Equal("Jane", credit.Contributors[0].GivenName,
+	assert.Equal("Mitchel", credit.Contributors[0].GivenName,
 		"Credit metadata first contributor given name is incorrect")
-	assert.Equal("Doe", credit.Contributors[0].FamilyName,
+	assert.Equal("Doktycz", credit.Contributors[0].FamilyName,
 		"Credit metadata first contributor family name is incorrect")
-	assert.Equal("creator", credit.Contributors[0].ContributorRoles,
+	assert.Equal("Principal Investigator,Conceptualization", credit.Contributors[0].ContributorRoles,
 		"Credit metadata first contributor role is incorrect")
-	assert.Equal("John Smith", credit.Contributors[1].Name,
+	assert.Equal("Joseph C. Ellis", credit.Contributors[1].Name,
 		"Credit metadata second contributor name is incorrect")
-	assert.Equal("John", credit.Contributors[1].GivenName,
+	assert.Equal("Joseph", credit.Contributors[1].GivenName,
 		"Credit metadata second contributor given name is incorrect")
-	assert.Equal("Smith", credit.Contributors[1].FamilyName,
+	assert.Equal("Ellis", credit.Contributors[1].FamilyName,
 		"Credit metadata second contributor family name is incorrect")
-	assert.Equal("0000-0002-1825-0097", credit.Contributors[1].ContributorId,
+	assert.Equal("orcid:0000-0002-2510-977X", credit.Contributors[1].ContributorId,
 		"Credit metadata second contributor ORCID is incorrect")
-	assert.Equal("contributor,tester", credit.Contributors[1].ContributorRoles,
+	assert.Equal("Formal Analysis", credit.Contributors[1].ContributorRoles,
 		"Credit metadata second contributor first role is incorrect")
-	assert.Equal("Cher", credit.Contributors[2].Name,
+	assert.Equal("Daniel Jacobson", credit.Contributors[2].Name,
 		"Credit metadata third contributor name is incorrect")
-	assert.Equal("Cher", credit.Contributors[2].GivenName,
+	assert.Equal("Daniel", credit.Contributors[2].GivenName,
 		"Credit metadata third contributor given name is incorrect")
-	assert.Equal("", credit.Contributors[2].FamilyName,
+	assert.Equal("Jacobson", credit.Contributors[2].FamilyName,
 		"Credit metadata third contributor family name is incorrect")
-	assert.Equal("singer", credit.Contributors[2].ContributorRoles,
+	assert.Equal("Conceptualization,Formal Analysis,Funding acquisition,Investigation,Methodology,Supervision,Writing original draft,Writing review and editing", credit.Contributors[2].ContributorRoles,
 		"Credit metadata third contributor role is incorrect")
-	assert.Equal("Primary Title", credit.Titles[0].Title,
+	assert.Equal("Bio-Scales: Defining plant gene function and its connection to ecosystem nitrogen and carbon cycle", credit.Titles[0].Title,
 		"Credit metadata primary title is incorrect")
-	assert.Equal("Secondary Title", credit.Titles[1].Title,
-		"Credit metadata first alternative title is incorrect")
-	assert.Equal("Tertiary Title", credit.Titles[2].Title,
-		"Credit metadata second alternative title is incorrect")
-	assert.Equal("10.1234/example.doi.1", credit.RelatedIdentifiers[0].Id,
+	assert.Equal("doi:10.46936/10.25585/60000017", credit.RelatedIdentifiers[0].Id,
 		"Credit metadata primary DOI is incorrect")
 	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[0].RelationshipType,
 		"Credit metadata primary DOI relationship type is incorrect")
-	assert.Equal("", credit.RelatedIdentifiers[0].Description,
+	assert.Equal("Awarded proposal DOI", credit.RelatedIdentifiers[0].Description,
 		"Credit metadata primary DOI description is incorrect")
-	assert.Equal("10.5678/example.doi.2", credit.RelatedIdentifiers[1].Id,
+	assert.Equal("doi:10.25345/C58K7520G", credit.RelatedIdentifiers[1].Id,
 		"Credit metadata dataset DOI is incorrect")
 	assert.Equal("IsCitedBy", credit.RelatedIdentifiers[1].RelationshipType,
 		"Credit metadata dataset DOI relationship type is incorrect")
 	assert.Equal("Dataset DOI", credit.RelatedIdentifiers[1].Description,
 		"Credit metadata dataset DOI description is incorrect")
-	assert.Equal(2, len(credit.Funding),
+	assert.Equal(1, len(credit.Funding),
 		"Credit metadata funding source count is incorrect")
 	assert.Equal("ROR:01bj3aw27", credit.Funding[0].Funder.OrganizationId,
 		"Credit metadata first funding source organization ID is incorrect")
 	assert.Equal("United States Department of Energy", credit.Funding[0].Funder.OrganizationName,
 		"Credit metadata first funding source name is incorrect")
-	assert.Equal("", credit.Funding[1].Funder.OrganizationId,
-		"Unrecognized funding source should have empty Funder instance")
-	assert.Equal("", credit.Funding[1].Funder.OrganizationName,
-		"Unrecognized funding source should have empty Funder instance")
 }
 
 func TestPageNumberAndSize(t *testing.T) {
@@ -1189,17 +1006,17 @@ func TestDataResourceName(t *testing.T) {
 
 func TestAddSpecificSearchParameters(t *testing.T) {
 	assert := assert.New(t)
-	db := Database{}
+	db := Database{
+		BaseURL: defaultBaseApiURL,
+	}
 	validParams := map[string]any{
-		"study_id":       "nmdc:sty-11-r2h77870",
 		"data_object_id": "nmdc:do-1234-abcde56789",
 	}
 	p := url.Values{}
+	p.Set("Query", "nmdc:sty-11-r2h77870")
 	p.Set("existing_param", "existing_value")
 	err := db.addSpecificSearchParameters(validParams, &p)
 	assert.Nil(err, "Adding NMDC specific search parameters encountered an error")
-	assert.Equal("nmdc:sty-11-r2h77870", p.Get("study_id"),
-		"NMDC specific search parameter 'study_id' has incorrect value")
 	assert.Equal("nmdc:do-1234-abcde56789", p.Get("data_object_id"),
 		"NMDC specific search parameter 'data_object_id' has incorrect value")
 	assert.Equal("existing_value", p.Get("existing_param"),
@@ -1207,12 +1024,11 @@ func TestAddSpecificSearchParameters(t *testing.T) {
 
 	invalidParams := []map[string]any{
 		{"invalid_param": "some_value"},
-		{"study_id": 12345},                                     // invalid type
 		{"data_object_id": []string{"nmdc:do-1234-abcde56789"}}, // invalid type
 		{"extra": "invalid_field,other_invalid_field"},          // invalid value
-		{"extra": 23456},                                        // invalid type
-		{"fields": "invalid_field"},                             // invalid value
-		{"fields": 34567},                                       // invalid type
+		{"extra": 23456},            // invalid type
+		{"fields": "invalid_field"}, // invalid value
+		{"fields": 34567},           // invalid type
 	}
 	for _, params := range invalidParams {
 		p := url.Values{}

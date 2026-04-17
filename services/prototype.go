@@ -579,20 +579,19 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	}
 
 	// have we been given any IDs?
-	if strings.TrimSpace(input.Body.Ids) == "" {
+	if len(input.Body.FileIds) == 0 {
 		return nil, huma.Error400BadRequest("No file IDs were provided!")
 	}
-	ids := strings.Split(input.Body.Ids, ",")
 
 	// have we been given duplicate IDs?
-	duplicates := duplicateFileIds(ids)
+	duplicates := duplicateFileIds(input.Body.FileIds)
 	if duplicates != nil {
 		return nil, huma.Error400BadRequest(fmt.Sprintf("The following requested file IDs have duplicates, which are forbidden: %s",
 			strings.Join(duplicates, ", ")))
 	}
 
 	slog.Info(fmt.Sprintf("Fetching file metadata for %d files in database %s...",
-		len(ids), input.Body.Database))
+		len(input.Body.FileIds), input.Body.Database))
 	db, err := databases.NewDatabase(input.Body.Database)
 	if err != nil {
 		return nil, databaseError(err)
@@ -604,7 +603,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 		orcid = user.Orcid
 	}
 
-	descriptors, err := db.Descriptors(orcid, ids)
+	descriptors, err := db.Descriptors(orcid, input.Body.FileIds)
 	if err != nil {
 		slog.Error(err.Error())
 		return nil, huma.Error500InternalServerError(err.Error())

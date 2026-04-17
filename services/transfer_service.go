@@ -36,11 +36,11 @@ type SearchResultsResponse struct {
 
 // a request for file metadata (POST)
 type FileMetadataRequest struct {
-	Database string `json:"database" query:"database" example:"jdp" doc:"The ID of the database for which file metadata is fetched"`
-	Orcid    string `json:"orcid" query:"orcid" example:"1234-5678-9101-112X" doc:"The ORCID of the user requesting metadata"`
-	Ids      string `json:"ids" query:"ids" example:"JDP:6101cc0f2b1f2eeea564c978" doc:"A comma-separated list of file IDs"`
-	Offset   int    `json:"offset,omitempty" query:"offset" example:"100" doc:"Metadata records begin at the given offset"`
-	Limit    int    `json:"limit,omitempty" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
+	Database string   `json:"database" query:"database" example:"jdp" doc:"The ID of the database for which file metadata is fetched"`
+	Orcid    string   `json:"orcid" query:"orcid" example:"1234-5678-9101-112X" doc:"The ORCID of the user requesting metadata"`
+	FileIds  []string `json:"ids" query:"ids" example:"[JDP:6101cc0f2b1f2eeea564c978]" doc:"An array of file IDs"`
+	Offset   int      `json:"offset,omitempty" query:"offset" example:"100" doc:"Metadata records begin at the given offset"`
+	Limit    int      `json:"limit,omitempty" query:"limit" example:"50" doc:"Limits the number of metadata records returned"`
 }
 
 // a response for a file metadata query (POST)

@@ -564,13 +564,27 @@ func TestFetchJdpMetadata(t *testing.T) {
 	}
 
 	// try omitting file IDs
-	resp, err := get(baseUrl + apiPrefix + "files/by-id?database=jdp")
+	orcid := dtsKbaseTestOrcid
+	payload, err := json.Marshal(FileMetadataRequest{
+		Database: "jdp",
+		Orcid:    orcid,
+	})
+	assert.Nil(err)
+	resp, err := post(baseUrl+apiPrefix+"files/by-id", bytes.NewReader(payload))
 	assert.Nil(err)
 	assert.Equal(http.StatusBadRequest, resp.StatusCode)
 
 	// now let's fetch 3 records
-	resp, err = get(baseUrl + apiPrefix +
-		"files/by-id?database=jdp&ids=JDP:6101cc0f2b1f2eeea564c978,JDP:613a7baa72d3a08c9a54b32d,JDP:61412246cc4ff44f36c8913d")
+	payload, err = json.Marshal(FileMetadataRequest{
+		Database: "jdp",
+		Orcid:    orcid,
+		FileIds: []string{
+			"JDP:6101cc0f2b1f2eeea564c978",
+			"JDP:613a7baa72d3a08c9a54b32d",
+			"JDP:61412246cc4ff44f36c8913d",
+		},
+	})
+	resp, err = post(baseUrl+apiPrefix+"files/by-id", bytes.NewReader(payload))
 	assert.Nil(err)
 
 	respBody, err := io.ReadAll(resp.Body)

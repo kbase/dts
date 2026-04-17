@@ -449,7 +449,7 @@ func TestTransfer(t *testing.T) {
 	file2path := "local-user/dts-" + transferIdString + "/file2.txt"
 	manifestPath := "local-user/dts-" + transferIdString + "/manifest.json"
 	md_req, err := json.Marshal(services.FileMetadataRequest{
-		Database: "db-foo",
+		Database: "db-bar",
 		Orcid:    "0000-0000-1234-0000",
 		FileIds:  []string{file1path, file2path, manifestPath},
 	})
@@ -537,7 +537,7 @@ func TestCancelTransfer(t *testing.T) {
 	file3path := "local-user/dts-" + transferIdString + "/dir1/file3.txt"
 	file4path := "local-user/dts-" + transferIdString + "/dir1/file4.txt"
 	md_req, err := json.Marshal(services.FileMetadataRequest{
-		Database: "db-foo",
+		Database: "db-bar",
 		Orcid:    "0000-0000-1234-0000",
 		FileIds:  []string{file3path, file4path},
 	})
@@ -723,7 +723,7 @@ func TestConcurrentTransfers(t *testing.T) {
 				filePaths = append(filePaths, "local-user/dts-"+transferIdString+"/"+file)
 			}
 			md_req, err := json.Marshal(services.FileMetadataRequest{
-				Database: "db-foo",
+				Database: result.info.Request.Destination,
 				Orcid:    "0000-0000-1234-0000",
 				FileIds:  filePaths,
 			})

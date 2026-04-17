@@ -563,6 +563,7 @@ func (service *prototype) fetchFileMetadata(ctx context.Context,
 	input *struct {
 		Authorization string              `header:"authorization" doc:"Authorization header with encoded access token"`
 		Body          FileMetadataRequest `doc:"Contains all file metadata request parameters"`
+		ContentType   string              `header:"Content-Type" doc:"Content-Type header (must be application/json)"`
 	}) (*FileMetadataOutput, error) {
 
 	user, err := authorize(input.Authorization)

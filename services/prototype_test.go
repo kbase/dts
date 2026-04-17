@@ -584,6 +584,7 @@ func TestFetchJdpMetadata(t *testing.T) {
 			"JDP:61412246cc4ff44f36c8913d",
 		},
 	})
+	assert.Nil(err)
 	resp, err = post(baseUrl+apiPrefix+"files/by-id", bytes.NewReader(payload))
 	assert.Nil(err)
 

@@ -324,15 +324,35 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 				}
 			}
 		} else {
-			// it's probably real, so find the first error event
+			// it's probably real, so traverse error events and aggregate
 			for _, event := range eventList.Data {
 				if event.IsError {
 					// does this error indicate that the transfer has failed?
 					switch event.Code {
 					case "FILE_NOT_FOUND", "PERMISSION_DENIED":
+						files := make([]string, 0)
+						for _, event := range eventList.Data {
+							if event.IsError {
+								type Details struct {
+									Context struct {
+										Path string `json:"path"`
+									} `json:"context"`
+								}
+								var details Details
+								if err := json.Unmarshal([]byte(event.Details), &details); err == nil {
+									files = append(files, details.Context.Path)
+								}
+							}
+						}
+						var message string
+						if event.Code == "FILE_NOT_FOUND" {
+							message = fmt.Sprintf("Transfer failed: files not found: %s", strings.Join(files, ", "))
+						} else { // PERMISSION_DENIED
+							message = fmt.Sprintf("Transfer failed: permission denied: %s", strings.Join(files, ", "))
+						}
 						return endpoints.TransferStatus{
 							Code:                endpoints.TransferStatusFailed,
-							Message:             fmt.Sprintf("Transfer failed: %s (%s)", event.Description, event.Details),
+							Message:             message,
 							NumFiles:            response.Files,
 							NumFilesSkipped:     response.FilesSkipped,
 							NumFilesTransferred: response.FilesTransferred,

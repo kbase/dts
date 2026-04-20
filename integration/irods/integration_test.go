@@ -343,7 +343,13 @@ func TestDatabaseFetchMetadata(t *testing.T) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-foo&ids=file1.txt,dir2/file5.txt", nil)
+	md_req, err := json.Marshal(services.FileMetadataRequest{
+		Database: "db-foo",
+		Orcid:    "0000-0000-1234-0000",
+		FileIds:  []string{"file1.txt", "dir2/file5.txt"},
+	})
+	assert.Nil(err, "failed to marshal file metadata request")
+	req, err := http.NewRequest("POST", testServiceURL+"/api/v1/files/by-id", bytes.NewBuffer(md_req))
 	assert.Nil(err, "failed to create request for database fetch metadata")
 	addAuthHeader(req)
 
@@ -442,7 +448,13 @@ func TestTransfer(t *testing.T) {
 	file1path := "local-user/dts-" + transferIdString + "/file1.txt"
 	file2path := "local-user/dts-" + transferIdString + "/file2.txt"
 	manifestPath := "local-user/dts-" + transferIdString + "/manifest.json"
-	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file1path+","+file2path+","+manifestPath, nil)
+	md_req, err := json.Marshal(services.FileMetadataRequest{
+		Database: "db-bar",
+		Orcid:    "0000-0000-1234-0000",
+		FileIds:  []string{file1path, file2path, manifestPath},
+	})
+	assert.Nil(err, "failed to marshal file metadata request")
+	req, err = http.NewRequest("POST", testServiceURL+"/api/v1/files/by-id", bytes.NewBuffer(md_req))
 	assert.Nil(err, "failed to create request for destination database fetch metadata")
 	addAuthHeader(req)
 
@@ -524,7 +536,13 @@ func TestCancelTransfer(t *testing.T) {
 	// make sure the files are not in the destination database
 	file3path := "local-user/dts-" + transferIdString + "/dir1/file3.txt"
 	file4path := "local-user/dts-" + transferIdString + "/dir1/file4.txt"
-	req, err = http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database=db-bar&ids="+file3path+","+file4path, nil)
+	md_req, err := json.Marshal(services.FileMetadataRequest{
+		Database: "db-bar",
+		Orcid:    "0000-0000-1234-0000",
+		FileIds:  []string{file3path, file4path},
+	})
+	assert.Nil(err, "failed to marshal file metadata request")
+	req, err = http.NewRequest("POST", testServiceURL+"/api/v1/files/by-id", bytes.NewBuffer(md_req))
 	assert.Nil(err, "failed to create request for destination database fetch metadata after cancel")
 	addAuthHeader(req)
 
@@ -704,14 +722,13 @@ func TestConcurrentTransfers(t *testing.T) {
 			for _, file := range expectedFiles {
 				filePaths = append(filePaths, "local-user/dts-"+transferIdString+"/"+file)
 			}
-			idsParam := ""
-			for j, path := range filePaths {
-				if j > 0 {
-					idsParam += ","
-				}
-				idsParam += path
-			}
-			req, err := http.NewRequest("GET", testServiceURL+"/api/v1/files/by-id?database="+result.info.Request.Destination+"&ids="+idsParam, nil)
+			md_req, err := json.Marshal(services.FileMetadataRequest{
+				Database: result.info.Request.Destination,
+				Orcid:    "0000-0000-1234-0000",
+				FileIds:  filePaths,
+			})
+			assert.Nil(err, "failed to marshal file metadata request")
+			req, err := http.NewRequest("POST", testServiceURL+"/api/v1/files/by-id", bytes.NewBuffer(md_req))
 			assert.Nil(err, "failed to create request for destination database fetch metadata after processing")
 			addAuthHeader(req)
 

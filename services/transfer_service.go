@@ -34,11 +34,18 @@ type SearchResultsResponse struct {
 	Descriptors []map[string]any `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 
-// a response for a file metadata query (GET)
+// a request for file metadata (POST)
+type FileMetadataRequest struct {
+	Database string   `json:"database" example:"jdp" doc:"The ID of the database for which file metadata is fetched"`
+	Orcid    string   `json:"orcid" example:"1234-5678-9101-112X" doc:"The ORCID of the user requesting metadata"`
+	FileIds  []string `json:"file_ids" example:"[\"JDP:6101cc0f2b1f2eeea564c978\"]" doc:"An array of file IDs"`
+	Offset   int      `json:"offset,omitempty" example:"100" doc:"Metadata records begin at the given offset"`
+	Limit    int      `json:"limit,omitempty" example:"50" doc:"Limits the number of metadata records returned"`
+}
+
+// a response for a file metadata query (POST)
 type FileMetadataResponse struct {
-	// name of organization database
-	Database string `json:"database" example:"jdp" doc:"the database searched"`
-	// resources corresponding to given file IDs
+	Database    string           `json:"database" example:"jdp" doc:"the database searched"`
 	Descriptors []map[string]any `json:"resources" doc:"an array of validated Frictionless descriptors"`
 }
 

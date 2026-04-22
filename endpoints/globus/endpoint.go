@@ -748,14 +748,14 @@ func descriptionFromEventList(events EventList, fallback string) string {
 	var message string
 	if len(missing_files) > 0 {
 		var files []string
-		for file, _ := range missing_files {
+		for file := range missing_files {
 			files = append(files, file)
 		}
 		message += fmt.Sprintf("files not found: %s", strings.Join(files, ", "))
 	}
 	if len(inaccessible_files) > 0 {
 		var files []string
-		for file, _ := range inaccessible_files {
+		for file := range inaccessible_files {
 			files = append(files, file)
 		}
 		message += fmt.Sprintf("permisssion denied: %s", strings.Join(files, ", "))

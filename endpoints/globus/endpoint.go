@@ -24,6 +24,7 @@ package globus
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -298,7 +299,7 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 		body, err := ep.get(resource, url.Values{})
 		if err != nil {
 			// fine, we'll just use the "nice status"
-			return endpoints.TransferStatus{}, fmt.Errorf(response.NiceStatusShortDescription)
+			return endpoints.TransferStatus{}, errors.New(response.NiceStatusShortDescription)
 		}
 		var eventList EventList
 		json.Unmarshal(body, &eventList)
@@ -615,7 +616,13 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 	// the destination is a Globus endpoint, right?
 	gDestination, ok := destination.(*Endpoint)
 	if !ok {
-		return xferId, fmt.Errorf("destination is not a Globus endpoint")
+		return xferId, &endpoints.IncompatibleDestinationError{
+			Source:              ep.Name,
+			SourceProvider:      "globus",
+			Destination:         "???",
+			DestinationProvider: destination.Provider(),
+			Message:             "destination is not a Globus endpoint",
+		}
 	}
 
 	// submit the transfer request

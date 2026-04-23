@@ -300,17 +300,6 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 			// fine, we'll just use the "nice status"
 			return endpoints.TransferStatus{}, fmt.Errorf(response.NiceStatusShortDescription)
 		}
-		type Event struct {
-			DataType    string `json:"DATA_TYPE"`
-			Code        string `json:"code"`
-			IsError     bool   `json:"is_error"`
-			Description string `json:"description"`
-			Details     string `json:"details"`
-			Time        string `json:"time"`
-		}
-		type EventList struct {
-			Data []Event `json:"DATA"`
-		}
 		var eventList EventList
 		json.Unmarshal(body, &eventList)
 		if response.NiceStatus == "AUTH" {
@@ -324,28 +313,14 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 				}
 			}
 		} else {
-			// it's probably real, so find the first error event
-			for _, event := range eventList.Data {
-				if event.IsError {
-					// does this error indicate that the transfer has failed?
-					switch event.Code {
-					case "FILE_NOT_FOUND", "PERMISSION_DENIED":
-						return endpoints.TransferStatus{
-							Code:                endpoints.TransferStatusFailed,
-							Message:             fmt.Sprintf("Transfer failed: %s (%s)", event.Description, event.Details),
-							NumFiles:            response.Files,
-							NumFilesSkipped:     response.FilesSkipped,
-							NumFilesTransferred: response.FilesTransferred,
-						}, nil
-					default: // not sure what this is -- just propagate
-						return endpoints.TransferStatus{},
-							fmt.Errorf("%s (%s):\n%s", event.Description, event.Code,
-								event.Details)
-					}
-				}
-			}
-			// fall back to the "nice status"
-			return endpoints.TransferStatus{}, fmt.Errorf(response.NiceStatusShortDescription)
+			// it's probably real, so traverse the event list
+			return endpoints.TransferStatus{
+				Code:                endpoints.TransferStatusFailed,
+				Message:             descriptionFromEventList(eventList, response.NiceStatusShortDescription),
+				NumFiles:            response.Files,
+				NumFilesSkipped:     response.FilesSkipped,
+				NumFilesTransferred: response.FilesTransferred,
+			}, nil
 		}
 	}
 	return endpoints.TransferStatus{
@@ -718,4 +693,75 @@ func (ep *Endpoint) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
 	var endpointInfo EndpointInfo
 	err = json.Unmarshal(body, &endpointInfo)
 	return endpointInfo, err
+}
+
+type EventList struct {
+	Data []Event `json:"DATA"`
+}
+
+type Event struct {
+	DataType    string `json:"DATA_TYPE"`
+	Code        string `json:"code"`
+	IsError     bool   `json:"is_error"`
+	Description string `json:"description"`
+	Details     string `json:"details"`
+	Time        string `json:"time"`
+}
+
+// traverses a Globus event list, producing an appropriate description of errors encountered,
+// falling back to the given description if nothing can be gleaned
+func descriptionFromEventList(events EventList, fallback string) string {
+	missing_files := make(map[string]bool)
+	inaccessible_files := make(map[string]bool)
+	for _, event := range events.Data {
+		if event.IsError {
+			switch event.Code {
+			case "FILE_NOT_FOUND", "PERMISSION_DENIED":
+				type Details struct {
+					Context []struct {
+						Operation string `json:"operation,omitempty"`
+						Path      string `json:"path,omitempty"`
+					} `json:"context"`
+					Error struct {
+						Body     string `json:"body,omitempty"`
+						Code     int    `json:"code,omitempty"`
+						Endpoint string `json:"endpoint,omitempty"`
+						Type     string `json:"type,omitempty"`
+					}
+				}
+				var details Details
+				if err := json.Unmarshal([]byte(event.Details), &details); err == nil {
+					if len(details.Context) > 0 {
+						if event.Code == "FILE_NOT_FOUND" {
+							missing_files[details.Context[0].Path] = true
+						} else { // PERMISSION_DENIED
+							inaccessible_files[details.Context[0].Path] = true
+						}
+					}
+				}
+			default: // not sure what this is -- skip for now
+			}
+		}
+	}
+
+	// summarize events
+	var message string
+	if len(missing_files) > 0 {
+		var files []string
+		for file := range missing_files {
+			files = append(files, file)
+		}
+		message += fmt.Sprintf("files not found: %s", strings.Join(files, ", "))
+	}
+	if len(inaccessible_files) > 0 {
+		var files []string
+		for file := range inaccessible_files {
+			files = append(files, file)
+		}
+		message += fmt.Sprintf("permisssion denied: %s", strings.Join(files, ", "))
+	}
+	if len(message) > 0 {
+		return message
+	}
+	return fallback
 }

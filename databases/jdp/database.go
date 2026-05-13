@@ -809,6 +809,15 @@ func (db Database) addSpecificSearchParameters(params map[string]any, p *url.Val
 				}
 			}
 			p.Add(name, fmt.Sprintf("%d", value))
+		case "datasets": // specific JGI datasets requested
+			var value string
+			if value, ok = jsonValue.(string); !ok {
+				return &databases.InvalidSearchParameter{
+					Database: "JDP",
+					Message:  "Invalid JDP dataset(s) requested (must be comma-delimited string)",
+				}
+			}
+			p.Add(name, strings.TrimSpace(value))
 		case "extra": // comma-separated additional fields requested
 			var value string
 			if value, ok = jsonValue.(string); !ok {

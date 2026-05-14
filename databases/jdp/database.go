@@ -136,7 +136,9 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	pageNumber, pageSize := pageNumberAndSize(params.Pagination.Offset, params.Pagination.MaxNum)
 
 	p := url.Values{}
-	p.Add("q", params.Query)
+	if params.Query != "" {
+		p.Add("q", params.Query)
+	}
 	switch params.Status {
 	case databases.SearchFileStatusStaged:
 		p.Add(`ff[file_status]`, "RESTORED")

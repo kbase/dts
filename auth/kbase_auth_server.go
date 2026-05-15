@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -58,7 +59,6 @@ type KBaseAuthServerOption func(*KBaseAuthServerConfig)
 // options can be used to modify the default configuration, and are typically
 // used for testing with a mock server
 func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*KBaseAuthServer, error) {
-
 	// set up default configuration
 	cfg := KBaseAuthServerConfig{
 		BaseURL:      kbaseURL,
@@ -165,7 +165,12 @@ func kbaseAuthError(response *http.Response) error {
 	if mErr == nil {
 		var result kbaseAuthErrorResponse
 		mErr = json.Unmarshal(body, &result)
-		if mErr == nil {
+		if mErr != nil {
+			if strings.Contains(string(body), "cloudflare") {
+				err = fmt.Errorf("KBase Auth error (%d): %s", response.StatusCode,
+					"Authenticator is protected by a Cloudflare challenge")
+			}
+		} else {
 			if len(result.Message) > 0 {
 				err = fmt.Errorf("KBase Auth error (%d): %s", response.StatusCode,
 					result.Message)

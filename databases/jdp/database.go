@@ -174,18 +174,14 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
-	// strip the "JDP:" prefix from our files and create a mapping from IDs to
-	// their original order so we can hand back metadata accordingly
+	// strip the "JDP:" prefix from our files
 	strippedFileIds := make([]string, len(fileIds))
-	indexForId := make(map[string]int)
 	for i, fileId := range fileIds {
 		strippedFileIds[i] = strings.TrimPrefix(fileId, "JDP:")
-		indexForId[strippedFileIds[i]] = i
 	}
 
 	// NOTE: the JDP search/by_file_ids/ endpoint (unofficial, undocumented!) only seems to
 	// NOTE: accept around 50 file IDs at a time, so we have to batch our requests
-
 	batchSize := 50
 	numBatches := len(strippedFileIds) / batchSize
 	if numBatches*batchSize < len(strippedFileIds) {
@@ -224,8 +220,6 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		descriptors = append(descriptors, batchDescriptors...)
 	}
 
-	// reorder the descriptors to match that of the requested file IDs, and track file IDs that aren't
-	// matched to descriptors
 	descriptorsByFileId := make(map[string]map[string]any)
 	for _, descriptor := range descriptors {
 		descriptorsByFileId[descriptor["id"].(string)] = descriptor
@@ -240,6 +234,7 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 			}
 		}
 		if len(missingResources) > 0 {
+			slices.Sort(missingResources)
 			return nil, &databases.ResourcesNotFoundError{
 				Database:    "JDP",
 				ResourceIds: missingResources,

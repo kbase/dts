@@ -207,17 +207,24 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 			return nil, err
 		}
 
-		body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
-		if err != nil {
-			return nil, err
-		}
+		// NOTE: this endpoint can be flaky, so we might have to hit it more than once to get all
+		// NOTE: the descriptors (this is NUTS)
+		for {
+			body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
+			if err != nil {
+				return nil, err
+			}
 
-		// get a de-duped list of descriptors
-		batchDescriptors, err := descriptorsFromResponseBody(body, nil)
-		if err != nil {
-			return nil, err
+			// get a de-duped list of descriptors
+			batchDescriptors, err := descriptorsFromResponseBody(body, nil)
+			if err != nil {
+				return nil, err
+			}
+			if len(batchDescriptors) == end-begin { // got em all
+				descriptors = append(descriptors, batchDescriptors...)
+				break
+			}
 		}
-		descriptors = append(descriptors, batchDescriptors...)
 	}
 
 	descriptorsByFileId := make(map[string]map[string]any)

@@ -173,16 +173,13 @@ func (db *Database) Search(orcid string, params databases.SearchParameters) (dat
 	}, err
 }
 
-func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
+func (db *Database) fetchDescriptors(orcid string, fileIds []string, batchSize int) ([]map[string]any, error) {
 	// strip the "JDP:" prefix from our files
 	strippedFileIds := make([]string, len(fileIds))
 	for i, fileId := range fileIds {
 		strippedFileIds[i] = strings.TrimPrefix(fileId, "JDP:")
 	}
 
-	// NOTE: the JDP search/by_file_ids/ endpoint (unofficial, undocumented!) only seems to
-	// NOTE: accept around 50 file IDs at a time, so we have to batch our requests
-	batchSize := 50
 	numBatches := len(strippedFileIds) / batchSize
 	if numBatches*batchSize < len(strippedFileIds) {
 		numBatches++
@@ -207,24 +204,27 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 			return nil, err
 		}
 
-		// NOTE: this endpoint can be flaky, so we might have to hit it more than once to get all
-		// NOTE: the descriptors (this is NUTS)
-		for {
-			body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
-			if err != nil {
-				return nil, err
-			}
-
-			// get a de-duped list of descriptors
-			batchDescriptors, err := descriptorsFromResponseBody(body, nil)
-			if err != nil {
-				return nil, err
-			}
-			if len(batchDescriptors) == end-begin { // got em all
-				descriptors = append(descriptors, batchDescriptors...)
-				break
-			}
+		body, err := db.post("search/by_file_ids/", orcid, bytes.NewReader(data))
+		if err != nil {
+			return nil, err
 		}
+
+		// get a de-duped list of descriptors (with JDP: prefixes reinstated on IDs)
+		batchDescriptors, err := descriptorsFromResponseBody(body, nil)
+		if err != nil {
+			return nil, err
+		}
+		descriptors = append(descriptors, batchDescriptors...)
+	}
+	return descriptors, nil
+}
+
+func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
+	// NOTE: The JDP search/by_file_ids/ endpoint (unofficial, undocumented!) only seems to
+	// NOTE: accept around 50 file IDs at a time, so we have to batch our requests.
+	descriptors, err := db.fetchDescriptors(orcid, fileIds, 50)
+	if err != nil {
+		return nil, err
 	}
 
 	descriptorsByFileId := make(map[string]map[string]any)
@@ -232,19 +232,37 @@ func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]an
 		descriptorsByFileId[descriptor["id"].(string)] = descriptor
 	}
 
-	// if any file IDs don't have corresponding descriptors, find out which ones and issue an error
+	// NOTE: Evidently sometimes the search/by_file_ids endpoint doesn't return all of the
+	// NOTE: relevant information (???), so we make a list of missing descriptors and attempt
+	// NOTE: to fetch them again. If that attempt fails, we emit an error.
 	if len(descriptorsByFileId) < len(fileIds) {
-		missingResources := make([]string, 0)
+		missingFileIds := make([]string, 0)
 		for _, fileId := range fileIds {
 			if _, found := descriptorsByFileId[fileId]; !found {
-				missingResources = append(missingResources, fileId)
+				missingFileIds = append(missingFileIds, fileId)
 			}
 		}
-		if len(missingResources) > 0 {
-			slices.Sort(missingResources)
+		if recoveredDescriptors, err := db.fetchDescriptors(orcid, missingFileIds, 50); err == nil {
+			for _, descriptor := range recoveredDescriptors {
+				descriptorsByFileId[descriptor["id"].(string)] = descriptor
+			}
+			if len(recoveredDescriptors) < len(missingFileIds) { // didn't get them all!
+				missingFileIds = make([]string, 0)
+				for _, fileId := range fileIds {
+					if _, found := descriptorsByFileId[fileId]; !found {
+						missingFileIds = append(missingFileIds, fileId)
+					}
+				}
+			} else {
+				// got 'em!
+				missingFileIds = nil
+			}
+		}
+		if len(missingFileIds) > 0 {
+			slices.Sort(missingFileIds)
 			return nil, &databases.ResourcesNotFoundError{
 				Database:    "JDP",
-				ResourceIds: missingResources,
+				ResourceIds: missingFileIds,
 			}
 		}
 	}

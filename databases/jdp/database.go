@@ -278,9 +278,7 @@ func (db *Database) EndpointNames() []string {
 	return []string{db.EndpointName}
 }
 
-func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
-	var xferId uuid.UUID
-
+func (db *Database) requestArchivedFiles(orcid string, fileIds []string) (int, error) {
 	// construct a POST request to restore archived files with the given IDs
 	type RestoreRequest struct {
 		Ids                []string `json:"ids"`
@@ -304,18 +302,19 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 		IncludePrivateData: 1, // we need this just in case!
 	})
 	if err != nil {
-		return xferId, err
+		return -1, err
 	}
 
-	// NOTE: The slash in the resource is all-important for POST requests to
-	// NOTE: the JDP!!
+	// NOTE: The slash in the resource is all-important for POST requests to the JDP!!
+	// NOTE: Also, this endpoint seems to return a 404 whenever it gets too many file IDs,
+	// NOTE: so we batch requests
 	body, err := db.post("request_archived_files/", orcid, bytes.NewReader(data))
 	if err != nil {
 		switch e := err.(type) {
 		case *databases.ResourcesNotFoundError:
 			e.ResourceIds = fileIds
 		}
-		return xferId, err
+		return -1, err
 	}
 
 	type RestoreResponse struct {
@@ -325,13 +324,25 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 	var jdpResp RestoreResponse
 	err = json.Unmarshal(body, &jdpResp)
 	if err != nil {
+		return -1, err
+	}
+
+	return jdpResp.RequestId, nil
+}
+
+func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
+	var xferId uuid.UUID
+
+	requestId, err := db.requestArchivedFiles(orcid, fileIds)
+	if err != nil {
 		return xferId, err
 	}
+
 	slog.Debug(fmt.Sprintf("Requested %d archived files from JDP (request ID: %d)",
-		len(fileIds), jdpResp.RequestId))
+		len(fileIds), requestId))
 	xferId = uuid.New()
 	db.StagingRequests[xferId] = StagingRequest{
-		Id:   jdpResp.RequestId,
+		Id:   requestId,
 		Time: time.Now(),
 	}
 	return xferId, err
@@ -680,10 +691,6 @@ func (db *Database) post(resource, orcid string, body io.Reader) ([]byte, error)
 	case 200, 201, 204:
 		defer resp.Body.Close()
 		return io.ReadAll(resp.Body)
-	case 404:
-		return nil, &databases.ResourcesNotFoundError{
-			Database: "JDP",
-		}
 	case 503:
 		return nil, &databases.UnavailableError{
 			Database: "jdp",

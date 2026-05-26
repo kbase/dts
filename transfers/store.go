@@ -236,13 +236,23 @@ func (s *storeState) process(decoder *gob.Decoder) {
 	for running {
 		select {
 		case spec := <-s.Channels.RequestNewTransfer:
-			id, transfer, err := s.newTransfer(spec)
+			// create a new transfer ID and return it immediately
+			id := uuid.New()
+			s.Channels.ReturnNewTransfer <- id
+
+			// create an entry in the store and finish setting up the transfer
+			newXfer, err := s.newTransfer(spec)
 			if err != nil {
 				s.Channels.Error <- err
-			} else {
-				transfers[id] = transfer
-				s.Channels.ReturnNewTransfer <- id
 			}
+			transfers[id] = newXfer
+			size := newXfer.payloadSize()
+			publish(Message{
+				Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
+				TransferId:     id,
+				TransferStatus: transfers[id].Status,
+				Time:           time.Now(),
+			})
 		case id := <-s.Channels.RequestDescriptors:
 			if transfer, found := transfers[id]; found {
 				s.Channels.ReturnDescriptors <- transfer.Descriptors
@@ -251,18 +261,7 @@ func (s *storeState) process(decoder *gob.Decoder) {
 			}
 		case id := <-s.Channels.RequestPayloadSize:
 			if transfer, found := transfers[id]; found {
-				var size uint64
-				for _, descriptor := range transfer.Descriptors {
-					switch v := descriptor["bytes"].(type) {
-					case int:
-						size += uint64(v)
-					case int64:
-						size += uint64(v)
-					default:
-						s.Channels.Error <- fmt.Errorf("invalid 'bytes' field type in descriptor: %T", v)
-					}
-				}
-				s.Channels.ReturnPayloadSize <- size
+				s.Channels.ReturnPayloadSize <- transfer.payloadSize()
 			} else {
 				s.Channels.Error <- TransferNotFoundError{Id: id}
 			}
@@ -319,15 +318,29 @@ type transferStoreEntry struct {
 	Status         TransferStatus
 }
 
-func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEntry, error) {
-	id := uuid.New()
+func (e transferStoreEntry) payloadSize() uint64 {
+	var size uint64
+	for _, descriptor := range e.Descriptors {
+		switch v := descriptor["bytes"].(type) {
+		case int:
+			size += uint64(v)
+		case int64:
+			size += uint64(v)
+		default:
+			return 0 // !
+		}
+	}
+	return size
+}
+
+func (s *storeState) newTransfer(spec Specification) (transferStoreEntry, error) {
 	source, err := databases.NewDatabase(spec.Source)
 	if err != nil {
-		return id, transferStoreEntry{}, err
+		return transferStoreEntry{}, err
 	}
 	descriptors, err := source.Descriptors(spec.User.Orcid, spec.FileIds)
 	if err != nil {
-		return id, transferStoreEntry{}, err
+		return transferStoreEntry{}, err
 	}
 	slices.SortFunc(descriptors, func(a, b map[string]any) int {
 		return cmp.Compare(a["id"].(string), b["id"].(string))
@@ -340,23 +353,5 @@ func (s *storeState) newTransfer(spec Specification) (uuid.UUID, transferStoreEn
 		},
 	}
 
-	var size uint64
-	for _, descriptor := range entry.Descriptors {
-		switch v := descriptor["bytes"].(type) {
-		case int:
-			size += uint64(v)
-		case int64:
-			size += uint64(v)
-		default:
-			return id, transferStoreEntry{}, fmt.Errorf("invalid 'bytes' field type in descriptor: %T", v)
-		}
-	}
-	publish(Message{
-		Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, entry.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
-		TransferId:     id,
-		TransferStatus: entry.Status,
-		Time:           time.Now(),
-	})
-
-	return id, entry, err
+	return entry, err
 }

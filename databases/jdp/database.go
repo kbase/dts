@@ -75,8 +75,8 @@ type Config struct {
 }
 
 type StagingRequest struct {
-	// JDP staging request ID
-	Id int
+	// JDP staging request IDs (batched because the endpoint has a maximum limit)
+	Ids []int
 	// time of staging request (for purging)
 	Time time.Time
 }
@@ -278,7 +278,7 @@ func (db *Database) EndpointNames() []string {
 	return []string{db.EndpointName}
 }
 
-func (db *Database) requestArchivedFiles(orcid string, fileIds []string) (int, error) {
+func (db *Database) requestArchivedFiles(orcid string, fileIds []string, batchSize int) ([]int, error) {
 	// construct a POST request to restore archived files with the given IDs
 	type RestoreRequest struct {
 		Ids                []string `json:"ids"`
@@ -295,85 +295,116 @@ func (db *Database) requestArchivedFiles(orcid string, fileIds []string) (int, e
 		}
 	}
 
-	data, err := json.Marshal(RestoreRequest{
-		Ids:                fileIdsWithoutPrefix,
-		SendEmail:          false,
-		ApiVersion:         "2",
-		IncludePrivateData: 1, // we need this just in case!
-	})
-	if err != nil {
-		return -1, err
+	numBatches := len(fileIds) / batchSize
+	if numBatches*batchSize < len(fileIds) {
+		numBatches += 1
 	}
 
-	// NOTE: The slash in the resource is all-important for POST requests to the JDP!!
-	// NOTE: Also, this endpoint seems to return a 404 whenever it gets too many file IDs,
-	// NOTE: so we batch requests
-	body, err := db.post("request_archived_files/", orcid, bytes.NewReader(data))
-	if err != nil {
-		switch e := err.(type) {
-		case *databases.ResourcesNotFoundError:
-			e.ResourceIds = fileIds
+	requestIds := make([]int, numBatches)
+	for i := range numBatches {
+		begin := i * batchSize
+		end := min((i+1)*batchSize, len(fileIdsWithoutPrefix))
+		data, err := json.Marshal(RestoreRequest{
+			Ids:                fileIdsWithoutPrefix[begin:end],
+			SendEmail:          false,
+			ApiVersion:         "2",
+			IncludePrivateData: 1, // we need this just in case!
+		})
+		if err != nil {
+			return nil, err
 		}
-		return -1, err
+
+		// NOTE: The slash in the resource is all-important for POST requests to the JDP!!
+		body, err := db.post("request_archived_files/", orcid, bytes.NewReader(data))
+		if err != nil {
+			switch e := err.(type) {
+			case *databases.ResourcesNotFoundError:
+				e.ResourceIds = fileIds
+			}
+			return nil, err
+		}
+
+		type RestoreResponse struct {
+			RequestId int `json:"request_id"`
+		}
+
+		var jdpResp RestoreResponse
+		err = json.Unmarshal(body, &jdpResp)
+		if err != nil {
+			return nil, err
+		}
+		requestIds[i] = jdpResp.RequestId
 	}
 
-	type RestoreResponse struct {
-		RequestId int `json:"request_id"`
-	}
-
-	var jdpResp RestoreResponse
-	err = json.Unmarshal(body, &jdpResp)
-	if err != nil {
-		return -1, err
-	}
-
-	return jdpResp.RequestId, nil
+	return requestIds, nil
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
-	requestId, err := db.requestArchivedFiles(orcid, fileIds)
+	// NOTE: the relevant endpoint seems to return a 404 whenever it gets too many file IDs,
+	// NOTE: so we batch requests in sets of 1000
+	requestIds, err := db.requestArchivedFiles(orcid, fileIds, 1000)
 	if err != nil {
 		return xferId, err
 	}
 
-	slog.Debug(fmt.Sprintf("Requested %d archived files from JDP (request ID: %d)",
-		len(fileIds), requestId))
+	slog.Debug(fmt.Sprintf("Requested %d archived files from JDP (request IDs: %v)",
+		len(fileIds), requestIds))
 	xferId = uuid.New()
 	db.StagingRequests[xferId] = StagingRequest{
-		Id:   requestId,
+		Ids:  requestIds,
 		Time: time.Now(),
 	}
 	return xferId, err
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
+	statusForString := map[string]databases.StagingStatus{
+		"new":     databases.StagingStatusActive,
+		"pending": databases.StagingStatusActive,
+		"ready":   databases.StagingStatusSucceeded,
+		"failed":  databases.StagingStatusFailed,
+	}
 	db.pruneStagingRequests()
 	if request, found := db.StagingRequests[id]; found {
-		resource := fmt.Sprintf("request_archived_files/requests/%d", request.Id)
-		body, err := db.get(resource, url.Values{})
-		if err != nil {
-			return databases.StagingStatusUnknown, err
+		var status databases.StagingStatus
+		var statusStr string
+		for _, requestId := range request.Ids {
+			resource := fmt.Sprintf("request_archived_files/requests/%d", requestId)
+			body, err := db.get(resource, url.Values{})
+			if err != nil {
+				return databases.StagingStatusUnknown, err
+			}
+			type JDPResult struct {
+				Status string `json:"status"` // "new", "pending", "ready", or "failed"
+			}
+			var jdpResult JDPResult
+			err = json.Unmarshal(body, &jdpResult)
+			if err != nil {
+				return databases.StagingStatusUnknown, err
+			}
+			if requestStatus, ok := statusForString[jdpResult.Status]; ok {
+				if status == databases.StagingStatusUnknown { // first status encountered
+					status = requestStatus
+					statusStr = jdpResult.Status
+				} else {
+					if requestStatus != status { // status update
+						if requestStatus != databases.StagingStatusSucceeded {
+							status = requestStatus
+							statusStr = jdpResult.Status
+						}
+					}
+				}
+				if status == databases.StagingStatusFailed { // one failure sinks them all
+					break
+				}
+			} else {
+				return databases.StagingStatusUnknown, fmt.Errorf("unrecognized JDP staging status string: %s", jdpResult.Status)
+			}
 		}
-		type JDPResult struct {
-			Status string `json:"status"` // "new", "pending", or "ready"
-		}
-		var jdpResult JDPResult
-		err = json.Unmarshal(body, &jdpResult)
-		if err != nil {
-			return databases.StagingStatusUnknown, err
-		}
-		statusForString := map[string]databases.StagingStatus{
-			"new":     databases.StagingStatusActive,
-			"pending": databases.StagingStatusActive,
-			"ready":   databases.StagingStatusSucceeded,
-		}
-		if status, ok := statusForString[jdpResult.Status]; ok {
-			slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request ID: %d): %s", id, request.Id, jdpResult.Status))
-			return status, nil
-		}
-		return databases.StagingStatusUnknown, fmt.Errorf("unrecognized JDP staging status string: %s", jdpResult.Status)
+		slog.Debug(fmt.Sprintf("Queried JDP for staging status of transfer with staging ID %s (request IDs: %v): %s", id, request.Ids, statusStr))
+		return status, nil
 	} else {
 		slog.Info(fmt.Sprintf("No staging request found for transfer with staging ID %s", id.String()))
 		return databases.StagingStatusUnknown, nil
@@ -882,7 +913,7 @@ func (db *Database) pruneStagingRequests() {
 	for uuid, request := range db.StagingRequests {
 		requestAge := time.Since(request.Time)
 		if requestAge > db.DeleteAfter {
-			slog.Debug(fmt.Sprintf("Pruning staging request with staging ID %s (request ID: %d): age (%s) exceeds limit (%s)", uuid.String(), request.Id, requestAge.String(), db.DeleteAfter.String()))
+			slog.Debug(fmt.Sprintf("Pruning staging request with staging ID %s (request IDs: %v): age (%s) exceeds limit (%s)", uuid.String(), request.Ids, requestAge.String(), db.DeleteAfter.String()))
 			delete(db.StagingRequests, uuid)
 		}
 	}

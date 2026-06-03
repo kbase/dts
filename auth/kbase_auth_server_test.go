@@ -136,6 +136,7 @@ func getKbaseToken() (string, bool) {
 // tests whether a proxy for the KBase authentication server can be
 // constructed
 func TestNewKBaseAuthServer(t *testing.T) {
+	t.Skip("Skipping KBase auth2 server test (access denied by Cloudflare bot storm security)")
 	assert := assert.New(t)
 
 	devToken, ok := getKbaseToken()
@@ -158,6 +159,7 @@ func TestNewKBaseAuthServer(t *testing.T) {
 // tests whether an invalid KBase token prevents a proxy for the auth server
 // from being constructed
 func TestInvalidToken(t *testing.T) {
+	t.Skip("Skipping KBase auth2 server test (access denied by Cloudflare bot storm security)")
 	assert := assert.New(t)
 
 	_, ok := getKbaseToken()
@@ -180,6 +182,7 @@ func TestInvalidToken(t *testing.T) {
 
 // tests that the proxy handles missing identifiers correctly
 func TestNoIdentifiers(t *testing.T) {
+	t.Skip("Skipping KBase auth2 server test (access denied by Cloudflare bot storm security)")
 	assert := assert.New(t)
 
 	_, ok := getKbaseToken()
@@ -198,6 +201,7 @@ func TestNoIdentifiers(t *testing.T) {
 
 // tests that the proxy handles missing OrcID identifiers correctly
 func TestNoOrcID(t *testing.T) {
+	t.Skip("Skipping KBase auth2 server test (access denied by Cloudflare bot storm security)")
 	assert := assert.New(t)
 
 	_, ok := getKbaseToken()
@@ -217,6 +221,7 @@ func TestNoOrcID(t *testing.T) {
 // tests whether the authentication server can return information for the
 // client (the user associated with the specified developer token)
 func TestClient(t *testing.T) {
+	t.Skip("Skipping KBase auth2 server test (access denied by Cloudflare bot storm security)")
 	assert := assert.New(t)
 
 	devToken, ok := getKbaseToken()

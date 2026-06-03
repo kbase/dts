@@ -160,6 +160,21 @@ func (d *dispatcherState) process() {
 			} else {
 				d.Channels.ReturnTransferId <- transferId
 			}
+			err = d.initialize(transferId)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Transfer %s failed: %s", transferId.String(), err.Error()))
+				status := TransferStatus{
+					Code:    TransferStatusFailed,
+					Message: err.Error(),
+				}
+				store.SetStatus(transferId, status)
+				publish(Message{
+					Description:    fmt.Sprintf("Transfer %s failed: %s", transferId.String(), err.Error()),
+					TransferId:     transferId,
+					TransferStatus: status,
+					Time:           time.Now(),
+				})
+			}
 		case request := <-d.Channels.CancelTransfer:
 			err := d.cancel(request.Id, request.Orcid)
 			if err == nil {
@@ -244,29 +259,33 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 		return uuid.UUID{}, err
 	}
 
-	transferId, err := store.NewTransfer(spec)
-	if err != nil {
-		return uuid.UUID{}, err
-	}
+	return store.NewTransfer(spec)
+}
+
+func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 	descriptors, err := store.GetDescriptors(transferId)
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
+	}
+	spec, err := store.GetSpecification(transferId)
+	if err != nil {
+		return err
 	}
 
 	// do we need to stage files for the source database?
 	filesStaged := true
 	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 	for source, descriptorsForSource := range descriptorsForEndpoint {
 		sourceEndpoint, err := endpoints.NewEndpoint(source)
 		if err != nil {
-			return uuid.UUID{}, err
+			return err
 		}
 		filesStaged, err = sourceEndpoint.FilesStaged(descriptorsForSource)
 		if err != nil {
-			return uuid.UUID{}, err
+			return err
 		}
 		if !filesStaged {
 			break
@@ -279,7 +298,7 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 		err = mover.MoveFiles(transferId)
 	}
 
-	return transferId, err
+	return err
 }
 
 func validateSpecification(spec Specification) error {

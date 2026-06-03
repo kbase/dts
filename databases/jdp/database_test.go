@@ -67,7 +67,7 @@ var isMockDatabase bool = false
 var mockJDPServer *httptest.Server
 var mockJDPSecret string = "mock_shared_secret"
 var mockOrcId string = "0000-0000-9876-0000"
-var mockStagedFileId = 12345
+var mockStagedFileIds = []int{12345}
 
 const mockResponseBody string = `{
 		"organisms": [
@@ -203,7 +203,7 @@ func createMockJDPServer() *httptest.Server {
 					response := struct {
 						RequestId int `json:"request_id"`
 					}{
-						RequestId: mockStagedFileId,
+						RequestId: mockStagedFileIds[0],
 					}
 					w.WriteHeader(http.StatusOK)
 					json.NewEncoder(w).Encode(response)
@@ -495,7 +495,7 @@ func TestStageFiles(t *testing.T) {
 	id, err := db.StageFiles(mockOrcId, fileIds)
 	assert.Nil(err, "Database StageFiles encountered an error")
 	assert.NotNil(id, "Database StageFiles returned nil ID")
-	assert.Equal(mockStagedFileId, db.StagingRequests[id].Id, "Database StageFiles returned incorrect ID")
+	assert.Equal(mockStagedFileIds, db.StagingRequests[id].Ids, "Database StageFiles returned incorrect ID")
 }
 
 func TestStagingStatus(t *testing.T) {
@@ -509,11 +509,11 @@ func TestStagingStatus(t *testing.T) {
 		DeleteAfter:     time.Duration(1) * time.Hour,
 	}
 	req1 := StagingRequest{
-		Id:   789,
+		Ids:  []int{789, 415},
 		Time: time.Now(),
 	}
 	req2 := StagingRequest{
-		Id:   4,
+		Ids:  []int{4, 8},
 		Time: time.Now(),
 	}
 	uuid1 := uuid.New()
@@ -907,12 +907,12 @@ func TestPruneStagingRequests(t *testing.T) {
 	}
 	newUuid := uuid.New()
 	db.StagingRequests[newUuid] = StagingRequest{
-		Id:   1,
+		Ids:  []int{1, 2},
 		Time: time.Now(),
 	}
 	oldUuid := uuid.New()
 	db.StagingRequests[oldUuid] = StagingRequest{
-		Id:   2,
+		Ids:  []int{3, 4},
 		Time: time.Now().Add(-time.Hour),
 	}
 	db.pruneStagingRequests()

@@ -241,12 +241,9 @@ func (s *storeState) process(decoder *gob.Decoder) {
 			s.Channels.ReturnNewTransfer <- id
 
 			// create an entry in the store and finish setting up the transfer
-			newXfer, err := s.newTransfer(spec)
-			if err != nil {
-				s.Channels.Error <- err
-			}
+			newXfer := s.newTransfer(spec)
 			transfers[id] = newXfer
-			size := newXfer.payloadSize()
+			size := transfers[id].payloadSize()
 			publish(Message{
 				Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
 				TransferId:     id,
@@ -333,14 +330,28 @@ func (e transferStoreEntry) payloadSize() uint64 {
 	return size
 }
 
-func (s *storeState) newTransfer(spec Specification) (transferStoreEntry, error) {
+func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	source, err := databases.NewDatabase(spec.Source)
 	if err != nil {
-		return transferStoreEntry{}, err
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
 	}
 	descriptors, err := source.Descriptors(spec.User.Orcid, spec.FileIds)
 	if err != nil {
-		return transferStoreEntry{}, err
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
 	}
 	slices.SortFunc(descriptors, func(a, b map[string]any) int {
 		return cmp.Compare(a["id"].(string), b["id"].(string))
@@ -353,5 +364,5 @@ func (s *storeState) newTransfer(spec Specification) (transferStoreEntry, error)
 		},
 	}
 
-	return entry, err
+	return entry
 }

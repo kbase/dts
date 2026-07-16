@@ -259,14 +259,16 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 		return uuid.UUID{}, err
 	}
 
-	return store.NewTransfer(spec)
+	return store.NewTransfer(spec), nil
 }
 
 func (d *dispatcherState) initialize(transferId uuid.UUID) error {
+	print("dispatcher.initialize: getting descriptors\n")
 	descriptors, err := store.GetDescriptors(transferId)
 	if err != nil {
 		return err
 	}
+	print("dispatcher.initialize: getting specification\n")
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
 		return err
@@ -274,15 +276,18 @@ func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 
 	// do we need to stage files for the source database?
 	filesStaged := true
+	print("dispatcher.initialize: getting descriptors for endpoints\n")
 	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
 	if err != nil {
 		return err
 	}
 	for source, descriptorsForSource := range descriptorsForEndpoint {
+		print("dispatcher.initialize: getting new endpoint\n")
 		sourceEndpoint, err := endpoints.NewEndpoint(source)
 		if err != nil {
 			return err
 		}
+		print("dispatcher.initialize: getting staged files\n")
 		filesStaged, err = sourceEndpoint.FilesStaged(descriptorsForSource)
 		if err != nil {
 			return err
@@ -293,8 +298,10 @@ func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 	}
 
 	if !filesStaged {
+		print("dispatcher.initialize: staging files\n")
 		err = stager.StageFiles(transferId)
 	} else {
+		print("dispatcher.initialize: moving files\n")
 		err = mover.MoveFiles(transferId)
 	}
 

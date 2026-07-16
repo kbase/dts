@@ -183,6 +183,7 @@ func (m *moverState) process(decoder *gob.Decoder) {
 							slog.Error(err.Error())
 						}
 					}
+					print(fmt.Sprintf("Mover requesting status update for transfer %s\n", transferId.String()))
 					if status, err = store.GetStatus(transferId); err != nil {
 						slog.Error(err.Error())
 					}

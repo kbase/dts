@@ -67,19 +67,22 @@ type storeChannels struct {
 	ReturnNewTransfer  chan uuid.UUID
 
 	RequestSpec chan uuid.UUID
-	ReturnSpec  chan Specification
+	ReturnSpec  chan resultType[Specification]
 
 	RequestDescriptors chan uuid.UUID
-	ReturnDescriptors  chan []map[string]any
+	ReturnDescriptors  chan resultType[[]map[string]any]
 
 	RequestPayloadSize chan uuid.UUID
-	ReturnPayloadSize  chan uint64
+	ReturnPayloadSize  chan resultType[uint64]
 
-	SetStatus     chan transferIdAndStatus
+	SetStatus      chan transferIdAndStatus
+	SetStatusError chan error
+
 	RequestStatus chan uuid.UUID
-	ReturnStatus  chan TransferStatus
+	ReturnStatus  chan resultType[TransferStatus]
 
 	RequestRemoval chan uuid.UUID
+	RemovalError   chan error
 
 	Error       chan error
 	SaveAndStop chan *gob.Encoder
@@ -91,15 +94,17 @@ func newStoreChannels() storeChannels {
 		RequestNewTransfer: make(chan Specification),
 		ReturnNewTransfer:  make(chan uuid.UUID),
 		RequestSpec:        make(chan uuid.UUID, numClients),
-		ReturnSpec:         make(chan Specification),
+		ReturnSpec:         make(chan resultType[Specification]),
 		RequestDescriptors: make(chan uuid.UUID, numClients),
-		ReturnDescriptors:  make(chan []map[string]any),
+		ReturnDescriptors:  make(chan resultType[[]map[string]any]),
 		RequestPayloadSize: make(chan uuid.UUID, numClients),
-		ReturnPayloadSize:  make(chan uint64),
+		ReturnPayloadSize:  make(chan resultType[uint64]),
 		SetStatus:          make(chan transferIdAndStatus, numClients),
+		SetStatusError:     make(chan error, numClients),
 		RequestStatus:      make(chan uuid.UUID, numClients),
-		ReturnStatus:       make(chan TransferStatus),
+		ReturnStatus:       make(chan resultType[TransferStatus]),
 		RequestRemoval:     make(chan uuid.UUID, numClients),
+		RemovalError:       make(chan error, numClients),
 		Error:              make(chan error),
 		SaveAndStop:        make(chan *gob.Encoder),
 	}
@@ -113,9 +118,11 @@ func (channels *storeChannels) Close() {
 	close(channels.RequestDescriptors)
 	close(channels.ReturnDescriptors)
 	close(channels.SetStatus)
+	close(channels.SetStatusError)
 	close(channels.RequestStatus)
 	close(channels.ReturnStatus)
 	close(channels.RequestRemoval)
+	close(channels.RemovalError)
 	close(channels.Error)
 	close(channels.SaveAndStop)
 }
@@ -147,47 +154,38 @@ func (s *storeState) SaveAndStop(encoder *gob.Encoder) error {
 // creates a new entry for a transfer within the store, populating it with relevant metadata and
 // returning a UUID, number of files, and/or error condition for the request
 func (s *storeState) NewTransfer(spec Specification) uuid.UUID {
-	print("store.NewTransfer\n")
 	s.Channels.RequestNewTransfer <- spec
 	return <-s.Channels.ReturnNewTransfer
 }
 
 func (s *storeState) GetSpecification(transferId uuid.UUID) (Specification, error) {
-	print("store.GetSpecification\n")
 	s.Channels.RequestSpec <- transferId
-	select {
-	case spec := <-s.Channels.ReturnSpec:
-		return spec, nil
-	case err := <-s.Channels.Error:
-		return Specification{}, err
+	spec := <-s.Channels.ReturnSpec
+	if spec.Error != nil {
+		return Specification{}, spec.Error
 	}
+	return spec.Value, nil
 }
 
 func (s *storeState) GetDescriptors(transferId uuid.UUID) ([]map[string]any, error) {
-	print(fmt.Sprintf("store.GetDescriptors (%s)\n", transferId.String()))
 	s.Channels.RequestDescriptors <- transferId
-	select {
-	case descriptors := <-s.Channels.ReturnDescriptors:
-		return descriptors, nil
-	case err := <-s.Channels.Error:
-		print(fmt.Sprintf("Noooooooo!!!! %s\n", err.Error()))
-		return nil, err
+	descriptors := <-s.Channels.ReturnDescriptors
+	if descriptors.Error != nil {
+		return nil, descriptors.Error
 	}
+	return descriptors.Value, nil
 }
 
 func (s *storeState) GetPayloadSize(transferId uuid.UUID) (uint64, error) {
-	print("store.GetPayloadSize\n")
 	s.Channels.RequestPayloadSize <- transferId
-	select {
-	case size := <-s.Channels.ReturnPayloadSize:
-		return size, nil
-	case err := <-s.Channels.Error:
-		return 0, err
+	size := <-s.Channels.ReturnPayloadSize
+	if size.Error != nil {
+		return 0, size.Error
 	}
+	return size.Value, nil
 }
 
 func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) error {
-	print("store.SetStatus\n")
 	s.Channels.SetStatus <- transferIdAndStatus{
 		Id:     transferId,
 		Status: status,
@@ -196,18 +194,15 @@ func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) erro
 }
 
 func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {
-	print("store.GetStatus\n")
 	s.Channels.RequestStatus <- transferId
-	select {
-	case status := <-s.Channels.ReturnStatus:
-		return status, nil
-	case err := <-s.Channels.Error:
-		return TransferStatus{}, err
+	status := <-s.Channels.ReturnStatus
+	if status.Error != nil {
+		return TransferStatus{}, status.Error
 	}
+	return status.Value, nil
 }
 
 func (s *storeState) Remove(transferId uuid.UUID) error {
-	print("store.Remove\n")
 	s.Channels.RequestRemoval <- transferId
 	return <-s.Channels.Error
 }
@@ -254,59 +249,54 @@ func (s *storeState) process(decoder *gob.Decoder) {
 				Time:           time.Now(),
 			})
 		case id := <-s.Channels.RequestDescriptors:
-			print(fmt.Sprintf("Descriptors requested for transfer %s\n", id.String()))
+			var result resultType[[]map[string]any]
 			if transfer, found := transfers[id]; found {
-				print(fmt.Sprintf("Oh good. Here's transfer %s. :-)\n", id.String()))
-				s.Channels.ReturnDescriptors <- transfer.Descriptors
+				result.Value = transfer.Descriptors
 			} else {
-				print(fmt.Sprintf("Transfer %s DNE!\n", id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: id}
+				result.Error = TransferNotFoundError{Id: id}
 			}
+			s.Channels.ReturnDescriptors <- result
 		case id := <-s.Channels.RequestPayloadSize:
-			print(fmt.Sprintf("Payload size requested for transfer %s\n", id.String()))
+			var result resultType[uint64]
 			if transfer, found := transfers[id]; found {
-				s.Channels.ReturnPayloadSize <- transfer.payloadSize()
+				result.Value = transfer.payloadSize()
 			} else {
-				print(fmt.Sprintf("Aw garbeeege! %s not found\n", id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: id}
+				result.Error = TransferNotFoundError{Id: id}
 			}
+			s.Channels.ReturnPayloadSize <- result
 		case id := <-s.Channels.RequestSpec:
-			print(fmt.Sprintf("Spec transfer %s\n", id.String()))
+			var result resultType[Specification]
 			if transfer, found := transfers[id]; found {
-				s.Channels.ReturnSpec <- transfer.Spec
+				result.Value = transfer.Spec
 			} else {
-				print(fmt.Sprintf("Well shit! %s not found\n", id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: id}
+				result.Error = TransferNotFoundError{Id: id}
 			}
+			s.Channels.ReturnSpec <- result
 		case idAndStatus := <-s.Channels.SetStatus:
-			print(fmt.Sprintf("Setting status for transfer %s\n", idAndStatus.Id.String()))
 			if transfer, found := transfers[idAndStatus.Id]; found {
 				transfer.Status = idAndStatus.Status
 				if idAndStatus.Status.Code == TransferStatusFailed || idAndStatus.Status.Code == TransferStatusSucceeded {
 					transfer.CompletionTime = time.Now()
 				}
 				transfers[idAndStatus.Id] = transfer
-				s.Channels.Error <- nil
+				s.Channels.SetStatusError <- nil
 			} else {
-				print(fmt.Sprintf("Crapola! %s not found\n", idAndStatus.Id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: idAndStatus.Id}
+				s.Channels.SetStatusError <- TransferNotFoundError{Id: idAndStatus.Id}
 			}
 		case id := <-s.Channels.RequestStatus:
-			print(fmt.Sprintf("Requested status for transfer %s\n", id.String()))
+			var result resultType[TransferStatus]
 			if transfer, found := transfers[id]; found {
-				s.Channels.ReturnStatus <- transfer.Status
+				result.Value = transfer.Status
 			} else {
-				print(fmt.Sprintf("NOOOO! %s not found\n", id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: id}
+				result.Error = TransferNotFoundError{Id: id}
 			}
+			s.Channels.ReturnStatus <- result
 		case id := <-s.Channels.RequestRemoval:
-			print(fmt.Sprintf("Requested removal for transfer %s\n", id.String()))
 			if _, found := transfers[id]; found {
 				delete(transfers, id)
-				s.Channels.Error <- nil
+				s.Channels.RemovalError <- nil
 			} else {
-				print(fmt.Sprintf("WHY?! %s not found\n", id.String()))
-				s.Channels.Error <- TransferNotFoundError{Id: id}
+				s.Channels.RemovalError <- TransferNotFoundError{Id: id}
 			}
 		case <-pulse: // prune old records
 			for id, transfer := range transfers {

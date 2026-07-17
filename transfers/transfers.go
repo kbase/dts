@@ -211,6 +211,12 @@ var global struct {
 	Running, Started bool
 }
 
+// a type bundled with a result, useful for sending results across a channel
+type resultType[V any] struct {
+	Value V
+	Error error
+}
+
 //-----------------------------------------------
 // Provider Registration and Resource Validation
 //-----------------------------------------------

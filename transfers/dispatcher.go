@@ -66,13 +66,14 @@ type transferCancellationRequest struct {
 }
 
 type dispatcherChannels struct {
-	RequestTransfer  chan Specification // used by client to create a new transfer
-	ReturnTransferId chan uuid.UUID     // returns transfer ID to client
+	RequestTransfer  chan Specification         // used by client to create a new transfer
+	ReturnTransferId chan resultType[uuid.UUID] // returns transfer ID to client
 
 	CancelTransfer chan transferCancellationRequest // used by client to cancel a transfer
+	CancelResult   chan error
 
-	RequestStatus chan uuid.UUID      // used by client to request transfer status
-	ReturnStatus  chan TransferStatus // returns transfer status to client
+	RequestStatus chan uuid.UUID                  // used by client to request transfer status
+	ReturnStatus  chan resultType[TransferStatus] // returns transfer status to client
 
 	Error chan error    // internal -> client error propagation
 	Stop  chan struct{} // used by client to stop transfer management
@@ -81,10 +82,11 @@ type dispatcherChannels struct {
 func newDispatcherChannels(maxConnections int) dispatcherChannels {
 	return dispatcherChannels{
 		RequestTransfer:  make(chan Specification, maxConnections),
-		ReturnTransferId: make(chan uuid.UUID),
+		ReturnTransferId: make(chan resultType[uuid.UUID]),
 		CancelTransfer:   make(chan transferCancellationRequest, maxConnections),
+		CancelResult:     make(chan error),
 		RequestStatus:    make(chan uuid.UUID, maxConnections),
-		ReturnStatus:     make(chan TransferStatus),
+		ReturnStatus:     make(chan resultType[TransferStatus]),
 		Error:            make(chan error),
 		Stop:             make(chan struct{}),
 	}
@@ -115,22 +117,17 @@ func (d *dispatcherState) Stop() error {
 
 func (d *dispatcherState) CreateTransfer(spec Specification) (uuid.UUID, error) {
 	d.Channels.RequestTransfer <- spec
-	select {
-	case id := <-d.Channels.ReturnTransferId:
-		return id, nil
-	case err := <-d.Channels.Error:
-		return uuid.UUID{}, err
+	id := <-d.Channels.ReturnTransferId
+	if id.Error != nil {
+		return uuid.UUID{}, id.Error
 	}
+	return id.Value, nil
 }
 
 func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatus, error) {
 	d.Channels.RequestStatus <- transferId
-	select {
-	case status := <-d.Channels.ReturnStatus:
-		return status, nil
-	case err := <-d.Channels.Error:
-		return TransferStatus{}, err
-	}
+	status := <-d.Channels.ReturnStatus
+	return status.Value, status.Error
 }
 
 func (d *dispatcherState) CancelTransfer(transferId uuid.UUID, orcid string) error {
@@ -154,23 +151,21 @@ func (d *dispatcherState) process() {
 	for running {
 		select {
 		case spec := <-d.Channels.RequestTransfer:
-			transferId, err := d.create(spec)
+			var transferId resultType[uuid.UUID]
+			transferId.Value, transferId.Error = d.create(spec)
+			d.Channels.ReturnTransferId <- transferId
+
+			err := d.initialize(transferId.Value)
 			if err != nil {
-				d.Channels.Error <- err
-			} else {
-				d.Channels.ReturnTransferId <- transferId
-			}
-			err = d.initialize(transferId)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Transfer %s failed: %s", transferId.String(), err.Error()))
+				slog.Error(fmt.Sprintf("Transfer %s failed: %s", transferId.Value.String(), err.Error()))
 				status := TransferStatus{
 					Code:    TransferStatusFailed,
 					Message: err.Error(),
 				}
-				store.SetStatus(transferId, status)
+				store.SetStatus(transferId.Value, status)
 				publish(Message{
-					Description:    fmt.Sprintf("Transfer %s failed: %s", transferId.String(), err.Error()),
-					TransferId:     transferId,
+					Description:    fmt.Sprintf("Transfer %s failed: %s", transferId.Value.String(), err.Error()),
+					TransferId:     transferId.Value,
 					TransferStatus: status,
 					Time:           time.Now(),
 				})
@@ -188,14 +183,11 @@ func (d *dispatcherState) process() {
 					})
 				}
 			}
-			d.Channels.Error <- err
+			d.Channels.CancelResult <- err
 		case transferId := <-d.Channels.RequestStatus:
-			status, err := store.GetStatus(transferId)
-			if err != nil {
-				d.Channels.Error <- err
-			} else {
-				d.Channels.ReturnStatus <- status
-			}
+			var status resultType[TransferStatus]
+			status.Value, status.Error = store.GetStatus(transferId)
+			d.Channels.ReturnStatus <- status
 		case <-d.Channels.Stop:
 			err := d.stop()
 			d.Channels.Error <- err
@@ -263,12 +255,10 @@ func (d *dispatcherState) create(spec Specification) (uuid.UUID, error) {
 }
 
 func (d *dispatcherState) initialize(transferId uuid.UUID) error {
-	print("dispatcher.initialize: getting descriptors\n")
 	descriptors, err := store.GetDescriptors(transferId)
 	if err != nil {
 		return err
 	}
-	print("dispatcher.initialize: getting specification\n")
 	spec, err := store.GetSpecification(transferId)
 	if err != nil {
 		return err
@@ -276,18 +266,15 @@ func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 
 	// do we need to stage files for the source database?
 	filesStaged := true
-	print("dispatcher.initialize: getting descriptors for endpoints\n")
 	descriptorsForEndpoint, err := descriptorsByEndpoint(spec, descriptors)
 	if err != nil {
 		return err
 	}
 	for source, descriptorsForSource := range descriptorsForEndpoint {
-		print("dispatcher.initialize: getting new endpoint\n")
 		sourceEndpoint, err := endpoints.NewEndpoint(source)
 		if err != nil {
 			return err
 		}
-		print("dispatcher.initialize: getting staged files\n")
 		filesStaged, err = sourceEndpoint.FilesStaged(descriptorsForSource)
 		if err != nil {
 			return err
@@ -298,10 +285,8 @@ func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 	}
 
 	if !filesStaged {
-		print("dispatcher.initialize: staging files\n")
 		err = stager.StageFiles(transferId)
 	} else {
-		print("dispatcher.initialize: moving files\n")
 		err = mover.MoveFiles(transferId)
 	}
 

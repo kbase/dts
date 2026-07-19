@@ -190,7 +190,7 @@ func (s *storeState) SetStatus(transferId uuid.UUID, status TransferStatus) erro
 		Id:     transferId,
 		Status: status,
 	}
-	return <-s.Channels.Error
+	return <-s.Channels.SetStatusError
 }
 
 func (s *storeState) GetStatus(transferId uuid.UUID) (TransferStatus, error) {

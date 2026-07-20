@@ -240,14 +240,23 @@ func (s *storeState) process(decoder *gob.Decoder) {
 
 			// create an entry in the store and finish setting up the transfer
 			newXfer := s.newTransfer(spec)
+			if newXfer.Status.Code == TransferStatusFailed {
+				publish(Message{
+					Description:    fmt.Sprintf("Error in newly created transfer %s: ", id, newXfer.Status.Message),
+					TransferId:     id,
+					TransferStatus: transfers[id].Status,
+					Time:           time.Now(),
+				})
+			} else {
+				size := transfers[id].payloadSize()
+				publish(Message{
+					Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
+					TransferId:     id,
+					TransferStatus: transfers[id].Status,
+					Time:           time.Now(),
+				})
+			}
 			transfers[id] = newXfer
-			size := transfers[id].payloadSize()
-			publish(Message{
-				Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
-				TransferId:     id,
-				TransferStatus: transfers[id].Status,
-				Time:           time.Now(),
-			})
 		case id := <-s.Channels.RequestDescriptors:
 			var result resultType[[]map[string]any]
 			if transfer, found := transfers[id]; found {
@@ -350,6 +359,17 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	}
 	descriptors, err := source.Descriptors(spec.User.Orcid, spec.FileIds)
 	if err != nil {
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
+	}
+	if len(descriptors) == 0 {
+		err := NoFilesAvailableError{Endpoint: spec.Source}
 		return transferStoreEntry{
 			Spec: spec,
 			Status: TransferStatus{

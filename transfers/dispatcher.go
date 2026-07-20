@@ -263,6 +263,9 @@ func (d *dispatcherState) initialize(transferId uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	if len(descriptors) == 0 {
+		return NoFilesAvailableError{Endpoint: spec.Source}
+	}
 
 	// do we need to stage files for the source database?
 	filesStaged := true

@@ -112,8 +112,7 @@ type Metadata struct {
 	} `json:"ncbi_taxon"`
 	NCBITaxonId int `json:"ncbi_taxon_id"`
 	Portal      struct {
-		DisplayLocation []string `json:"display_location"`
-		JdpKingdom      string   `json:"jdp_kingdom"`
+		JdpKingdom string `json:"jdp_kingdom"`
 	} `json:"portal"`
 	PmoProject struct {
 		ScientificProgram string `json:"scientific_program"`

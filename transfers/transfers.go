@@ -502,6 +502,14 @@ func descriptorsByEndpoint(spec Specification,
 	} else { // assign all descriptors to the single endpoint
 		descriptorsForEndpoint[endpts[0]] = descriptors
 	}
+
+	// check that all endpoints are associated with at least one descriptor
+	for endpt, descriptors := range descriptorsForEndpoint {
+		if len(descriptors) == 0 {
+			return descriptorsForEndpoint, NoFilesAvailableError{Endpoint: endpt}
+		}
+	}
+
 	return descriptorsForEndpoint, nil
 }
 

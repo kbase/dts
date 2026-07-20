@@ -54,24 +54,24 @@ type stagerState struct {
 }
 
 type stagerChannels struct {
-	RequestStaging      chan uuid.UUID
-	RequestCancellation chan uuid.UUID
-	Error               chan error
-	SaveAndStop         chan *gob.Encoder
+	Stage       chan resultType[uuid.UUID]
+	Cancel      chan resultType[uuid.UUID]
+	Error       chan error
+	SaveAndStop chan *gob.Encoder
 }
 
 func newStagerChannels() stagerChannels {
 	return stagerChannels{
-		RequestStaging:      make(chan uuid.UUID),
-		RequestCancellation: make(chan uuid.UUID),
-		Error:               make(chan error),
-		SaveAndStop:         make(chan *gob.Encoder),
+		Stage:       make(chan resultType[uuid.UUID]),
+		Cancel:      make(chan resultType[uuid.UUID]),
+		Error:       make(chan error),
+		SaveAndStop: make(chan *gob.Encoder),
 	}
 }
 
 func (channels *stagerChannels) Close() {
-	close(channels.RequestStaging)
-	close(channels.RequestCancellation)
+	close(channels.Stage)
+	close(channels.Cancel)
 	close(channels.Error)
 	close(channels.SaveAndStop)
 }
@@ -100,14 +100,16 @@ func (s *stagerState) SaveAndStop(encoder *gob.Encoder) error {
 
 // requests that files be staged for the transfer with the given ID
 func (s *stagerState) StageFiles(id uuid.UUID) error {
-	s.Channels.RequestStaging <- id
-	return <-s.Channels.Error
+	s.Channels.Stage <- resultType[uuid.UUID]{Value: id}
+	result := <-s.Channels.Stage
+	return result.Error
 }
 
 // cancels a file staging operation
 func (s *stagerState) Cancel(transferId uuid.UUID) error {
-	s.Channels.RequestCancellation <- transferId
-	return <-s.Channels.Error
+	s.Channels.Cancel <- resultType[uuid.UUID]{Value: transferId}
+	result := <-s.Channels.Cancel
+	return result.Error
 }
 
 //----------------------------------------------------
@@ -127,25 +129,29 @@ func (s *stagerState) process(decoder *gob.Decoder) {
 		stagings = make(map[uuid.UUID]stagingEntry)
 	}
 
+	// check transfer IDs with the store and prune invalid ones we've inherited
+	pruneInvalidTransferRecords(stagings)
+
 	running := true
 	pulse := clock.Subscribe()
 	s.Channels.Error <- nil
 
 	for running {
 		select {
-		case transferId := <-s.Channels.RequestStaging:
-			entry, err := s.stageFiles(transferId)
-			if err == nil {
-				stagings[transferId] = entry
+		case transferId := <-s.Channels.Stage:
+			var entry stagingEntry
+			entry, transferId.Error = s.stageFiles(transferId.Value)
+			if transferId.Error == nil {
+				stagings[transferId.Value] = entry
 			}
-			s.Channels.Error <- err
-		case transferId := <-s.Channels.RequestCancellation:
-			if _, found := stagings[transferId]; found {
-				delete(stagings, transferId) // simply remove the entry and stop tracking file staging
-				s.Channels.Error <- nil
+			s.Channels.Stage <- transferId
+		case transferId := <-s.Channels.Cancel:
+			if _, found := stagings[transferId.Value]; found {
+				delete(stagings, transferId.Value) // simply remove the entry and stop tracking file staging
 			} else {
-				s.Channels.Error <- TransferNotFoundError{Id: transferId}
+				transferId.Error = TransferNotFoundError{Id: transferId.Value}
 			}
+			s.Channels.Cancel <- transferId
 		case <-pulse:
 			// check the staging status and advance to a transfer if it's finished, purging its record
 			for transferId, staging := range stagings {

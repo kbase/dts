@@ -134,6 +134,9 @@ func (m *moverState) process(decoder *gob.Decoder) {
 		moveOperations = make(map[uuid.UUID][]moveOperation)
 	}
 
+	// check transfer IDs with the store and prune invalid ones we've inherited
+	pruneInvalidTransferRecords(moveOperations)
+
 	running := true
 	pulse := clock.Subscribe()
 	m.Channels.Error <- nil

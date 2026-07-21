@@ -242,7 +242,7 @@ func (s *storeState) process(decoder *gob.Decoder) {
 			newXfer := s.newTransfer(spec)
 			if newXfer.Status.Code == TransferStatusFailed {
 				publish(Message{
-					Description:    fmt.Sprintf("Error in newly created transfer %s: ", id, newXfer.Status.Message),
+					Description:    fmt.Sprintf("Error in newly created transfer %s: %s", id, newXfer.Status.Message),
 					TransferId:     id,
 					TransferStatus: transfers[id].Status,
 					Time:           time.Now(),

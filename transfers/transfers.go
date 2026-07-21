@@ -509,7 +509,7 @@ func descriptorsByEndpoint(spec Specification,
 // by checking their status with the store goroutine
 func pruneInvalidTransferRecords[Entry any](records map[uuid.UUID]Entry) {
 	var invalidTransfers []uuid.UUID
-	for id, _ := range records {
+	for id := range records {
 		_, err := store.GetStatus(id)
 		if errors.Is(err, TransferNotFoundError{Id: id}) {
 			invalidTransfers = append(invalidTransfers, id)

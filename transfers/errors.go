@@ -59,6 +59,15 @@ func (t NoDatabasesAvailable) Error() string {
 	return "no databases are currently available for transfer"
 }
 
+// indicates that a transfer has been requested for which no valid file descriptors are available
+type NoFilesAvailableError struct {
+	Endpoint string
+}
+
+func (t NoFilesAvailableError) Error() string {
+	return fmt.Sprintf("requested transfer has no available files (endpoint '%s')", t.Endpoint)
+}
+
 // indicates that a transfer has been requested with no files(!)
 type NoFilesRequestedError struct{}
 

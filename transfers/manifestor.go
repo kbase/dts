@@ -61,24 +61,24 @@ type manifestorState struct {
 }
 
 type manifestorChannels struct {
-	RequestGeneration   chan uuid.UUID
-	RequestCancellation chan uuid.UUID
-	Error               chan error
-	SaveAndStop         chan *gob.Encoder
+	Generate    chan resultType[uuid.UUID]
+	Cancel      chan resultType[uuid.UUID]
+	Error       chan error
+	SaveAndStop chan *gob.Encoder
 }
 
 func newManifestorChannels() manifestorChannels {
 	return manifestorChannels{
-		RequestGeneration:   make(chan uuid.UUID),
-		RequestCancellation: make(chan uuid.UUID),
-		Error:               make(chan error),
-		SaveAndStop:         make(chan *gob.Encoder),
+		Generate:    make(chan resultType[uuid.UUID]),
+		Cancel:      make(chan resultType[uuid.UUID]),
+		Error:       make(chan error),
+		SaveAndStop: make(chan *gob.Encoder),
 	}
 }
 
 func (channels *manifestorChannels) Close() {
-	close(channels.RequestGeneration)
-	close(channels.RequestCancellation)
+	close(channels.Generate)
+	close(channels.Cancel)
 	close(channels.Error)
 	close(channels.SaveAndStop)
 }
@@ -108,15 +108,17 @@ func (m *manifestorState) SaveAndStop(encoder *gob.Encoder) error {
 // starts generating a manifest for the given transfer, moving it subsequently to that transfer's
 // destination
 func (m *manifestorState) Generate(transferId uuid.UUID) error {
-	m.Channels.RequestGeneration <- transferId
-	return <-m.Channels.Error
+	m.Channels.Generate <- resultType[uuid.UUID]{Value: transferId}
+	result := <-m.Channels.Generate
+	return result.Error
 }
 
 // cancels the generation/transfer of a manifest
 // destination
 func (m *manifestorState) Cancel(transferId uuid.UUID) error {
-	m.Channels.RequestCancellation <- transferId
-	return <-m.Channels.Error
+	m.Channels.Cancel <- resultType[uuid.UUID]{Value: transferId}
+	result := <-m.Channels.Cancel
+	return result.Error
 }
 
 //----------------------------------------------------
@@ -142,28 +144,32 @@ func (m *manifestorState) process(decoder *gob.Decoder) {
 		transfers = make(map[uuid.UUID]manifestEntry)
 	}
 
+	// check transfer IDs with the store and prune invalid ones we've inherited
+	pruneInvalidTransferRecords(transfers)
+
 	running := true
 	pulse := clock.Subscribe()
 	m.Channels.Error <- nil
 
 	for running {
 		select {
-		case transferId := <-m.Channels.RequestGeneration:
-			entry, err := m.generateAndSendManifest(transferId)
-			if err == nil {
-				transfers[transferId] = entry
+		case transferId := <-m.Channels.Generate:
+			var entry manifestEntry
+			entry, transferId.Error = m.generateAndSendManifest(transferId.Value)
+			if transferId.Error == nil {
+				transfers[transferId.Value] = entry
 			}
-			m.Channels.Error <- err
-		case transferId := <-m.Channels.RequestCancellation:
-			if entry, found := transfers[transferId]; found {
-				err := m.cancel(entry.ManifestTransferId)
-				if err == nil {
-					delete(transfers, transferId)
+			m.Channels.Generate <- transferId
+		case transferId := <-m.Channels.Cancel:
+			if entry, found := transfers[transferId.Value]; found {
+				transferId.Error = m.cancel(entry.ManifestTransferId)
+				if transferId.Error == nil {
+					delete(transfers, transferId.Value)
 				}
-				m.Channels.Error <- err
 			} else {
-				m.Channels.Error <- TransferNotFoundError{Id: transferId}
+				transferId.Error = TransferNotFoundError{Id: transferId.Value}
 			}
+			m.Channels.Cancel <- transferId
 		case <-pulse:
 			// check the manifest transfers
 			for transferId, entry := range transfers {

@@ -56,25 +56,25 @@ type moverState struct {
 }
 
 type moverChannels struct {
-	RequestMove         chan uuid.UUID
-	RequestCancellation chan uuid.UUID
-	Error               chan error
-	SaveAndStop         chan *gob.Encoder
+	Move        chan resultType[uuid.UUID]
+	Cancel      chan resultType[uuid.UUID]
+	Error       chan error
+	SaveAndStop chan resultType[*gob.Encoder]
 }
 
 func newMoverChannels() moverChannels {
 	numClients := 2 // dispatcher, stager
 	return moverChannels{
-		RequestMove:         make(chan uuid.UUID, numClients),
-		RequestCancellation: make(chan uuid.UUID, numClients),
-		Error:               make(chan error),
-		SaveAndStop:         make(chan *gob.Encoder),
+		Move:        make(chan resultType[uuid.UUID], numClients),
+		Cancel:      make(chan resultType[uuid.UUID], numClients),
+		Error:       make(chan error),
+		SaveAndStop: make(chan resultType[*gob.Encoder]),
 	}
 }
 
 func (channels *moverChannels) Close() {
-	close(channels.RequestMove)
-	close(channels.RequestCancellation)
+	close(channels.Move)
+	close(channels.Cancel)
 	close(channels.Error)
 	close(channels.SaveAndStop)
 }
@@ -97,22 +97,24 @@ func (m *moverState) Load(decoder *gob.Decoder) error {
 
 // stops the mover goroutine
 func (m *moverState) SaveAndStop(encoder *gob.Encoder) error {
-	m.Channels.SaveAndStop <- encoder
-	err := <-m.Channels.Error
+	m.Channels.SaveAndStop <- resultType[*gob.Encoder]{Value: encoder}
+	result := <-m.Channels.SaveAndStop
 	m.Channels.Close()
-	return err
+	return result.Error
 }
 
 // starts moving files associated with the given transfer ID
 func (m *moverState) MoveFiles(transferId uuid.UUID) error {
-	m.Channels.RequestMove <- transferId
-	return <-m.Channels.Error
+	m.Channels.Move <- resultType[uuid.UUID]{Value: transferId}
+	result := <-m.Channels.Move
+	return result.Error
 }
 
 // cancels a file move operation
 func (m *moverState) Cancel(transferId uuid.UUID) error {
-	m.Channels.RequestCancellation <- transferId
-	return <-m.Channels.Error
+	m.Channels.Cancel <- resultType[uuid.UUID]{Value: transferId}
+	result := <-m.Channels.Cancel
+	return result.Error
 }
 
 //----------------------------------------------------
@@ -132,44 +134,49 @@ func (m *moverState) process(decoder *gob.Decoder) {
 		moveOperations = make(map[uuid.UUID][]moveOperation)
 	}
 
+	// check transfer IDs with the store and prune invalid ones we've inherited
+	pruneInvalidTransferRecords(moveOperations)
+
 	running := true
 	pulse := clock.Subscribe()
 	m.Channels.Error <- nil
 
 	for running {
 		select {
-		case transferId := <-m.Channels.RequestMove:
-			if _, found := moveOperations[transferId]; !found {
-				moves, err := m.moveFiles(transferId)
+		case transferId := <-m.Channels.Move:
+			if _, found := moveOperations[transferId.Value]; !found {
+				moves, err := m.moveFiles(transferId.Value)
 				if err == nil {
-					moveOperations[transferId] = moves
+					moveOperations[transferId.Value] = moves
 				}
-				m.Channels.Error <- err
+				transferId.Error = err
 			} else {
-				m.Channels.Error <- fmt.Errorf("file move for transfer %s previously requested", transferId.String())
+				transferId.Error = fmt.Errorf("file move for transfer %s previously requested", transferId.Value.String())
 			}
-		case transferId := <-m.Channels.RequestCancellation:
-			if moves, found := moveOperations[transferId]; found {
-				err := m.cancel(moves)
-				if err == nil {
-					delete(moveOperations, transferId)
-					status, err := store.GetStatus(transferId)
-					if err == nil {
+			m.Channels.Move <- transferId
+		case transferId := <-m.Channels.Cancel:
+			if moves, found := moveOperations[transferId.Value]; found {
+				transferId.Error = m.cancel(moves)
+				if transferId.Error == nil {
+					delete(moveOperations, transferId.Value)
+					var status TransferStatus
+					status, transferId.Error = store.GetStatus(transferId.Value)
+					if transferId.Error == nil {
 						status.Code = TransferStatusFailed
-						status.Message = fmt.Sprintf("Transfer %s: canceled", transferId.String())
-						if err := store.SetStatus(transferId, status); err == nil {
+						status.Message = fmt.Sprintf("Transfer %s: canceled", transferId.Value.String())
+						if transferId.Error = store.SetStatus(transferId.Value, status); transferId.Error == nil {
 							publish(Message{
 								Description:    status.Message,
-								TransferId:     transferId,
+								TransferId:     transferId.Value,
 								TransferStatus: status,
 								Time:           time.Now(),
 							})
 						}
 					}
 				}
-				m.Channels.Error <- err
+				m.Channels.Cancel <- transferId
 			} else {
-				m.Channels.Error <- TransferNotFoundError{Id: transferId}
+				m.Channels.Cancel <- resultType[uuid.UUID]{Error: TransferNotFoundError{Id: transferId.Value}}
 			}
 		case <-pulse:
 			// check the move statuses and advance as needed, purging records as needed
@@ -213,7 +220,8 @@ func (m *moverState) process(decoder *gob.Decoder) {
 				}
 			}
 		case encoder := <-m.Channels.SaveAndStop:
-			m.Channels.Error <- encoder.Encode(moveOperations)
+			encoder.Error = encoder.Value.Encode(moveOperations)
+			m.Channels.SaveAndStop <- encoder
 			running = false
 		}
 	}

@@ -23,6 +23,7 @@ package transfers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -209,6 +210,12 @@ func Cancel(transferId uuid.UUID, orcid string) error {
 // globals
 var global struct {
 	Running, Started bool
+}
+
+// a type bundled with a result, useful for sending results across a channel
+type resultType[V any] struct {
+	Value V
+	Error error
 }
 
 //-----------------------------------------------
@@ -496,4 +503,19 @@ func descriptorsByEndpoint(spec Specification,
 		descriptorsForEndpoint[endpts[0]] = descriptors
 	}
 	return descriptorsForEndpoint, nil
+}
+
+// prunes invalid transfers for the stager, mover, manifestor goroutines
+// by checking their status with the store goroutine
+func pruneInvalidTransferRecords[Entry any](records map[uuid.UUID]Entry) {
+	var invalidTransfers []uuid.UUID
+	for id := range records {
+		_, err := store.GetStatus(id)
+		if errors.Is(err, TransferNotFoundError{Id: id}) {
+			invalidTransfers = append(invalidTransfers, id)
+		}
+	}
+	for _, invalidId := range invalidTransfers {
+		delete(records, invalidId)
+	}
 }

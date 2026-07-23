@@ -1,5 +1,6 @@
 .DS_Store
 dts
+extract_records
 
 site/
 data/

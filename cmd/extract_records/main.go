@@ -51,10 +51,10 @@ func main() {
 	}
 
 	db, err := bolt.Open(filename, 0600, nil)
-	defer db.Close()
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't open transfer journal '%s'.", filename))
 	}
+	defer db.Close()
 
 	records, err := readRecords(db, startTime, stopTime)
 	if err != nil {
@@ -90,7 +90,7 @@ func parseArgs() (filename string, start, stop time.Time, err error) {
 		stop = time.Now().AddDate(1, 0, 0)
 	}
 	if start.After(stop) {
-		err = errors.New(fmt.Sprintf("start time '%s' is after stop time '%s'", start.Format(time.RFC3339), stop.Format(time.RFC3339)))
+		err = fmt.Errorf("start time '%s' is after stop time '%s'", start.Format(time.RFC3339), stop.Format(time.RFC3339))
 	}
 	return
 }

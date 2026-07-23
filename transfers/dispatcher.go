@@ -96,6 +96,7 @@ func (channels *dispatcherChannels) Close() {
 	close(channels.RequestTransfer)
 	close(channels.ReturnTransferId)
 	close(channels.CancelTransfer)
+	close(channels.CancelResult)
 	close(channels.RequestStatus)
 	close(channels.ReturnStatus)
 	close(channels.Error)
@@ -132,7 +133,7 @@ func (d *dispatcherState) GetTransferStatus(transferId uuid.UUID) (TransferStatu
 
 func (d *dispatcherState) CancelTransfer(transferId uuid.UUID, orcid string) error {
 	d.Channels.CancelTransfer <- transferCancellationRequest{Id: transferId, Orcid: orcid}
-	err := <-d.Channels.Error
+	err := <-d.Channels.CancelResult
 	if err != nil {
 		slog.Error(fmt.Sprintf("Transfer %s: %s", transferId.String(), err.Error()))
 	}

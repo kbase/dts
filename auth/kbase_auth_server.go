@@ -166,9 +166,19 @@ func kbaseAuthError(response *http.Response) error {
 		var result kbaseAuthErrorResponse
 		mErr = json.Unmarshal(body, &result)
 		if mErr != nil {
-			if strings.Contains(string(body), "cloudflare") {
-				err = fmt.Errorf("KBase Auth error (%d): %s", response.StatusCode,
-					"Authenticator is protected by a Cloudflare challenge")
+			bodyStr := string(body)
+			if strings.Contains(bodyStr, "cloudflare") {
+				// parse the ray ID for diagnostics
+				rayId := "unknown"
+				begin := strings.Index(bodyStr, "cRay: '")
+				if begin != -1 {
+					end := begin + strings.Index(bodyStr[begin:], "',")
+					if end != -1 {
+						rayId = bodyStr[begin+7 : end]
+					}
+				}
+				err = fmt.Errorf("KBase Auth error (%d): Authenticator is protected by a Cloudflare challenge (ray ID = %s)",
+					response.StatusCode, rayId)
 			}
 		} else {
 			if len(result.Message) > 0 {

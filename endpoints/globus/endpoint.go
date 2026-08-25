@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
@@ -250,6 +251,16 @@ func (ep *Endpoint) Transfer(destination endpoints.Endpoint, files []endpoints.F
 	submissionId, err := ep.getSubmissionId()
 	if err != nil {
 		return uuid.UUID{}, err
+	}
+
+	// Occasionally, Globus returns a zero-valued UUID (uuid.Nil) and no error (network burp?).
+	// So we pause and resubmit in this case
+	for submissionId == uuid.Nil {
+		time.Sleep(time.Second)
+		submissionId, err = ep.getSubmissionId()
+		if err != nil {
+			return uuid.UUID{}, err
+		}
 	}
 
 	// now, submit the transfer task itself

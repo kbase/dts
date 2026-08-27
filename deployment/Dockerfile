@@ -72,7 +72,7 @@
 #-------------------------------------------------------
 
 # Here's a reasonable Go-equipped Docker image.
-FROM golang:1.25.4-alpine AS builder
+FROM golang:1.27.0-alpine AS builder
 
 # Process build arguments and pass them along to the environment.
 ARG CONTACT_NAME=Unspecified
@@ -104,7 +104,7 @@ RUN env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a
 
 # Here's the alpine Docker container. If you ever want to peek at its contents,
 # type `docker run -it alpine /bin/ls`.
-FROM alpine:3.23.3
+FROM alpine:3.24.1
 
 # Process environment variable build arguments
 ARG USERNAME=gsuser

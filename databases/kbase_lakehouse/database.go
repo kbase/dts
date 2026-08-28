@@ -22,7 +22,11 @@
 package kbase_lakehouse
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
 
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
@@ -35,6 +39,9 @@ import (
 // file database appropriate for handling KBase searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// HTTP client that caches queries
+	Client http.Client
+	// Name of Globus/S3 lakehouse endpoint
 	EndpointName string
 }
 
@@ -68,12 +75,12 @@ func (db *Database) SpecificSearchParameters() map[string]any {
 }
 
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
-	err := fmt.Errorf("Search not implemented for kbase database")
+	err := fmt.Errorf("Search not implemented for kbase_lakehouse database")
 	return databases.SearchResults{}, err
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
-	err := fmt.Errorf("Descriptors not implemented for kbase database")
+	err := fmt.Errorf("Descriptors not implemented for kbase_lakehouse database")
 	return nil, err
 }
 
@@ -82,12 +89,12 @@ func (db *Database) EndpointNames() []string {
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
-	err := fmt.Errorf("StageFiles not implemented for kbase database")
+	err := fmt.Errorf("StageFiles not implemented for kbase_lakehouse database")
 	return uuid.UUID{}, err
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
-	err := fmt.Errorf("StagingStatus not implemented for kbase database")
+	err := fmt.Errorf("StagingStatus not implemented for kbase_lakehouse database")
 	return databases.StagingStatusUnknown, err
 }
 
@@ -96,7 +103,8 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	return db.kbaseFed.usernameForOrcid(orcid)
+	record, err := db.fetchMMSRecord(orcid)
+	return record.Username, err
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {
@@ -111,5 +119,55 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 }
 
 func (db *Database) FinalizeDatabase() error {
-	return db.kbaseFed.Stop()
+	return nil
+}
+
+//-----------
+// Internals
+//-----------
+
+type mmsRecord struct {
+	Username            string `json:"username"`
+	S3AccessKey         string `json:"s3_access_key"`
+	S3SecretKey         string `json:"s3_secret_key"`
+	PolarisClientId     string `json:"polaris_client_id"`
+	PolarisClientSecret string `json:"polaris_client_secret"`
+}
+
+// adds an appropriate authorization header to given HTTP request
+func (db Database) addAuthHeader(orcid string, request *http.Request) {
+	request.Header.Add("Authorization", fmt.Sprintf("Token %s_%s", orcid, db.Secret))
+}
+
+// retrieves the MMS record for the given ORCID
+// response body and/or error
+func (db *Database) fetchMMSRecord(orcid string) (mmsRecord, error) {
+	u.Path = resource
+	u.RawQuery = values.Encode()
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("GET: %s", res))
+	request, err := http.NewRequest(http.MethodGet, "http://mms.dev:8000/credentials/", http.NoBody)
+	if err != nil {
+		return mmsRecord{}, err
+	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s_%s", orcid, db.Secret))
+	if values.Has("orcid") { // orcid stashed in URL parameters
+		db.addAuthHeader(values.Get("orcid"), req)
+	}
+	resp, err := db.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	switch resp.StatusCode {
+	case 200:
+		defer resp.Body.Close()
+		return io.ReadAll(resp.Body)
+	case 503:
+		return nil, &databases.UnavailableError{
+			Database: "jdp",
+		}
+	default:
+		return nil, fmt.Errorf("an error occurred with the JDP database (%d)",
+			resp.StatusCode)
+	}
 }

@@ -105,6 +105,7 @@ func (server KBaseAuthServer) User() (User, error) {
 	user := User{
 		Name:  kbUser.Display,
 		Email: kbUser.Email,
+		AccessToken: server.AccessToken,
 	}
 	for _, pid := range kbUser.Idents {
 		// grab the first ORCID associated with the user

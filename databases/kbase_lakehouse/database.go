@@ -27,8 +27,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/databases/kbase"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -36,12 +36,10 @@ import (
 // (implements the databases.Database interface)
 type Database struct {
 	EndpointName string
-	kbaseFed     kbase.KBaseUserFederation
 }
 
 type Config struct {
-	Endpoint                  string `yaml:"endpoint"`
-	kbase.KBaseUserFederationConfig `yaml:",inline" mapstructure:",squash"`
+	Endpoint string `yaml:"endpoint"`
 }
 
 func NewDatabase(conf Config) (databases.Database, error) {
@@ -52,16 +50,6 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	db := Database{
 		EndpointName: conf.Endpoint,
 	}
-	var err error
-	db.kbaseFed, err = newKBaseUserFederation(conf.KBaseUserFederationConfig)
-	if err != nil {
-		return nil, err
-	}
-	err = db.kbaseFed.Start()
-	if err != nil {
-		return nil, err
-	}
-
 	return &db, nil
 }
 
@@ -114,13 +102,12 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 func (db Database) Save() (databases.DatabaseSaveState, error) {
 	// so far, this database has no internal state
 	return databases.DatabaseSaveState{
-		Name: "kbase",
+		Name: "kbase_lakehouse",
 	}, nil
 }
 
 func (db *Database) Load(state databases.DatabaseSaveState) error {
-	// no internal state -> nothing to do
-	return nil
+	return nil // no internal state
 }
 
 func (db *Database) FinalizeDatabase() error {

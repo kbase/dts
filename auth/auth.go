@@ -33,6 +33,8 @@ type User struct {
 	Organization string
 	// true if this user is a Superuser
 	IsSuper bool
+	// access token (either a DTS token or a KBase dev token)
+	AccessToken string
 }
 
 // A credential used for authorization and authentication

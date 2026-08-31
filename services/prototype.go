@@ -189,7 +189,6 @@ type ServiceInfoOutput struct {
 func (service *prototype) getRoot(ctx context.Context,
 	input *struct{}) (*ServiceInfoOutput, error) {
 
-	slog.Info("Querying root endpoint...")
 	return &ServiceInfoOutput{
 		Body: ServiceInfoResponse{
 			Name:          service.Name,

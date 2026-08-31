@@ -535,6 +535,32 @@ func (ep *Endpoint) get(resource string, values url.Values) ([]byte, error) {
 	return ep.sendRequest(req)
 }
 
+// Performs an HTTPS PUT request on the given Globus resource with the given payload, handling any
+// obvious errors and returning a byte slice containing the body of the response,
+// and/or any unhandled error. This method accepts a baseUrl because it's used to perform HTTPS
+// transfers. It handles scope-related errors by reauthenticating as needed and retrying the
+// operation. See https://docs.globus.org/api/flows/working-with-consents/
+// for details on Globus scopes and consents.
+func (ep *Endpoint) put(resource string, body io.Reader) ([]byte, error) {
+	if ep.Info.HttpsServer == "" {
+		return nil, fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", ep.Id.String())
+	}
+	u, err := url.ParseRequestURI(ep.Info.HttpsServer)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("PUT: %s", res))
+	req, err := http.NewRequest(http.MethodPut, res, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
+
+	return ep.sendRequest(req)
+}
+
 // Performs a POST request on the given Globus resource, handling any obvious
 // errors and returning a byte slice containing the body of the response,
 // and/or any unhandled error.
@@ -690,8 +716,9 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 }
 
 type EndpointInfo struct {
-	DisableVerify bool `json:"disable_verify"` // true if checksums are not available
-	ForceVerify   bool `json:"force_verify"`   // true if checksums must be available
+	DisableVerify bool   `json:"disable_verify"` // true if checksums are not available
+	ForceVerify   bool   `json:"force_verify"`   // true if checksums must be available
+	HttpsServer   string `json:"https_server"`   // non-blank if HTTPS transfers are supported
 }
 
 func (ep *Endpoint) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
@@ -782,4 +809,11 @@ func descriptionFromEventList(events EventList, fallback string) string {
 		return message
 	}
 	return fallback
+}
+
+// Performs an HTTPS PUT request on the endpoint, uploading the content of the given reader as
+// the request body. Only supported if the Globus endpoint has an associated HTTPS server.
+func (e *Endpoint) PutFromReader(resource string, reader *bytes.Reader) error {
+	_, err := e.put(resource, reader)
+	return err
 }

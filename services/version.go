@@ -6,8 +6,8 @@ import (
 
 // Version numbers
 var majorVersion = 0
-var minorVersion = 13
-var patchVersion = 4
+var minorVersion = 14
+var patchVersion = 0
 
 // Version string
 var version = fmt.Sprintf("%d.%d.%d", majorVersion, minorVersion, patchVersion)

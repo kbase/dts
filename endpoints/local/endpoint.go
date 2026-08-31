@@ -33,6 +33,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/endpoints"
+	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/s3"
 )
 
@@ -142,41 +143,7 @@ func (ep *Endpoint) transferFiles(xferId uuid.UUID, dest endpoints.Endpoint) {
 		if xfer.Canceled {
 			break
 		}
-
-		sourcePath := filepath.Join(ep.Root(), file.SourcePath)
-		destPath := filepath.Join(dest.Root(), file.DestinationPath)
-
-		// check for the source directory
-		sourceDir := filepath.Dir(sourcePath)
-		var sourceDirInfo os.FileInfo
-		sourceDirInfo, err = os.Stat(sourceDir)
-		if err != nil {
-			break
-		}
-
-		// create the destination directory if needed
-		destDir := filepath.Dir(destPath)
-		_, err = os.Stat(destDir)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) { // destination dir doesn't exist
-				os.MkdirAll(destDir, sourceDirInfo.Mode())
-			} else { // something else happened
-				break
-			}
-		}
-
-		// copy the file into place
-		var data []byte
-		var sourceFileInfo os.FileInfo
-		sourceFileInfo, err = os.Stat(sourcePath)
-		if err != nil {
-			break
-		}
-		data, err = os.ReadFile(sourcePath)
-		if err != nil {
-			break
-		}
-		err = os.WriteFile(destPath, data, sourceFileInfo.Mode())
+		err = ep.transferFile(dest, file)
 		if err != nil {
 			break
 		}
@@ -193,12 +160,54 @@ func (ep *Endpoint) transferFiles(xferId uuid.UUID, dest endpoints.Endpoint) {
 	ep.Xfers[xferId] = xfer
 }
 
+// implements per-file local transfers and validation
+func (ep *Endpoint) transferFile(dest endpoints.Endpoint, file endpoints.FileTransfer) error {
+	sourcePath := filepath.Join(ep.Root(), file.SourcePath)
+	destPath := filepath.Join(dest.Root(), file.DestinationPath)
+
+	// check for the source directory
+	sourceDir := filepath.Dir(sourcePath)
+	sourceDirInfo, err := os.Stat(sourceDir)
+	if err != nil {
+		return err
+	}
+
+	// create the destination directory if needed
+	destDir := filepath.Dir(destPath)
+	_, err = os.Stat(destDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) { // destination dir doesn't exist
+			os.MkdirAll(destDir, sourceDirInfo.Mode())
+		} else { // something else happened
+			return err
+		}
+	}
+
+	// copy the file into place
+	var data []byte
+	var sourceFileInfo os.FileInfo
+	sourceFileInfo, err = os.Stat(sourcePath)
+	if err != nil {
+		return err
+	}
+	data, err = os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(destPath, data, sourceFileInfo.Mode())
+	if err != nil {
+		return err
+	}
+	return err
+}
+
 func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
 	_, isLocal := dst.(*Endpoint)
 	_, isS3 := dst.(*s3.Endpoint)
-	if !isLocal && !isS3 {
+	_, isGlobus := dst.(*globus.Endpoint)
+	if !isLocal && !isS3 && !isGlobus {
 		return xferId, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Name,
 			SourceProvider:      "local",
@@ -223,21 +232,23 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 
 	// all files are staged; start the transfer
-	if isS3 {
-		// special case: destination is S3 endpoint
-		// turn each file into a bytes.Reader and upload it
+	if isS3 || isGlobus {
+		// upload each file via PUT
 		for _, file := range files {
 			sourcePath := filepath.Join(ep.Root(), file.SourcePath)
 			data, err := os.ReadFile(sourcePath)
 			if err != nil {
-				err = fmt.Errorf("incomplete file transfer at: %s for S3 transfer: %w", sourcePath, err)
+				err = fmt.Errorf("incomplete file transfer at: %s for %s transfer: %w", sourcePath, dst.Provider(), err)
 				return xferId, err
 			}
 			reader := bytes.NewReader(data)
-			s3Dst := dst.(*s3.Endpoint)
-			err = s3Dst.PutFromReader(file.DestinationPath, reader)
+			if s3Dst, ok := dst.(*s3.Endpoint); ok {
+				err = s3Dst.PutFromReader(file.DestinationPath, reader)
+			} else if globusDst, ok := dst.(*globus.Endpoint); ok {
+				err = globusDst.PutFromReader(file.DestinationPath, reader)
+			}
 			if err != nil {
-				err = fmt.Errorf("incomplete file transfer at: %s for S3 transfer: %w", file.DestinationPath, err)
+				err = fmt.Errorf("incomplete file transfer at: %s for %s transfer: %w", file.DestinationPath, dst.Provider(), err)
 				return xferId, err
 			}
 		}
@@ -254,7 +265,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 		return xferId, nil
 	}
 
-	// non-S3 endpoints are handled entirely within local endpoint
+	// non-S3/Globus endpoints are handled entirely within local endpoint
 	// assign a UUID to the transfer and set it going
 	xferId = uuid.New()
 	ep.Xfers[xferId] = xferRecord{
@@ -267,7 +278,6 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	}
 	go ep.transferFiles(xferId, dst)
 	return xferId, nil
-
 }
 
 func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {

@@ -238,7 +238,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 			sourcePath := filepath.Join(ep.Root(), file.SourcePath)
 			data, err := os.ReadFile(sourcePath)
 			if err != nil {
-				err = fmt.Errorf("incomplete file transfer at: %s for %s transfer: %w", sourcePath, dst.Provider(), err)
+				err = fmt.Errorf("incomplete file transfer: couldn't transfer %s to %s endpoint: %w", sourcePath, dst.Provider(), err)
 				return xferId, err
 			}
 			reader := bytes.NewReader(data)
@@ -248,7 +248,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 				err = globusDst.PutFromReader(file.DestinationPath, reader)
 			}
 			if err != nil {
-				err = fmt.Errorf("incomplete file transfer at: %s for %s transfer: %w", file.DestinationPath, dst.Provider(), err)
+				err = fmt.Errorf("incomplete file transfer: couldn't transfer %s to %s endpoint: %w", file.DestinationPath, dst.Provider(), err)
 				return xferId, err
 			}
 		}

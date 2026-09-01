@@ -496,7 +496,8 @@ func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			// try the request again
+			// try the request again using the new access token
+			request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
 			resp, err = client.Do(request)
 			if err != nil {
 				return nil, err

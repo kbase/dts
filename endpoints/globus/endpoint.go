@@ -70,8 +70,10 @@ type Endpoint struct {
 	Id uuid.UUID
 	// root directory for endpoint
 	RootDir string
-	// OAuth2 access token
-	AccessToken string
+	// OAuth2 access token for transfers
+	XferAccessToken string
+	// OAuth2 access token for HTTPS (if supported)
+	HttpsAccessToken string
 
 	// authentication stuff
 	ClientId     uuid.UUID
@@ -110,7 +112,7 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	// if needed, authenticate to obtain a Globus Transfer API access token
 	var zeroId uuid.UUID
 	if ep.ClientId != zeroId {
-		err := ep.authenticate(defaultScopes_)
+		ep.XferAccessToken, err = ep.authenticate(defaultXferScopes_)
 		if err != nil {
 			return ep, err
 		}
@@ -128,6 +130,14 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 
 	// query the endpoint for its capabilities
 	ep.Info, err = ep.getEndpointInfo(ep.Id)
+
+	// if HTTPS PUT operations are supported, authenticate to obtain an HTTPS-specific access token
+	if ep.Info.HttpsServer != "" {
+		ep.HttpsAccessToken, err = ep.authenticate(defaultHttpsScopes_)
+		if err != nil {
+			return ep, err
+		}
+	}
 
 	return ep, err
 }
@@ -378,7 +388,8 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 //-----------
 
 // default client credentials grant scopes
-var defaultScopes_ = []string{"urn:globus:auth:scope:transfer.api.globus.org:all"}
+var defaultXferScopes_ = []string{"urn:globus:auth:scope:transfer.api.globus.org:all"}
+var defaultHttpsScopes_ = []string{"urn:globus:auth:scope:transfer.api.globus.org:all"}
 
 // returns true if a Globus response body matches an error
 func responseIsError(body []byte) bool {
@@ -391,14 +402,15 @@ func responseIsError(body []byte) bool {
 // (re)authenticates with Globus using its client ID and secret to obtain an
 // access token with consents for its relevant list of scopes
 // (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
-func (ep *Endpoint) authenticate(scopes []string) error {
+// returns an access token corresponding to the given set of scopes
+func (ep *Endpoint) authenticate(scopes []string) (string, error) {
 	authUrl := "https://auth.globus.org/v2/oauth2/token"
 	data := url.Values{}
 	data.Set("scope", strings.Join(scopes, " "))
 	data.Set("grant_type", "client_credentials")
 	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.SetBasicAuth(ep.ClientId.String(), ep.ClientSecret)
 	req.Header.Add("Content-Type", "application-x-www-form-urlencoded")
@@ -407,7 +419,7 @@ func (ep *Endpoint) authenticate(scopes []string) error {
 	var client http.Client
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if resp.StatusCode != 200 {
 		// fish specifics out of the response
@@ -418,26 +430,26 @@ func (ep *Endpoint) authenticate(scopes []string) error {
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			return "", err
 		}
 		var authError AuthError
 		err = json.Unmarshal(body, &authError)
 		if err != nil {
 			// report the authentication error without details
-			return fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
 		}
 		if len(authError.Description) > 0 {
-			return fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
 				authError.Error, authError.Description, resp.StatusCode)
 		}
-		return fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
+		return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
 			authError.Error, resp.StatusCode)
 	}
 
 	// read and unmarshal the response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	type AuthResponse struct {
 		AccessToken    string `json:"access_token"`
@@ -449,15 +461,13 @@ func (ep *Endpoint) authenticate(scopes []string) error {
 	var authResponse AuthResponse
 	err = json.Unmarshal(body, &authResponse)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// FIXME: check the scopes to see if they match our requested ones?
 
 	// stash the access token
-	ep.AccessToken = authResponse.AccessToken
-
-	return nil
+	return authResponse.AccessToken, nil
 }
 
 // This helper sends the given HTTP request, parsing the response for
@@ -488,16 +498,18 @@ func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
 		if errResp.Code == "ConsentRequired" || errResp.Code == "AuthenticationFailed" {
 			// our token has expired or we're missing a required scope,
 			// so reauthenticate
+			var newAccessToken string
 			if len(errResp.RequiredScopes) > 0 {
-				err = ep.authenticate(errResp.RequiredScopes)
+				newAccessToken, err = ep.authenticate(errResp.RequiredScopes)
 			} else {
-				err = ep.authenticate(defaultScopes_)
+				newAccessToken, err = ep.authenticate(defaultXferScopes_)
 			}
 			if err != nil {
 				return nil, err
 			}
+			ep.XferAccessToken = newAccessToken
 			// try the request again using the new access token
-			request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
+			request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
 			resp, err = client.Do(request)
 			if err != nil {
 				return nil, err
@@ -531,33 +543,7 @@ func (ep *Endpoint) get(resource string, values url.Values) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
-
-	return ep.sendRequest(req)
-}
-
-// Performs an HTTPS PUT request on the given Globus resource with the given payload, handling any
-// obvious errors and returning a byte slice containing the body of the response,
-// and/or any unhandled error. This method accepts a baseUrl because it's used to perform HTTPS
-// transfers. It handles scope-related errors by reauthenticating as needed and retrying the
-// operation. See https://docs.globus.org/api/flows/working-with-consents/
-// for details on Globus scopes and consents.
-func (ep *Endpoint) put(resource string, body io.Reader) ([]byte, error) {
-	if ep.Info.HttpsServer == "" {
-		return nil, fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", ep.Id.String())
-	}
-	u, err := url.ParseRequestURI(ep.Info.HttpsServer)
-	if err != nil {
-		return nil, err
-	}
-	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
-	res := fmt.Sprintf("%v", u)
-	slog.Debug(fmt.Sprintf("PUT: %s", res))
-	req, err := http.NewRequest(http.MethodPut, res, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
 
 	return ep.sendRequest(req)
 }
@@ -580,7 +566,7 @@ func (ep *Endpoint) post(resource string, body io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.AccessToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
 	req.Header.Set("Content-Type", "application/json")
 
 	return ep.sendRequest(req)
@@ -814,7 +800,24 @@ func descriptionFromEventList(events EventList, fallback string) string {
 
 // Performs an HTTPS PUT request on the endpoint, uploading the content of the given reader as
 // the request body. Only supported if the Globus endpoint has an associated HTTPS server.
-func (e *Endpoint) PutFromReader(resource string, reader *bytes.Reader) error {
-	_, err := e.put(resource, reader)
+func (e *Endpoint) PutFromReader(resource string, body io.Reader) error {
+	if e.Info.HttpsServer == "" {
+		return fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", e.Id.String())
+	}
+	u, err := url.ParseRequestURI(e.Info.HttpsServer)
+	if err != nil {
+		return err
+	}
+	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("PUT: %s", res))
+	req, err := http.NewRequest(http.MethodPut, res, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", e.HttpsAccessToken))
+
+	var client http.Client
+	_, err = client.Do(req)
 	return err
 }

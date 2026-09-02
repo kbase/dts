@@ -105,8 +105,10 @@ type Endpoint struct {
 	Options EndpointOptions
 	// a table of ongoing "file transfers"
 	Xfers map[uuid.UUID]transferInfo
-	// root path
-	RootPath string
+	Paths struct {
+		Base string
+		Data string
+	}
 	// a set of files on this endpoint that have been staged
 	StagedFiles map[string]bool
 }
@@ -117,14 +119,18 @@ type Endpoint struct {
 func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	slog.Debug(fmt.Sprintf("Registering test endpoint %s...", endpointName))
 	newEndpointFunc := func(conf map[string]any) (endpoints.Endpoint, error) {
-		root, ok := config.Endpoints[endpointName]["root"].(string)
+		basePath, ok := config.Endpoints[endpointName]["base_path"].(string)
 		if !ok {
-			root = "/"
+			basePath = "/"
 		}
+		dataPath, ok := config.Endpoints[endpointName]["data_path"].(string)
 		return &Endpoint{
-			Options:     options,
-			Xfers:       make(map[uuid.UUID]transferInfo),
-			RootPath:    root,
+			Options: options,
+			Xfers:   make(map[uuid.UUID]transferInfo),
+			Paths: struct{ Base, Data string }{
+				Base: basePath,
+				Data: dataPath,
+			},
 			StagedFiles: make(map[string]bool),
 		}, nil
 	}
@@ -139,8 +145,12 @@ func (ep *Endpoint) Provider() string {
 	return "dtstest"
 }
 
-func (ep *Endpoint) Root() string {
-	return ep.RootPath
+func (ep *Endpoint) BasePath() string {
+	return ep.Paths.Base
+}
+
+func (ep *Endpoint) DataPath() string {
+	return ep.Paths.Data
 }
 
 func (ep *Endpoint) FilesStaged(files []map[string]any) (bool, error) {

@@ -49,26 +49,26 @@ type Endpoint struct {
 	// descriptive endpoint name (obtained from config)
 	Name string
 	// endpoint UUID (obtained from config)
-	Id uuid.UUID
-	// root directory for endpoint (default: current working directory)
-	root string
+	Id    uuid.UUID
+	Paths struct {
+		Base string
+		Data string
+	}
 	// transfers in progress
 	Xfers map[uuid.UUID]xferRecord
 }
 
 // configuration struct for local endpoint
 type Config struct {
-	Name string `yaml:"name"`
-	Id   string `yaml:"id"`
-	Root string `yaml:"root"`
+	Name     string `yaml:"name"`
+	Id       string `yaml:"id"`
+	BasePath string `yaml:"base_path"`
+	DataPath string `yaml:"data_path"`
 }
 
 // creates a new local endpoint using the information supplied in the
 // DTS configuration file under the given endpoint name
 func NewEndpoint(config Config) (endpoints.Endpoint, error) {
-	if config.Root == "" {
-		config.Root = "/"
-	}
 	if config.Name == "" {
 		return nil, fmt.Errorf("name must be specified for local endpoint")
 	}
@@ -81,7 +81,7 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		Id:    id,
 		Xfers: make(map[uuid.UUID]xferRecord),
 	}
-	err = ep.setRoot(config.Root)
+	err = ep.setPaths(config.BasePath, config.DataPath)
 	return ep, err
 }
 
@@ -95,10 +95,19 @@ func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 }
 
 // sets the root directory for the local endpoint after checking that it exists
-func (ep *Endpoint) setRoot(dir string) error {
-	_, err := os.Stat(dir)
+func (ep *Endpoint) setPaths(base, data string) error {
+	if base == "" {
+		ep.Paths.Base = "/"
+	} else {
+		_, err := os.Stat(base)
+		if err != nil {
+			return err
+		}
+		ep.Paths.Base = base
+	}
+	_, err := os.Stat(filepath.Join(base, data))
 	if err == nil {
-		ep.root = dir
+		ep.Paths.Data = data
 	}
 	return err
 }
@@ -107,13 +116,17 @@ func (ep *Endpoint) Provider() string {
 	return "local"
 }
 
-func (ep *Endpoint) Root() string {
-	return ep.root
+func (ep *Endpoint) BasePath() string {
+	return ep.Paths.Base
+}
+
+func (ep *Endpoint) DataPath() string {
+	return ep.Paths.Data
 }
 
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	for _, descriptor := range descriptors {
-		absPath := filepath.Join(ep.root, descriptor["path"].(string))
+		absPath := filepath.Join(ep.BasePath(), ep.DataPath(), descriptor["path"].(string))
 		_, err := os.Stat(absPath)
 		if err != nil {
 			return false, nil
@@ -162,8 +175,8 @@ func (ep *Endpoint) transferFiles(xferId uuid.UUID, dest endpoints.Endpoint) {
 
 // implements per-file local transfers and validation
 func (ep *Endpoint) transferFile(dest endpoints.Endpoint, file endpoints.FileTransfer) error {
-	sourcePath := filepath.Join(ep.Root(), file.SourcePath)
-	destPath := filepath.Join(dest.Root(), file.DestinationPath)
+	sourcePath := filepath.Join(ep.BasePath(), ep.DataPath(), file.SourcePath)
+	destPath := filepath.Join(dest.BasePath(), dest.DataPath(), file.DestinationPath)
 
 	// check for the source directory
 	sourceDir := filepath.Dir(sourcePath)
@@ -235,7 +248,7 @@ func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTrans
 	if isS3 || isGlobus {
 		// upload each file via PUT
 		for _, file := range files {
-			sourcePath := filepath.Join(ep.Root(), file.SourcePath)
+			sourcePath := filepath.Join(ep.BasePath(), ep.DataPath(), file.SourcePath)
 			data, err := os.ReadFile(sourcePath)
 			if err != nil {
 				err = fmt.Errorf("incomplete file transfer: couldn't transfer %s to %s endpoint: %w", sourcePath, dst.Provider(), err)
@@ -300,5 +313,5 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 // this method is specific to local endpoints and gives access to the
 // local filesystem
 func (ep *Endpoint) FS() (fs.FS, error) {
-	return os.DirFS(filepath.Join("/", ep.root)), nil
+	return os.DirFS(filepath.Join(ep.BasePath(), ep.DataPath())), nil
 }

@@ -152,7 +152,11 @@ func (e *Endpoint) Provider() string {
 	return "s3"
 }
 
-func (e *Endpoint) Root() string {
+func (e *Endpoint) BasePath() string {
+	return ""
+}
+
+func (e *Endpoint) DataPath() string {
 	return e.Bucket + "/"
 }
 

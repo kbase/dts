@@ -248,9 +248,8 @@ func (s *storeState) process(decoder *gob.Decoder) {
 					Time:           time.Now(),
 				})
 			} else {
-				size := transfers[id].payloadSize()
 				publish(Message{
-					Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
+					Description:    fmt.Sprintf("Created new transfer %s (%d file(s))", id, newXfer.Status.NumFiles),
 					TransferId:     id,
 					TransferStatus: transfers[id].Status,
 					Time:           time.Now(),

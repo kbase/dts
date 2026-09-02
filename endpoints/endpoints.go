@@ -22,6 +22,8 @@
 package endpoints
 
 import (
+	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/google/uuid"
@@ -69,8 +71,12 @@ type TransferStatus struct {
 type Endpoint interface {
 	// Returns a string indicating the service provider for the endpoint.
 	Provider() string
-	// Returns the path on the file system that serves as the endpoint's root.
-	Root() string
+	// Returns the path on the file system that serves as the endpoint's base path, below which
+	// no files are visible.
+	BasePath() string
+	// Returns the path of the file system at which files of interest sit (relative to the base path).
+	// If blank, BasePath is used to locate files.
+	DataPath() string
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)
@@ -135,6 +141,10 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			}
 			if createEp, valid := createEndpointFuncs_[provider]; valid {
 				endpoint, err = createEp(epConfig)
+				if endpoint.BasePath() != "/" {
+					slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
+					slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))
+				}
 			} else { // invalid provider!
 				err = InvalidProviderError{
 					Name:     endpointName,

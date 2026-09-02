@@ -61,25 +61,24 @@ endpoints:
     id: ${JDP_ENDPOINT_ID}
     provider: globus
     credential: globus
-    root: /dm_archive
+    data_path: dm_archive
   globus-kbase:
     name: KBase Bulk Share
     id: ${KBASE_ENDPOINT_ID}
     provider: globus
     credential: globus
-    root: /jeff_cohere
+    base_path: ${KBASE_ENDPOINT_BASEPATH}
+    data_path: jeff_cohere
   globus-nmdc-nersc:
     name: NMDC (NERSC)
     id: ${NMDC_NERSC_ENDPOINT_ID}
     provider: globus
     credential: globus
-    root: /
   globus-nmdc-emsl:
     name: NMDC Bulk Data Cache
     id: ${NMDC_EMSL_ENDPOINT_ID}
     provider: globus
     credential: globus
-    root: /
   s3-nasa-power:
     name: NASA POWER (S3)
     bucket: nasa-power

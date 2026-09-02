@@ -145,7 +145,7 @@ func TestNewAWSS3Endpoint(t *testing.T) {
 	awsEndpoint, err := NewEndpoint(awsTestBucket, uuid.New(), cfg)
 	assert.NotNil(awsEndpoint)
 	assert.Nil(err)
-	assert.Equal(awsTestBucket+"/", awsEndpoint.Root())
+	assert.Equal(awsTestBucket+"/", awsEndpoint.DataPath())
 	assert.Equal("s3", awsEndpoint.Provider())
 	staged, err := awsEndpoint.FilesStaged([]map[string]any{})
 	assert.True(staged)
@@ -179,7 +179,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), cfg)
 	assert.NotNil(minioEndpoint)
 	assert.Nil(err)
-	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.Root())
+	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.DataPath())
 	assert.Equal("s3", minioEndpoint.Provider())
 
 	// test FilesStaged with existing files

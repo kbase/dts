@@ -49,8 +49,8 @@ const (
 	globusTransferApiVersion = "v0.10"
 )
 
-// this error type is returned when a Globus operation fails for any reason
-type GlobusError struct {
+// this error type is returned when a Globus transfer operation fails for any reason
+type GlobusTransferError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 
@@ -58,8 +58,17 @@ type GlobusError struct {
 	RequiredScopes []string `json:"required_scopes"`
 }
 
-func (e GlobusError) Error() string {
+func (e GlobusTransferError) Error() string {
 	return fmt.Sprintf("%s (%s)", e.Message, e.Code)
+}
+
+// this error type is returned when a non-transfer Globus operation fails for any reason
+type GlobusGenericError struct {
+	Message string
+}
+
+func (e GlobusGenericError) Error() string {
+	return fmt.Sprintf("%s", e.Message)
 }
 
 // this type satisfies the endpoints.Endpoint interface for Globus endpoints
@@ -68,12 +77,17 @@ type Endpoint struct {
 	Name string
 	// endpoint UUID (obtained from config)
 	Id uuid.UUID
-	// root directory for endpoint
-	RootDir string
-	// OAuth2 access token for transfers
-	XferAccessToken string
-	// OAuth2 access token for HTTPS (if supported)
-	HttpsAccessToken string
+
+	Paths struct {
+		Base string
+		Data string
+	}
+
+	// access tokens for Globus API
+	AccessTokens struct {
+		Transfers string
+		Https     string
+	}
 
 	// authentication stuff
 	ClientId     uuid.UUID
@@ -88,7 +102,8 @@ type Config struct {
 	Name       string          `yaml:"name"`
 	Id         string          `yaml:"id"`
 	Credential auth.Credential `yaml:"credential"`
-	Root       string          `yaml:"root,omitempty"`
+	BasePath   string          `yaml:"base_path,omitempty" mapstructure:"base_path,omitempty"`
+	DataPath   string          `yaml:"data_path,omitempty" mapstructure:"data_path,omitempty"`
 }
 
 // creates a new Globus endpoint using the given information
@@ -112,28 +127,26 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	// if needed, authenticate to obtain a Globus Transfer API access token
 	var zeroId uuid.UUID
 	if ep.ClientId != zeroId {
-		ep.XferAccessToken, err = ep.authenticate(defaultXferScopes_)
+		ep.AccessTokens.Transfers, err = ep.authenticate(defaultXferScopes_)
 		if err != nil {
 			return ep, err
 		}
 	}
 
-	// if present, the root entry overrides the endpoint's root, and is expressed
-	// as a path relative to it
-	if config.Root != "" {
-		ep.RootDir = config.Root
+	if config.BasePath != "" {
+		ep.Paths.Base = config.BasePath
 	} else {
-		ep.RootDir = "/"
+		ep.Paths.Base = "/"
 	}
-	slog.Debug(fmt.Sprintf("Endpoint %s: root directory is %s",
-		ep.Name, ep.RootDir))
+	ep.Paths.Data = config.DataPath
 
 	// query the endpoint for its capabilities
 	ep.Info, err = ep.getEndpointInfo(ep.Id)
 
 	// if HTTPS PUT operations are supported, authenticate to obtain an HTTPS-specific access token
 	if ep.Info.HttpsServer != "" {
-		ep.HttpsAccessToken, err = ep.authenticate(defaultHttpsScopes_)
+		scope := fmt.Sprintf("https://auth.globus.org/scopes/%s/https", ep.Id.String())
+		ep.AccessTokens.Https, err = ep.authenticate([]string{scope})
 		if err != nil {
 			return ep, err
 		}
@@ -156,8 +169,12 @@ func (ep *Endpoint) Provider() string {
 	return "globus"
 }
 
-func (ep *Endpoint) Root() string {
-	return ep.RootDir
+func (ep *Endpoint) BasePath() string {
+	return ep.Paths.Base
+}
+
+func (ep *Endpoint) DataPath() string {
+	return ep.Paths.Data
 }
 
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
@@ -165,7 +182,7 @@ func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	filesInDir := make(map[string][]string)
 	for _, descriptor := range descriptors {
 		dir, file := filepath.Split(descriptor["path"].(string))
-		dir = filepath.Join(ep.RootDir, dir)
+		dir = filepath.Join(ep.DataPath(), dir)
 		if _, found := filesInDir[dir]; !found {
 			filesInDir[dir] = make([]string, 0)
 		}
@@ -179,10 +196,10 @@ func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 		values.Add("path", dir)
 		values.Add("orderby", "name ASC")
 		resource := fmt.Sprintf("operation/endpoint/%s/ls", ep.Id.String())
-		body, err := ep.get(resource, values)
+		body, err := ep.get(resource, values, &ep.AccessTokens.Transfers)
 		if err != nil {
 			switch lsErr := err.(type) {
-			case *GlobusError:
+			case *GlobusTransferError:
 				switch lsErr.Code {
 				case "ClientError.NotFound":
 					// it's okay if the directory doesn't exist -- it might need to be staged
@@ -229,7 +246,7 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 	values.Add("limit", "1000")
 	values.Add("orderby", "name ASC")
 
-	body, err := ep.get("task_list", url.Values{})
+	body, err := ep.get("task_list", url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return nil, err
 	}
@@ -287,16 +304,8 @@ var statusCodesForStrings = map[string]endpoints.TransferStatusCode{
 
 func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	resource := fmt.Sprintf("task/%s", id.String())
-	body, err := ep.get(resource, url.Values{})
+	body, err := ep.get(resource, url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
-		return endpoints.TransferStatus{}, err
-	}
-	if responseIsError(body) {
-		var globusErr GlobusError
-		err := json.Unmarshal(body, &globusErr)
-		if err == nil {
-			err = &globusErr
-		}
 		return endpoints.TransferStatus{}, err
 	}
 	type TaskResponse struct {
@@ -317,7 +326,7 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	if response.NiceStatus != "" && response.NiceStatus != "OK" && response.NiceStatus != "Queued" {
 		// get the event list for this task
 		resource := fmt.Sprintf("task/%s/event_list", id.String())
-		body, err := ep.get(resource, url.Values{})
+		body, err := ep.get(resource, url.Values{}, &ep.AccessTokens.Transfers)
 		if err != nil {
 			// fine, we'll just use the "nice status"
 			return endpoints.TransferStatus{}, errors.New(response.NiceStatusShortDescription)
@@ -369,11 +378,11 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 	// We live with the 10-second wait for now, since our polling interval is
 	// large.
 	resource := fmt.Sprintf("task/%s/cancel", id.String())
-	_, err := ep.post(resource, nil) // can take up to 10 ѕeconds!
-	// FIXME: if this ^^^ becomes an issue, we can dispatch the POST to a
-	// FIXME: persistent goroutine to handle the cancellation
+	_, err := ep.post(resource, nil, &ep.AccessTokens.Transfers) // can take up to 10 ѕeconds!
+	// NOTE: if this ^^^ becomes an issue, we can dispatch the POST to a
+	// NOTE: persistent goroutine to handle the cancellation
 	if err != nil {
-		if globusError, ok := err.(*GlobusError); ok {
+		if globusError, ok := err.(*GlobusTransferError); ok {
 			switch globusError.Code {
 			case "Canceled", "CancelAccepted", "TaskComplete": // it worked!
 				err = nil
@@ -389,14 +398,29 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 
 // default client credentials grant scopes
 var defaultXferScopes_ = []string{"urn:globus:auth:scope:transfer.api.globus.org:all"}
-var defaultHttpsScopes_ = []string{"urn:globus:auth:scope:transfer.api.globus.org:all"}
 
-// returns true if a Globus response body matches an error
-func responseIsError(body []byte) bool {
+// returns an error capturing any Globus-related error in a response body, or nil if the response
+// doesn't appear to be an error
+func errorFromGlobusResponse(body []byte) error {
 	bodyStr := string(body)
-	return strings.Contains(bodyStr, "\"code\"") &&
+
+	// Transfer API error
+	if strings.Contains(bodyStr, "\"code\"") &&
 		!strings.Contains(bodyStr, "\"code\": \"Accepted\"") &&
-		strings.Contains(string(body), "\"message\"")
+		strings.Contains(string(body), "\"message\"") {
+		var globusErr GlobusTransferError
+		err := json.Unmarshal(body, &globusErr)
+		if err == nil {
+			return &globusErr
+		}
+	}
+
+	// Generic error
+	if strings.Contains(bodyStr, "GlobusError") {
+		return &GlobusGenericError{Message: bodyStr}
+	}
+
+	return nil
 }
 
 // (re)authenticates with Globus using its client ID and secret to obtain an
@@ -475,7 +499,7 @@ func (ep *Endpoint) authenticate(scopes []string) (string, error) {
 // handled automatically (e.g. consent/scope related errors). In any case,
 // it returns a byte slice containing the body of the response or an
 // error indicating failure.
-func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
+func (ep *Endpoint) sendRequest(request *http.Request, accessToken *string) ([]byte, error) {
 	// send the initial request with a fresh HTTP client
 	var client http.Client
 	resp, err := client.Do(request)
@@ -489,36 +513,34 @@ func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
 	resp.Body.Close()
 
 	// check the response for a Globus-style error code / message
-	if responseIsError(body) {
-		var errResp GlobusError
-		err = json.Unmarshal(body, &errResp)
-		if err != nil {
-			return nil, err
-		}
-		if errResp.Code == "ConsentRequired" || errResp.Code == "AuthenticationFailed" {
-			// our token has expired or we're missing a required scope,
-			// so reauthenticate
-			var newAccessToken string
-			if len(errResp.RequiredScopes) > 0 {
-				newAccessToken, err = ep.authenticate(errResp.RequiredScopes)
+	err = errorFromGlobusResponse(body)
+	if err != nil {
+		if xferErr, ok := err.(*GlobusTransferError); ok {
+			if xferErr.Code == "ConsentRequired" || xferErr.Code == "AuthenticationFailed" {
+				// our token has expired or we're missing a required scope,
+				// so reauthenticate
+				var newAccessToken string
+				if len(xferErr.RequiredScopes) > 0 {
+					newAccessToken, err = ep.authenticate(xferErr.RequiredScopes)
+				} else {
+					newAccessToken, err = ep.authenticate(defaultXferScopes_)
+				}
+				if err != nil {
+					return nil, err
+				}
+				*accessToken = newAccessToken
+				// try the request again using the new access token
+				request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
+				resp, err = client.Do(request)
+				if err != nil {
+					return nil, err
+				}
+				body, err = io.ReadAll(resp.Body)
+				resp.Body.Close()
 			} else {
-				newAccessToken, err = ep.authenticate(defaultXferScopes_)
+				// other transfer errors are propagated
+				return body, err
 			}
-			if err != nil {
-				return nil, err
-			}
-			ep.XferAccessToken = newAccessToken
-			// try the request again using the new access token
-			request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
-			resp, err = client.Do(request)
-			if err != nil {
-				return nil, err
-			}
-			body, err = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		} else {
-			// other errors are propagated
-			err = &errResp
 		}
 	}
 	return body, err
@@ -530,7 +552,7 @@ func (ep *Endpoint) sendRequest(request *http.Request) ([]byte, error) {
 // This method handles scope-related errors by reauthenticating as needed and
 // retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
 // for details on Globus scopes and consents.
-func (ep *Endpoint) get(resource string, values url.Values) ([]byte, error) {
+func (ep *Endpoint) get(resource string, values url.Values, accessToken *string) ([]byte, error) {
 	u, err := url.ParseRequestURI(globusTransferBaseURL)
 	if err != nil {
 		return nil, err
@@ -543,9 +565,32 @@ func (ep *Endpoint) get(resource string, values url.Values) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
 
-	return ep.sendRequest(req)
+	return ep.sendRequest(req, accessToken)
+}
+
+// Performs a PUT request on the given Globus resource with the given payload, handling any
+// obvious errors and returning a byte slice containing the body of the response,
+// and/or any unhandled error. This method accepts a baseUrl because it's used to perform HTTPS
+// transfers. It handles scope-related errors by reauthenticating as needed and retrying the
+// operation. See https://docs.globus.org/api/flows/working-with-consents/
+// for details on Globus scopes and consents.
+func (ep *Endpoint) put(resource string, body io.Reader, accessToken *string) ([]byte, error) {
+	u, err := url.ParseRequestURI(ep.Info.HttpsServer)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("PUT: %s", res))
+	req, err := http.NewRequest(http.MethodPut, res, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
+
+	return ep.sendRequest(req, accessToken)
 }
 
 // Performs a POST request on the given Globus resource, handling any obvious
@@ -554,7 +599,7 @@ func (ep *Endpoint) get(resource string, values url.Values) ([]byte, error) {
 // This method handles scope-related errors by reauthenticating as needed and
 // retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
 // for details on Globus scopes and consents.
-func (ep *Endpoint) post(resource string, body io.Reader) ([]byte, error) {
+func (ep *Endpoint) post(resource string, body io.Reader, accessToken *string) ([]byte, error) {
 	u, err := url.ParseRequestURI(globusTransferBaseURL)
 	if err != nil {
 		return nil, err
@@ -566,16 +611,16 @@ func (ep *Endpoint) post(resource string, body io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ep.XferAccessToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
 	req.Header.Set("Content-Type", "application/json")
 
-	return ep.sendRequest(req)
+	return ep.sendRequest(req, accessToken)
 }
 
 // https://docs.globus.org/api/transfer/task_submit/#get_submission_id
 func (ep *Endpoint) getSubmissionId() (uuid.UUID, error) {
 	var id uuid.UUID
-	body, err := ep.get("submission_id", url.Values{})
+	body, err := ep.get("submission_id", url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return id, err
 	}
@@ -630,7 +675,7 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 		}
 		xferItems[i] = TransferItem{
 			DataType:          "transfer_item",
-			SourcePath:        filepath.Join(ep.RootDir, file.SourcePath),
+			SourcePath:        filepath.Join(ep.DataPath(), file.SourcePath),
 			DestinationPath:   file.DestinationPath,
 			ExternalChecksum:  checksum,
 			ChecksumAlgorithm: checksumAlgorithm,
@@ -675,16 +720,8 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 	if err != nil {
 		return xferId, err
 	}
-	body, err := ep.post("transfer", bytes.NewReader(data))
+	body, err := ep.post("transfer", bytes.NewReader(data), &ep.AccessTokens.Transfers)
 	if err != nil {
-		return xferId, err
-	}
-	if responseIsError(body) {
-		var globusErr GlobusError
-		err = json.Unmarshal(body, &globusErr)
-		if err == nil {
-			err = &globusErr
-		}
 		return xferId, err
 	}
 	type SubmissionResponse struct {
@@ -710,16 +747,8 @@ type EndpointInfo struct {
 
 func (ep *Endpoint) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
 	// query the endpoint for its capabilities
-	body, err := ep.get(fmt.Sprintf("endpoint/%s", id), url.Values{})
+	body, err := ep.get(fmt.Sprintf("endpoint/%s", id), url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
-		return EndpointInfo{}, err
-	}
-	if responseIsError(body) {
-		var globusErr GlobusError
-		err = json.Unmarshal(body, &globusErr)
-		if err == nil {
-			err = &globusErr
-		}
 		return EndpointInfo{}, err
 	}
 	var endpointInfo EndpointInfo
@@ -800,24 +829,10 @@ func descriptionFromEventList(events EventList, fallback string) string {
 
 // Performs an HTTPS PUT request on the endpoint, uploading the content of the given reader as
 // the request body. Only supported if the Globus endpoint has an associated HTTPS server.
-func (e *Endpoint) PutFromReader(resource string, body io.Reader) error {
-	if e.Info.HttpsServer == "" {
-		return fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", e.Id.String())
+func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
+	if ep.Info.HttpsServer == "" {
+		return fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", ep.Id.String())
 	}
-	u, err := url.ParseRequestURI(e.Info.HttpsServer)
-	if err != nil {
-		return err
-	}
-	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
-	res := fmt.Sprintf("%v", u)
-	slog.Debug(fmt.Sprintf("PUT: %s", res))
-	req, err := http.NewRequest(http.MethodPut, res, body)
-	if err != nil {
-		return err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", e.HttpsAccessToken))
-
-	var client http.Client
-	_, err = client.Do(req)
+	_, err := ep.put(filepath.Join(ep.Paths.Base, ep.Paths.Data, resource), body, &ep.AccessTokens.Https)
 	return err
 }

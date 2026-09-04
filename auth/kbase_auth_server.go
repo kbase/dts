@@ -23,6 +23,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,10 +73,10 @@ func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*
 	}
 
 	// check our list of KBase auth server instances for this access token
-	if instances == nil {
-		instances = make(map[string]*KBaseAuthServer)
+	if instances_ == nil {
+		instances_ = make(map[string]*KBaseAuthServer)
 	}
-	if server, found := instances[accessToken]; found {
+	if server, found := instances_[accessToken]; found {
 		return server, nil
 	} else {
 		server := KBaseAuthServer{
@@ -91,7 +92,7 @@ func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*
 		}
 
 		// register this instance of the auth server
-		instances[accessToken] = &server
+		instances_[accessToken] = &server
 		return &server, err
 	}
 }
@@ -103,8 +104,8 @@ func (server KBaseAuthServer) User() (User, error) {
 		return User{}, err
 	}
 	user := User{
-		Name:  kbUser.Display,
-		Email: kbUser.Email,
+		Name:        kbUser.Display,
+		Email:       kbUser.Email,
 		AccessToken: server.AccessToken,
 	}
 	for _, pid := range kbUser.Idents {
@@ -114,6 +115,10 @@ func (server KBaseAuthServer) User() (User, error) {
 			break
 		}
 	}
+
+	// associate the ORCID with this user
+	usersForOrcid_[user.Orcid] = user
+
 	return user, nil
 }
 
@@ -156,7 +161,10 @@ type kbaseAuthErrorResponse struct {
 
 // here's a set of instances to the KBase auth server, mapped by OAuth2
 // access token
-var instances map[string]*KBaseAuthServer
+var instances_ map[string]*KBaseAuthServer
+
+// here's a table that associates authenticated users with their ORCIDs
+var usersForOrcid_ map[string]User = make(map[string]User)
 
 // emits an error representing the error in a response to the auth server
 func kbaseAuthError(response *http.Response) error {
@@ -258,4 +266,12 @@ func (server KBaseAuthServer) kbaseUser() (kbaseUser, error) {
 		return user, fmt.Errorf("KBase Auth2: No ORCIDs associated with this user")
 	}
 	return user, err
+}
+
+// Returns an authenticated user for the given ORCID (KBase only).
+func UserForOrcid(orcid string) (User, error) {
+	if user, ok := usersForOrcid_[orcid]; ok {
+		return user, nil
+	}
+	return User{}, errors.New("Can't fetch ORCID for unauthenticated user")
 }

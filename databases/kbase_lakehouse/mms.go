@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/kbase/dts/auth"
 )
 
 // The Minio Management Service (MMS) provide authentication information for a user
@@ -40,18 +42,17 @@ type MMSRecord struct {
 }
 
 type MMS struct {
-	Resource string
-	Client   http.Client
+	Client http.Client
 }
 
-// retrieves the MMS record for the given user KBase token
-func (mms MMS) fetchRecord(token string) (MMSRecord, error) {
-	resource := mms.Resource + "/credentials/"
+// retrieves the MMS record for the given user
+func (mms MMS) FetchRecord(user auth.User) (MMSRecord, error) {
+	resource := kbaseMMSUrl + "/credentials/"
 	request, err := http.NewRequest(http.MethodGet, resource, http.NoBody)
 	if err != nil {
 		return MMSRecord{}, err
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", user.AccessToken))
 	resp, err := mms.Client.Do(request)
 	if err != nil {
 		return MMSRecord{}, err
@@ -67,3 +68,7 @@ func (mms MMS) fetchRecord(token string) (MMSRecord, error) {
 	err = json.Unmarshal(body, &record)
 	return record, err
 }
+
+const (
+	kbaseMMSUrl = "http://mms.dev:8000"
+)

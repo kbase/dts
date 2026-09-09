@@ -106,13 +106,27 @@ func (server KBaseAuthServer) User() (User, error) {
 	user := User{
 		Name:        kbUser.Display,
 		Email:       kbUser.Email,
-		AccessToken: server.AccessToken,
+		Credentials: make(map[string]Credential),
 	}
 	for _, pid := range kbUser.Idents {
 		// grab the first ORCID associated with the user
 		if pid.Provider == "OrcID" {
 			user.Orcid = pid.UserName
 			break
+		}
+	}
+
+	// try to access the MMS in case we're talking to the KBase Lakehouse
+	mms := MMS{}
+	record, err := mms.FetchRecord(server.AccessToken)
+	if err == nil {
+		user.Credentials["s3"] = Credential{
+			Id:     record.S3AccessKey,
+			Secret: record.S3SecretKey,
+		}
+		user.Credentials["polaris"] = Credential{
+			Id:     record.PolarisClientId,
+			Secret: record.PolarisClientSecret,
 		}
 	}
 

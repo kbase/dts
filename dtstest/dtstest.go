@@ -31,6 +31,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
@@ -151,6 +152,10 @@ func (ep *Endpoint) BasePath() string {
 
 func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
+}
+
+func (ep *Endpoint) RegisterUser(user auth.User) error {
+	return nil
 }
 
 func (ep *Endpoint) FilesStaged(files []map[string]any) (bool, error) {

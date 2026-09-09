@@ -33,12 +33,14 @@ type User struct {
 	Organization string
 	// true if this user is a Superuser
 	IsSuper bool
-	// access token used to authenticate
-	AccessToken string
+	// credentials for accessing specific resources
+	Credentials map[string]Credential
 }
 
 // A credential used for authorization and authentication
 type Credential struct {
+	// the username associated with this credential
+	Username string `yaml:"username"`
 	// the ID used for authorization (username or UUID)
 	Id string `yaml:"id"`
 	// the secret used for authentication (e.g. password)

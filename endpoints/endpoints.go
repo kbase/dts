@@ -28,6 +28,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 )
 
@@ -77,6 +78,8 @@ type Endpoint interface {
 	// Returns the path of the file system at which files of interest sit (relative to the base path).
 	// If blank, BasePath is used to locate files.
 	DataPath() string
+	// Registers the given user with the endpoint, creating any associated credentials.
+	RegisterUser(user auth.User) error
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)

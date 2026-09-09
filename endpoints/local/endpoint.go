@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 	"github.com/kbase/dts/endpoints/globus"
 	"github.com/kbase/dts/endpoints/s3"
@@ -122,6 +123,11 @@ func (ep *Endpoint) BasePath() string {
 
 func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
+}
+
+func (ep *Endpoint) RegisterUser(user auth.User) error {
+	// no user registration needed for local endpoints
+	return nil
 }
 
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {

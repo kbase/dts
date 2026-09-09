@@ -37,6 +37,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -158,6 +159,10 @@ func (e *Endpoint) BasePath() string {
 
 func (e *Endpoint) DataPath() string {
 	return e.Bucket + "/"
+}
+
+func (e *Endpoint) RegisterUser(user auth.User) error {
+	return nil
 }
 
 func (e *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {

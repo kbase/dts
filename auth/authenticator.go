@@ -148,7 +148,7 @@ func (a *Authenticator) readAccessTokenFile() error {
 			Orcid:        record[2],
 			Organization: record[3],
 			IsSuper:      isSuper,
-			AccessToken:  a.AccessTokenFile,
+			Credentials:  make(map[string]Credential),
 		}
 	}
 

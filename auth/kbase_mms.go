@@ -19,15 +19,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package kbase_lakehouse
+package auth
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/kbase/dts/auth"
 )
 
 // The Minio Management Service (MMS) provide authentication information for a user
@@ -45,14 +43,14 @@ type MMS struct {
 	Client http.Client
 }
 
-// retrieves the MMS record for the given user
-func (mms MMS) FetchRecord(user auth.User) (MMSRecord, error) {
+// retrieves the MMS record associated with the given access token
+func (mms MMS) FetchRecord(accessToken string) (MMSRecord, error) {
 	resource := kbaseMMSUrl + "/credentials/"
 	request, err := http.NewRequest(http.MethodGet, resource, http.NoBody)
 	if err != nil {
 		return MMSRecord{}, err
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", user.AccessToken))
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	resp, err := mms.Client.Do(request)
 	if err != nil {
 		return MMSRecord{}, err

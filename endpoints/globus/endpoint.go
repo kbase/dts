@@ -45,7 +45,7 @@ import (
 // described at https://docs.globus.org/api/transfer/.
 
 const (
-	globusTransferBaseURL    = "https://transfer.api.globusonline.org"
+	globusTransferApiBaseUrl = "https://transfer.api.globusonline.org"
 	globusTransferApiVersion = "v0.10"
 )
 
@@ -71,6 +71,15 @@ func (e GlobusGenericError) Error() string {
 	return fmt.Sprintf("%s", e.Message)
 }
 
+type GlobusUserCredential struct {
+	// Authenticated DTS user for whom Globus credential is (temporarily) registered
+	User auth.User
+	// (S3) Bucket associated with user transfer
+	Bucket string
+	// Globus unique credential identifier
+	Id uuid.UUID
+}
+
 // this type satisfies the endpoints.Endpoint interface for Globus endpoints
 type Endpoint struct {
 	// descriptive endpoint name (obtained from config)
@@ -85,8 +94,9 @@ type Endpoint struct {
 
 	// access tokens for Globus API
 	AccessTokens struct {
-		Transfers string
-		Https     string
+		Transfers     string
+		Https         string
+		ServerManager string
 	}
 
 	// authentication stuff
@@ -95,6 +105,10 @@ type Endpoint struct {
 
 	// endpoint configuration
 	Info EndpointInfo
+
+	// registered user credentials (on behalf on which DTS performs transfers)
+	// NOTE: keys are ORCIDs
+	UserCredentials map[string]GlobusUserCredential
 }
 
 // configuration struct for Globus endpoints
@@ -152,6 +166,16 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		}
 	}
 
+	// Access the Globus Connect Server Manager API if it's available. This allows us to create
+	// user credentials for premium connectors (e.g. S3).
+	if ep.Info.GCSManagerUrl != "" {
+		scope := "endpoint:administrator" // fancy!
+		ep.AccessTokens.ServerManager, err = ep.authenticate([]string{scope})
+		if err != nil {
+			return ep, err
+		}
+	}
+
 	return ep, err
 }
 
@@ -177,6 +201,24 @@ func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
 }
 
+func (ep *Endpoint) RegisterUser(user auth.User) error {
+	if ep.Info.GCSManagerUrl == "" { // we're not authorized to access the server manager API
+		return nil
+	}
+	// see https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
+	for provider, credential := range user.Credentials {
+		switch provider {
+		case "s3":
+			return ep.registerS3UserCredential(user, credential)
+		default:
+		}
+	}
+	return nil
+}
+
+func (ep *Endpoint) DeregisterUser(user auth.User) error {
+}
+
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	// find all the directories in which these files reside
 	filesInDir := make(map[string][]string)
@@ -195,8 +237,8 @@ func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 		values := url.Values{}
 		values.Add("path", dir)
 		values.Add("orderby", "name ASC")
-		resource := fmt.Sprintf("operation/endpoint/%s/ls", ep.Id.String())
-		body, err := ep.get(resource, values, &ep.AccessTokens.Transfers)
+		resourcePath := ep.globusTransferApiResource(fmt.Sprintf("operation/endpoint/%s/ls", ep.Id.String()))
+		body, err := ep.get(resourcePath, values, &ep.AccessTokens.Transfers)
 		if err != nil {
 			switch lsErr := err.(type) {
 			case *GlobusTransferError:
@@ -246,7 +288,8 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 	values.Add("limit", "1000")
 	values.Add("orderby", "name ASC")
 
-	body, err := ep.get("task_list", url.Values{}, &ep.AccessTokens.Transfers)
+	resourcePath := ep.globusTransferApiResource("task_list")
+	body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return nil, err
 	}
@@ -303,8 +346,8 @@ var statusCodesForStrings = map[string]endpoints.TransferStatusCode{
 }
 
 func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
-	resource := fmt.Sprintf("task/%s", id.String())
-	body, err := ep.get(resource, url.Values{}, &ep.AccessTokens.Transfers)
+	resourcePath := ep.globusTransferApiResource(fmt.Sprintf("task/%s", id.String()))
+	body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return endpoints.TransferStatus{}, err
 	}
@@ -325,8 +368,8 @@ func (ep *Endpoint) Status(id uuid.UUID) (endpoints.TransferStatus, error) {
 	// check for an error condition in NiceStatus
 	if response.NiceStatus != "" && response.NiceStatus != "OK" && response.NiceStatus != "Queued" {
 		// get the event list for this task
-		resource := fmt.Sprintf("task/%s/event_list", id.String())
-		body, err := ep.get(resource, url.Values{}, &ep.AccessTokens.Transfers)
+		resourcePath := ep.globusTransferApiResource(fmt.Sprintf("task/%s/event_list", id.String()))
+		body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.Transfers)
 		if err != nil {
 			// fine, we'll just use the "nice status"
 			return endpoints.TransferStatus{}, errors.New(response.NiceStatusShortDescription)
@@ -377,8 +420,8 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 	//
 	// We live with the 10-second wait for now, since our polling interval is
 	// large.
-	resource := fmt.Sprintf("task/%s/cancel", id.String())
-	_, err := ep.post(resource, nil, &ep.AccessTokens.Transfers) // can take up to 10 ѕeconds!
+	resourcePath := ep.globusTransferApiResource(fmt.Sprintf("task/%s/cancel", id.String()))
+	_, err := ep.post(resourcePath, nil, &ep.AccessTokens.Transfers) // can take up to 10 ѕeconds!
 	// NOTE: if this ^^^ becomes an issue, we can dispatch the POST to a
 	// NOTE: persistent goroutine to handle the cancellation
 	if err != nil {
@@ -389,6 +432,17 @@ func (ep *Endpoint) Cancel(id uuid.UUID) error {
 			}
 		}
 	}
+	return err
+}
+
+// Performs an HTTPS PUT request on the endpoint, uploading the content of the given reader as
+// the request body. Only supported if the Globus endpoint has an associated HTTPS server.
+func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
+	if ep.Info.HttpsServer == "" {
+		return fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", ep.Id.String())
+	}
+	httpsPath := ep.Info.HttpsServer + filepath.Join(ep.Paths.Base, ep.Paths.Data, resource)
+	_, err := ep.put(httpsPath, body, &ep.AccessTokens.Https)
 	return err
 }
 
@@ -421,6 +475,14 @@ func errorFromGlobusResponse(body []byte) error {
 	}
 
 	return nil
+}
+
+func (ep Endpoint) globusTransferApiResource(resourceName string) string {
+	return globusTransferApiBaseUrl + fmt.Sprintf("/%s/%s", globusTransferApiVersion, resourceName)
+}
+
+func (ep Endpoint) globusServerManagerApiResource(resourceName string) string {
+	return ep.Info.GCSManagerUrl + fmt.Sprintf("/%s", resourceName)
 }
 
 // (re)authenticates with Globus using its client ID and secret to obtain an
@@ -552,12 +614,11 @@ func (ep *Endpoint) sendRequest(request *http.Request, accessToken *string) ([]b
 // This method handles scope-related errors by reauthenticating as needed and
 // retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
 // for details on Globus scopes and consents.
-func (ep *Endpoint) get(resource string, values url.Values, accessToken *string) ([]byte, error) {
-	u, err := url.ParseRequestURI(globusTransferBaseURL)
+func (ep *Endpoint) get(resourcePath string, values url.Values, accessToken *string) ([]byte, error) {
+	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
 	u.RawQuery = values.Encode()
 	res := fmt.Sprintf("%v", u)
 	slog.Debug(fmt.Sprintf("GET: %s", res))
@@ -572,23 +633,21 @@ func (ep *Endpoint) get(resource string, values url.Values, accessToken *string)
 
 // Performs a PUT request on the given Globus resource with the given payload, handling any
 // obvious errors and returning a byte slice containing the body of the response,
-// and/or any unhandled error. This method accepts a baseUrl because it's used to perform HTTPS
-// transfers. It handles scope-related errors by reauthenticating as needed and retrying the
-// operation. See https://docs.globus.org/api/flows/working-with-consents/
+// and/or any unhandled error. Handles scope-related errors by reauthenticating as needed and
+// retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
 // for details on Globus scopes and consents.
-func (ep *Endpoint) put(resource string, body io.Reader, accessToken *string) ([]byte, error) {
-	u, err := url.ParseRequestURI(ep.Info.HttpsServer)
+func (ep *Endpoint) put(resourcePath string, body io.Reader, accessToken *string) ([]byte, error) {
+	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
 	res := fmt.Sprintf("%v", u)
 	slog.Debug(fmt.Sprintf("PUT: %s", res))
 	req, err := http.NewRequest(http.MethodPut, res, body)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s&ep.AccessTokens.ServerManager)", *accessToken))
 
 	return ep.sendRequest(req, accessToken)
 }
@@ -599,12 +658,11 @@ func (ep *Endpoint) put(resource string, body io.Reader, accessToken *string) ([
 // This method handles scope-related errors by reauthenticating as needed and
 // retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
 // for details on Globus scopes and consents.
-func (ep *Endpoint) post(resource string, body io.Reader, accessToken *string) ([]byte, error) {
-	u, err := url.ParseRequestURI(globusTransferBaseURL)
+func (ep *Endpoint) post(resourcePath string, body io.Reader, accessToken *string) ([]byte, error) {
+	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = fmt.Sprintf("%s/%s", globusTransferApiVersion, resource)
 	res := fmt.Sprintf("%v", u)
 	slog.Debug(fmt.Sprintf("POST: %s", res))
 	req, err := http.NewRequest(http.MethodPost, res, body)
@@ -617,10 +675,34 @@ func (ep *Endpoint) post(resource string, body io.Reader, accessToken *string) (
 	return ep.sendRequest(req, accessToken)
 }
 
+// Performs a DELETE request on the given Globus resource, handling any obvious
+// errors and returning a byte slice containing the body of the response,
+// and/or any unhandled error.
+// This method handles scope-related errors by reauthenticating as needed and
+// retrying the operation. See https://docs.globus.org/api/flows/working-with-consents/
+// for details on Globus scopes and consents.
+func (ep *Endpoint) delete(resourcePath string, accessToken *string) ([]byte, error) {
+	u, err := url.ParseRequestURI(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("DELETE: %s", res))
+	req, err := http.NewRequest(http.MethodDelete, res, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *accessToken))
+	req.Header.Set("Content-Type", "application/json")
+
+	return ep.sendRequest(req, accessToken)
+}
+
 // https://docs.globus.org/api/transfer/task_submit/#get_submission_id
 func (ep *Endpoint) getSubmissionId() (uuid.UUID, error) {
 	var id uuid.UUID
-	body, err := ep.get("submission_id", url.Values{}, &ep.AccessTokens.Transfers)
+	resourcePath := ep.globusTransferApiResource("submission_id")
+	body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return id, err
 	}
@@ -720,7 +802,9 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 	if err != nil {
 		return xferId, err
 	}
-	body, err := ep.post("transfer", bytes.NewReader(data), &ep.AccessTokens.Transfers)
+
+	resourcePath := ep.globusTransferApiResource("transfer")
+	body, err := ep.post(resourcePath, bytes.NewReader(data), &ep.AccessTokens.Transfers)
 	if err != nil {
 		return xferId, err
 	}
@@ -740,14 +824,16 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 }
 
 type EndpointInfo struct {
-	DisableVerify bool   `json:"disable_verify"` // true if checksums are not available
-	ForceVerify   bool   `json:"force_verify"`   // true if checksums must be available
-	HttpsServer   string `json:"https_server"`   // non-blank if HTTPS transfers are supported
+	DisableVerify bool   `json:"disable_verify"`  // true if checksums are not available
+	ForceVerify   bool   `json:"force_verify"`    // true if checksums must be available
+	HttpsServer   string `json:"https_server"`    // non-blank if HTTPS transfers are supported
+	GCSManagerUrl string `json:"gcs_manager_url"` // non-blank if Manager operations are supported
 }
 
 func (ep *Endpoint) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
 	// query the endpoint for its capabilities
-	body, err := ep.get(fmt.Sprintf("endpoint/%s", id), url.Values{}, &ep.AccessTokens.Transfers)
+	resourcePath := ep.globusTransferApiResource(fmt.Sprintf("submission_id/%s", id.String()))
+	body, err := ep.get(fmt.Sprintf(resourcePath, id), url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return EndpointInfo{}, err
 	}
@@ -827,12 +913,120 @@ func descriptionFromEventList(events EventList, fallback string) string {
 	return fallback
 }
 
-// Performs an HTTPS PUT request on the endpoint, uploading the content of the given reader as
-// the request body. Only supported if the Globus endpoint has an associated HTTPS server.
-func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
-	if ep.Info.HttpsServer == "" {
-		return fmt.Errorf("Globus endpoint '%s' does not support HTTPS operations", ep.Id.String())
+type ManagerApiResult_1_1_0 struct {
+	DataType string `json:"DATA_TYPE"` // always `result#1.0.0`
+	//AuthorizationParameters any `json:"authorization_parameters"`
+	Code string          `json:"code"`
+	Data json.RawMessage `json:"data"`
+	//Detail any `json:"detail"`
+	//HasNextPage bool `json:"has_next_page"`
+	HttpResponseCode int `json:"http_response_code"`
+	//Marker string `json:"marker"`
+	Message string `json:"message"`
+}
+
+func (ep Endpoint) registerS3UserCredential(user auth.User, credential auth.Credential) error {
+	globusCredential := GlobusUserCredential{
+		User: user,
+		Id:   uuid.New(),
 	}
-	_, err := ep.put(filepath.Join(ep.Paths.Base, ep.Paths.Data, resource), body, &ep.AccessTokens.Https)
-	return err
+
+	// get the storage gateway ID for this endpoint / collection
+	resourcePath := ep.globusServerManagerApiResource(fmt.Sprintf("api/collections/%s", ep.Id.String()))
+	body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.ServerManager)
+	if err != nil {
+		return err
+	}
+	var response ManagerApiResult_1_1_0
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return err
+	}
+	if response.HttpResponseCode != http.StatusOK || response.HttpResponseCode != http.StatusCreated {
+		return errors.New(response.Message)
+	}
+	type CollectionData struct {
+		ConnectorId      uuid.UUID `json:"connector_id"`
+		StorageGatewayId uuid.UUID `json:"storage_gateway_id"`
+	}
+	var collection CollectionData
+	if err := json.Unmarshal(response.Data, &collection); err != nil {
+		return err
+	}
+
+	// now request the creation of a user credential
+	type S3KeysPrefixPaths_1_0_0 struct {
+		PathPrefixes []string `json:"path_prefixes"`
+		S3KeyId      string   `json:"s3_key_id"`
+		S3SecretKey  string   `json:"s3_secret_key"`
+	}
+	type S3UserCredentialPolicies_1_2_0 struct {
+		DataType        string                    `json:"DATA_TYPE"` // always `s3_user_credential_policies#1.2.0`
+		S3KeyId         string                    `json:"s3_key_id"`
+		S3MultiKeys     []S3KeysPrefixPaths_1_0_0 `json:"s3_multi_keys"`
+		S3RequesterPays bool                      `json:"s3_requester_pays"`
+		S3SecretKey     string                    `json:"s3_secret_key"`
+	}
+	type CreateS3CredentialRequestBody struct {
+		DataType         string                           `json:"DATA_TYPE"` // always `user_credential#1.0.0`
+		ConnectorId      string                           `json:"connector_id"`
+		Deleted          bool                             `json:"deleted"`
+		DisplayName      string                           `json:"display_name"`
+		Id               string                           `json:"id"`
+		IdentityId       string                           `json:"identity_id"`
+		Invalid          bool                             `json:"invalid"`
+		Policies         []S3UserCredentialPolicies_1_2_0 `json:"policies"`
+		Provisioned      bool                             `json:"provisioned"`
+		StorageGatewayId string                           `json:"storage_gateway_id"`
+		Username         string                           `json:"username"`
+	}
+	data, err := json.Marshal(CreateS3CredentialRequestBody{
+		DataType:    "user_credential#1.0.0",
+		ConnectorId: collection.ConnectorId.String(),
+		DisplayName: user.Name,
+		Id:          globusCredential.Id.String(),
+		IdentityId:  ep.ClientId.String(), // NOTE: DTS masquerades as the user for this transfer
+		Policies: []S3UserCredentialPolicies_1_2_0{
+			{
+				DataType:    "s3_user_credential_policies#1.2.0",
+				S3KeyId:     credential.Id,
+				S3SecretKey: credential.Secret,
+			},
+		},
+		Provisioned:      true, // NOTE: credential is fully provisioned programmatically
+		StorageGatewayId: collection.StorageGatewayId.String(),
+		Username:         credential.Username,
+	})
+	resourcePath = ep.globusServerManagerApiResource("api/user_credentials")
+	body, err = ep.post(resourcePath, bytes.NewReader(data), &ep.AccessTokens.ServerManager)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return err
+	}
+	if response.HttpResponseCode != http.StatusOK || response.HttpResponseCode != http.StatusCreated {
+		return errors.New(response.Message)
+	}
+	return nil
+}
+
+func (ep Endpoint) deregisterUserCredential(user auth.User, globusCredentialId uuid.UUID) error {
+	resourcePath := ep.globusServerManagerApiResource(fmt.Sprintf("api/user_credentials/%s", globusCredentialId.String()))
+	body, err := ep.delete(resourcePath, &ep.AccessTokens.ServerManager)
+	if err != nil {
+		return err
+	}
+	var response ManagerApiResult_1_1_0
+	if err := json.Unmarshal(body, &response); err != nil {
+		return err
+	}
+	if response.HttpResponseCode != http.StatusOK || response.HttpResponseCode != http.StatusCreated {
+		return errors.New(response.Message)
+	}
+	delete(ep.UserCredentials, globusCredentialId.String())
+	return nil
 }

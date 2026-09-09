@@ -275,6 +275,10 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// if the user has any "ancillary" credentials, register them with the destination endpoint
+		destinationEp.RegisterUser(spec.User)
+
 		moveId, err := sourceEndpoint.Transfer(destinationEp, files)
 		if err != nil {
 			return nil, err

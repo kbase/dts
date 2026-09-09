@@ -125,8 +125,17 @@ func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
 }
 
-func (ep *Endpoint) RegisterUser(user auth.User) error {
-	// no user registration needed for local endpoints
+func (ep *Endpoint) ConnectsWith(provider string) bool {
+	switch provider {
+	case "s3", "globus":
+		return true
+	default:
+		return false
+	}
+}
+
+func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
+	// So far, the DTS can handle transfers between local and other providers without this.
 	return nil
 }
 

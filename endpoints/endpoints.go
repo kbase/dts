@@ -78,8 +78,12 @@ type Endpoint interface {
 	// Returns the path of the file system at which files of interest sit (relative to the base path).
 	// If blank, BasePath is used to locate files.
 	DataPath() string
-	// Registers the given user with the endpoint, creating any associated credentials.
-	RegisterUser(user auth.User) error
+	// Returns true if this endpoint can transfer files to an endpoint with the given provider,
+	// false otherwise.
+	ConnectsWith(provider string) bool
+	// Registers a credential for a user with this endpoint in order to connect with another endpoint
+	// with the given provider.
+	RegisterConnectionCredential(user auth.User, provider string) error
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)

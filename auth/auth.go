@@ -33,8 +33,8 @@ type User struct {
 	Organization string
 	// true if this user is a Superuser
 	IsSuper bool
-	// credentials for accessing specific resources
-	Credentials map[string]Credential
+	// credentials for connections between endpoints with different providers (e.g. Globus <--> S3)
+	ConnectionCredentials map[string]Credential
 }
 
 // A credential used for authorization and authentication

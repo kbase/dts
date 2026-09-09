@@ -201,12 +201,21 @@ func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
 }
 
-func (ep *Endpoint) RegisterUser(user auth.User) error {
+func (ep Endpoint) ConnectsWith(provider string) bool {
+	switch provider {
+	case "s3":
+		return true
+	default:
+		return false
+	}
+}
+
+func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
 	if ep.Info.GCSManagerUrl == "" { // we're not authorized to access the server manager API
 		return nil
 	}
 	// see https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
-	for provider, credential := range user.Credentials {
+	for provider, credential := range user.ConnectionCredentials {
 		switch provider {
 		case "s3":
 			return ep.registerS3UserCredential(user, credential)
@@ -214,9 +223,6 @@ func (ep *Endpoint) RegisterUser(user auth.User) error {
 		}
 	}
 	return nil
-}
-
-func (ep *Endpoint) DeregisterUser(user auth.User) error {
 }
 
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
@@ -1011,22 +1017,5 @@ func (ep Endpoint) registerS3UserCredential(user auth.User, credential auth.Cred
 	if response.HttpResponseCode != http.StatusOK || response.HttpResponseCode != http.StatusCreated {
 		return errors.New(response.Message)
 	}
-	return nil
-}
-
-func (ep Endpoint) deregisterUserCredential(user auth.User, globusCredentialId uuid.UUID) error {
-	resourcePath := ep.globusServerManagerApiResource(fmt.Sprintf("api/user_credentials/%s", globusCredentialId.String()))
-	body, err := ep.delete(resourcePath, &ep.AccessTokens.ServerManager)
-	if err != nil {
-		return err
-	}
-	var response ManagerApiResult_1_1_0
-	if err := json.Unmarshal(body, &response); err != nil {
-		return err
-	}
-	if response.HttpResponseCode != http.StatusOK || response.HttpResponseCode != http.StatusCreated {
-		return errors.New(response.Message)
-	}
-	delete(ep.UserCredentials, globusCredentialId.String())
 	return nil
 }

@@ -276,8 +276,20 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 			return nil, err
 		}
 
-		// if the user has any "ancillary" credentials, register them with the destination endpoint
-		destinationEp.RegisterUser(spec.User)
+		// Handle connections between endpoints with different providers.
+		if sourceEndpoint.Provider() != destinationEp.Provider() {
+			if !sourceEndpoint.ConnectsWith(destinationEp.Provider()) {
+				return nil, &endpoints.IncompatibleDestinationError{
+					Source:              source,
+					SourceProvider:      sourceEndpoint.Provider(),
+					Destination:         spec.Destination,
+					DestinationProvider: destinationEp.Provider(),
+					Message: fmt.Sprintf("a %s endpoints cannot transfer files to a %s endpoint",
+						sourceEndpoint.Provider(), destinationEp.Provider()),
+				}
+			}
+			sourceEndpoint.RegisterConnectionCredential(spec.User, destinationEp.Provider())
+		}
 
 		moveId, err := sourceEndpoint.Transfer(destinationEp, files)
 		if err != nil {

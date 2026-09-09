@@ -161,7 +161,12 @@ func (e *Endpoint) DataPath() string {
 	return e.Bucket + "/"
 }
 
-func (e *Endpoint) RegisterUser(user auth.User) error {
+func (e *Endpoint) ConnectsWith(provider string) bool {
+	// The S3 endpoint can't send to anyone else at the moment.
+	return false
+}
+
+func (e *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
 	return nil
 }
 

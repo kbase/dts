@@ -154,7 +154,11 @@ func (ep *Endpoint) DataPath() string {
 	return ep.Paths.Data
 }
 
-func (ep *Endpoint) RegisterUser(user auth.User) error {
+func (ep *Endpoint) ConnectsWith(provіder string) bool {
+	return false
+}
+
+func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provіder string) error {
 	return nil
 }
 

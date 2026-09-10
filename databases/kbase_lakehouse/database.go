@@ -104,9 +104,10 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var mms MMS
-	record, err := mms.FetchRecord(user)
-	return record.Username, err
+	if credential, ok := user.ConnectionCredentials["s3"]; ok {
+		return credential.Username, nil
+	}
+	return "", fmt.Errorf("no local username found for ORCID %s", user.Orcid)
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {

@@ -207,7 +207,7 @@ func setup() {
 		log.Panicf("Couldn't parse config: %s", err)
 	}
 
-	setupUserFederationTests(config.Service.DataDirectory)
+	//setupUserFederationTests(config.Service.DataDirectory)
 
 	var confMap map[string]any
 	err = mapstructure.Decode(conf, &confMap)

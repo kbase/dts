@@ -100,6 +100,7 @@ type EndpointOptions struct {
 
 // This type implements an Endpoint test fixture
 type Endpoint struct {
+	Id_ uuid.UUID
 	// database fixture attached to endpoint
 	Database *Database
 	// endpoint testing options
@@ -126,6 +127,7 @@ func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 		}
 		dataPath, ok := config.Endpoints[endpointName]["data_path"].(string)
 		return &Endpoint{
+			Id_:     uuid.New(),
 			Options: options,
 			Xfers:   make(map[uuid.UUID]transferInfo),
 			Paths: struct{ Base, Data string }{
@@ -140,6 +142,10 @@ func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 		return fmt.Errorf("endpoint %s has no valid provider field", endpointName)
 	}
 	return endpoints.RegisterEndpointProvider(provider, newEndpointFunc)
+}
+
+func (ep *Endpoint) Id() uuid.UUID {
+	return ep.Id_
 }
 
 func (ep *Endpoint) Provider() string {

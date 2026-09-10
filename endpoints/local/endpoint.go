@@ -50,7 +50,7 @@ type Endpoint struct {
 	// descriptive endpoint name (obtained from config)
 	Name string
 	// endpoint UUID (obtained from config)
-	Id_    uuid.UUID
+	Id_   uuid.UUID
 	Paths struct {
 		Base string
 		Data string
@@ -79,7 +79,7 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	}
 	ep := &Endpoint{
 		Name:  config.Name,
-		Id_:    id,
+		Id_:   id,
 		Xfers: make(map[uuid.UUID]xferRecord),
 	}
 	err = ep.setPaths(config.BasePath, config.DataPath)

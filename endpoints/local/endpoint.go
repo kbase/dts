@@ -50,7 +50,7 @@ type Endpoint struct {
 	// descriptive endpoint name (obtained from config)
 	Name string
 	// endpoint UUID (obtained from config)
-	Id    uuid.UUID
+	Id_    uuid.UUID
 	Paths struct {
 		Base string
 		Data string
@@ -79,7 +79,7 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	}
 	ep := &Endpoint{
 		Name:  config.Name,
-		Id:    id,
+		Id_:    id,
 		Xfers: make(map[uuid.UUID]xferRecord),
 	}
 	err = ep.setPaths(config.BasePath, config.DataPath)
@@ -113,19 +113,23 @@ func (ep *Endpoint) setPaths(base, data string) error {
 	return err
 }
 
-func (ep *Endpoint) Provider() string {
+func (ep Endpoint) Id() uuid.UUID {
+	return ep.Id_
+}
+
+func (ep Endpoint) Provider() string {
 	return "local"
 }
 
-func (ep *Endpoint) BasePath() string {
+func (ep Endpoint) BasePath() string {
 	return ep.Paths.Base
 }
 
-func (ep *Endpoint) DataPath() string {
+func (ep Endpoint) DataPath() string {
 	return ep.Paths.Data
 }
 
-func (ep *Endpoint) ConnectsWith(provider string) bool {
+func (ep Endpoint) ConnectsWith(provider string) bool {
 	switch provider {
 	case "s3", "globus":
 		return true
@@ -134,12 +138,12 @@ func (ep *Endpoint) ConnectsWith(provider string) bool {
 	}
 }
 
-func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
+func (ep Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
 	// So far, the DTS can handle transfers between local and other providers without this.
 	return nil
 }
 
-func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
+func (ep Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	for _, descriptor := range descriptors {
 		absPath := filepath.Join(ep.BasePath(), ep.DataPath(), descriptor["path"].(string))
 		_, err := os.Stat(absPath)
@@ -150,7 +154,7 @@ func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	return true, nil
 }
 
-func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
+func (ep Endpoint) Transfers() ([]uuid.UUID, error) {
 	xfers := make([]uuid.UUID, 0)
 	for xferId, xfer := range ep.Xfers {
 		switch xfer.Status.Code {

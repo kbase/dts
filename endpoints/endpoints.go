@@ -70,6 +70,8 @@ type TransferStatus struct {
 
 // This type represents an endpoint for transferring files.
 type Endpoint interface {
+	// Returns the endpoint's unique identifier.
+	Id() uuid.UUID
 	// Returns a string indicating the service provider for the endpoint.
 	Provider() string
 	// Returns the path on the file system that serves as the endpoint's base path, below which

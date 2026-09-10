@@ -71,7 +71,7 @@ type Endpoint struct {
 	// AWS S3 uploader
 	Uploader *manager.Uploader
 	// endpoint UUID (obtained from config)
-	Id uuid.UUID
+	Id_ uuid.UUID
 	// Map of completed transfers
 	TransfersMap map[uuid.UUID]*TransferStatus
 }
@@ -126,7 +126,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 	newEndpoint.Downloader = manager.NewDownloader(newEndpoint.Client)
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)
 	newEndpoint.Bucket = bucket
-	newEndpoint.Id = id
+	newEndpoint.Id_ = id
 	newEndpoint.TransfersMap = make(map[uuid.UUID]*TransferStatus)
 
 	return &newEndpoint, nil
@@ -149,11 +149,15 @@ func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 	return NewEndpoint(config.Bucket, id, config.Config)
 }
 
-func (e *Endpoint) Provider() string {
+func (e Endpoint) Id() uuid.UUID {
+	return e.Id_
+}
+
+func (e Endpoint) Provider() string {
 	return "s3"
 }
 
-func (e *Endpoint) BasePath() string {
+func (e Endpoint) BasePath() string {
 	return ""
 }
 

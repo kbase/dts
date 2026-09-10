@@ -44,87 +44,61 @@ import (
 // This file implements a Globus endpoint. It uses the Globus Transfer API
 // described at https://docs.globus.org/api/transfer/.
 
-type GlobusUserCredential struct {
-	// Authenticated DTS user for whom Globus credential is (temporarily) registered
-	User auth.User
-	// (S3) Bucket associated with user transfer
-	Bucket string
-	// Globus unique credential identifier
-	Id uuid.UUID
+const (
+	globusTransferApiBaseUrl = "https://transfer.api.globusonline.org"
+	globusTransferApiVersion = "v0.10"
+)
+
+// this error type is returned when a Globus transfer operation fails for any reason
+type GlobusTransferError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+
+	// ConsentRequired error field
+	RequiredScopes []string `json:"required_scopes"`
 }
 
-// this type satisfies the endpoints.Endpoint interface for Globus endpoints
-type Endpoint struct {
-	// descriptive endpoint name (obtained from config)
-	Name string
-	// endpoint UUID (obtained from config)
-	Id_ uuid.UUID
-
-	Paths struct {
-		Base string
-		Data string
-	}
-
-	// access tokens for Globus API
-	AccessTokens struct {
-		Transfers     string
-		Https         string
-		ServerManager string
-	}
-
-	// authentication stuff
-	ClientId     uuid.UUID
-	ClientSecret string
-
-	// endpoint configuration
-	Info EndpointInfo
-
-	// registered user credentials (on behalf on which DTS performs transfers)
-	// NOTE: keys are ORCIDs
-	UserCredentials map[string]GlobusUserCredential
+func (e GlobusTransferError) Error() string {
+	return fmt.Sprintf("%s (%s)", e.Message, e.Code)
 }
 
-// configuration struct for Globus endpoints
-type Config struct {
-	Name       string          `yaml:"name"`
-	Id         string          `yaml:"id"`
-	Credential auth.Credential `yaml:"credential"`
-	BasePath   string          `yaml:"base_path,omitempty" mapstructure:"base_path,omitempty"`
-	DataPath   string          `yaml:"data_path,omitempty" mapstructure:"data_path,omitempty"`
+// this error type is returned when a non-transfer Globus operation fails for any reason
+type GlobusGenericError struct {
+	Message string
 }
 
-// creates a new Globus endpoint using the given information
-func NewEndpoint(config Config) (endpoints.Endpoint, error) {
-	clientId, err := uuid.Parse(config.Credential.Id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid Globus client ID for credential '%s': %s (must be UUID)",
-			config.Name, config.Credential.Id)
-	}
-	id, err := uuid.Parse(config.Id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid UUID specified for Globus endpoint: %s", config.Id)
-	}
-	ep := &Endpoint{
-		Name:         config.Name,
-		Id:           id,
-		ClientId:     clientId,
-		ClientSecret: config.Credential.Secret,
-	}
+func (e GlobusGenericError) Error() string {
+	return fmt.Sprintf("%s", e.Message)
+}
 
-	// if needed, authenticate to obtain a Globus Transfer API access token
-	var zeroId uuid.UUID
-	if ep.ClientId != zeroId {
-		ep.AccessTokens.Transfers, err = ep.authenticate(defaultXferScopes_)
-		if err != nil {
-			return ep, err
-		}
-	}
+type GlobusClient struct {
+	Auth *GlobusAuthClient
+	Transfer *GlobusTransferClient
+	ServerManager *GlobusServerManagerClient
+}
 
-	if config.BasePath != "" {
-		ep.Paths.Base = config.BasePath
-	} else {
-		ep.Paths.Base = "/"
-	}
+// Globus Auth API
+// https://docs.globus.org/api/auth/
+type GlobusAuthClient struct {
+	Url string
+	Credential auth.Credential
+}
+
+// Globus Transfer API
+// https://docs.globus.org/api/transfer/
+type GlobusTransferClient struct {
+	AccessToken string
+	Scopes []string
+}
+
+// Globus Connect Server Manager API
+// https://docs.globus.org/globus-connect-server/v5.4/api/
+type GlobusServerManagerClient struct {
+	AccessToken string
+	Url string
+}
+
+func NewGlobusClient() (GlobusClient, error) {
 	ep.Paths.Data = config.DataPath
 
 	// query the endpoint for its capabilities
@@ -151,52 +125,109 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 
 	return ep, err
 }
+// creates a new Globus endpoint using the given information
+func NewGlobusAuthClient(credential auth.Credential) (*GlobusAuthClient, error) {
+	return &GlobusAuthClient{
+		Credential: credential,
+		Url: "https://auth.globus.org/v2/oauth2/token",
+	}, nil
+}
 
-// constructs a Globus endpoint from a configuration map
-func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
-	// marshal the config map into JSON
-	var globusConfig Config
-	if err := mapstructure.Decode(conf, &globusConfig); err != nil {
-		return nil, err
+// (re)authenticates with Globus using its client ID and secret to obtain an
+// access token with consents for its relevant list of scopes
+// (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
+// returns an access token corresponding to the given set of scopes
+func (c GlobusAuthClient) Authenticate(scopes []string) (string, error) {
+	data := url.Values{}
+	data.Set("scope", strings.Join(scopes, " "))
+	data.Set("grant_type", "client_credentials")
+	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", err
 	}
-	return NewEndpoint(globusConfig)
+	req.SetBasicAuth(c.Credential.Id, c.Credential.Secret)
+	req.Header.Add("Content-Type", "application-x-www-form-urlencoded")
+
+	// send the request using a fresh HTTP client
+	var client http.Client
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		// fish specifics out of the response
+		type AuthError struct {
+			Error       string `json:"error"`
+			Description string `json:"error_description"`
+			URI         string `json:"error_uri"`
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		var authError AuthError
+		err = json.Unmarshal(body, &authError)
+		if err != nil {
+			// report the authentication error without details
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
+		}
+		if len(authError.Description) > 0 {
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
+				authError.Error, authError.Description, resp.StatusCode)
+		}
+		return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
+			authError.Error, resp.StatusCode)
+	}
+
+	// read and unmarshal the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	type AuthResponse struct {
+		AccessToken    string `json:"access_token"`
+		Scope          string `json:"scope"`
+		ResourceServer string `json:"resource_server"`
+		ExpiresIn      int    `json:"expires_in"`
+		TokenType      string `json:"token_type"`
+	}
+	var authResponse AuthResponse
+	err = json.Unmarshal(body, &authResponse)
+	if err != nil {
+		return "", err
+	}
+
+	// FIXME: check the scopes to see if they match our requested ones?
+
+	// stash the access token
+	return authResponse.AccessToken, nil
 }
 
-func (ep Endpoint) Id() uuid.UUID {
-	return ep.Id_
+func NewGlobusTransferClient() (*GlobusTransferClient, error) {
+	return &GlobusTransferClient{
+		Scopes: []string{
+		"urn:globus:auth:scope:transfer.api.globus.org:all",
+		},
+	}, nil
 }
 
-func (ep Endpoint) Provider() string {
-	return "globus"
-}
-
-func (ep Endpoint) BasePath() string {
-	return ep.Paths.Base
-}
-
-func (ep Endpoint) DataPath() string {
-	return ep.Paths.Data
-}
-
-func (ep Endpoint) ConnectsWith(provider string) bool {
-	switch provider {
-	case "s3":
-		return true
-	default:
-		return false
+func NewGlobusServerManagerClient(baseUrl string) (*GlobusServerManagerClient, error) {
+	return &GlobusServerManagerClient{
+		Url: baseUrl,
 	}
 }
 
-func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
-	if ep.Info.GCSManagerUrl == "" { // we're not authorized to access the server manager API
-		return nil
+// https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
+func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) error {
+	// check the URL
+	if c.Url == "" {
+		// FIXME:
 	}
-	// see https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
 	for provider, credential := range user.ConnectionCredentials {
-		switch provider {
-		case "s3":
-			return ep.registerS3UserCredential(user, credential)
-		default:
+		if provider == "s3" {
+			return c.registerS3UserCredential(user, credential)
+		} else {
+			return fmt.Errorf("Unsupported user credential provider: %s", provider)
 		}
 	}
 	return nil
@@ -468,77 +499,6 @@ func (ep Endpoint) globusServerManagerApiResource(resourceName string) string {
 	return ep.Info.GCSManagerUrl + fmt.Sprintf("/%s", resourceName)
 }
 
-// (re)authenticates with Globus using its client ID and secret to obtain an
-// access token with consents for its relevant list of scopes
-// (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
-// returns an access token corresponding to the given set of scopes
-func (ep *Endpoint) authenticate(scopes []string) (string, error) {
-	authUrl := "https://auth.globus.org/v2/oauth2/token"
-	data := url.Values{}
-	data.Set("scope", strings.Join(scopes, " "))
-	data.Set("grant_type", "client_credentials")
-	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.SetBasicAuth(ep.ClientId.String(), ep.ClientSecret)
-	req.Header.Add("Content-Type", "application-x-www-form-urlencoded")
-
-	// send the request using a fresh HTTP client
-	var client http.Client
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode != 200 {
-		// fish specifics out of the response
-		type AuthError struct {
-			Error       string `json:"error"`
-			Description string `json:"error_description"`
-			URI         string `json:"error_uri"`
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", err
-		}
-		var authError AuthError
-		err = json.Unmarshal(body, &authError)
-		if err != nil {
-			// report the authentication error without details
-			return "", fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
-		}
-		if len(authError.Description) > 0 {
-			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
-				authError.Error, authError.Description, resp.StatusCode)
-		}
-		return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
-			authError.Error, resp.StatusCode)
-	}
-
-	// read and unmarshal the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	type AuthResponse struct {
-		AccessToken    string `json:"access_token"`
-		Scope          string `json:"scope"`
-		ResourceServer string `json:"resource_server"`
-		ExpiresIn      int    `json:"expires_in"`
-		TokenType      string `json:"token_type"`
-	}
-	var authResponse AuthResponse
-	err = json.Unmarshal(body, &authResponse)
-	if err != nil {
-		return "", err
-	}
-
-	// FIXME: check the scopes to see if they match our requested ones?
-
-	// stash the access token
-	return authResponse.AccessToken, nil
-}
-
 // This helper sends the given HTTP request, parsing the response for
 // Globus-style error codes/messages and handling the ones that can be
 // handled automatically (e.g. consent/scope related errors). In any case,
@@ -682,7 +642,7 @@ func (ep *Endpoint) delete(resourcePath string, accessToken *string) ([]byte, er
 }
 
 // https://docs.globus.org/api/transfer/task_submit/#get_submission_id
-func (ep *Endpoint) getSubmissionId() (uuid.UUID, error) {
+func (c GlobusTransferClient) getSubmissionId() (uuid.UUID, error) {
 	var id uuid.UUID
 	resourcePath := ep.globusTransferApiResource("submission_id")
 	body, err := ep.get(resourcePath, url.Values{}, &ep.AccessTokens.Transfers)
@@ -700,8 +660,8 @@ func (ep *Endpoint) getSubmissionId() (uuid.UUID, error) {
 // https://docs.globus.org/api/transfer/endpoints_and_collections/#get_endpoint_or_collection_by_id
 // https://docs.globus.org/api/transfer/task_submit/#submit_transfer_task
 // https://docs.globus.org/api/transfer/task_submit/#transfer_item_fields
-func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
-	submissionId uuid.UUID, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (c GlobusTransferClient) submitTransfer(destination, submissionId uuid.UUID,
+	files []endpoints.FileTransfer) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
 	// are the source and destination endpoints configured in a conflicting way?
@@ -747,7 +707,7 @@ func (ep *Endpoint) submitTransfer(destination endpoints.Endpoint,
 		}
 	}
 
-	// the destination is a Globus endpoint, right?
+	// the destination is compatible, right?
 	gDestination, ok := destination.(*Endpoint)
 	if !ok {
 		return xferId, &endpoints.IncompatibleDestinationError{
@@ -813,9 +773,9 @@ type EndpointInfo struct {
 	GCSManagerUrl string `json:"gcs_manager_url"` // non-blank if Manager operations are supported
 }
 
-func (ep *Endpoint) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
+func (c *GlobusTransferClient) getEndpointInfo(id uuid.UUID) (EndpointInfo, error) {
 	// query the endpoint for its capabilities
-	resourcePath := ep.globusTransferApiResource(fmt.Sprintf("submission_id/%s", id.String()))
+	resourcePath := ep.globusTransferApiResource(fmt.Sprintf("endpoint/%s", id.String()))
 	body, err := ep.get(fmt.Sprintf(resourcePath, id), url.Values{}, &ep.AccessTokens.Transfers)
 	if err != nil {
 		return EndpointInfo{}, err
@@ -908,7 +868,7 @@ type ManagerApiResult_1_1_0 struct {
 	Message string `json:"message"`
 }
 
-func (ep Endpoint) registerS3UserCredential(user auth.User, credential auth.Credential) error {
+func (c GlobusServerManagerClient) registerS3UserCredential(user auth.User, credential auth.Credential) error {
 	globusCredential := GlobusUserCredential{
 		User: user,
 		Id:   uuid.New(),

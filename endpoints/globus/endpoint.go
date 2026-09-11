@@ -268,7 +268,7 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 	if err != nil {
 		return err
 	}
-	absPath := filepath.Join(ep.Paths.Base, ep.Paths.Data, resource)
+	absPath := filepath.Join(ep.Paths.Base, resource)
 	return httpsClient.PutFile(absPath, body)
 }
 

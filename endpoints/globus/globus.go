@@ -146,7 +146,6 @@ func (t GlobusTransferClient) HttpsClient(endpointId uuid.UUID) (GlobusHttpsClie
 	h := GlobusHttpsClient{
 		Scopes: []string{
 			fmt.Sprintf("https://auth.globus.org/scopes/%s/https", endpointId.String()),
-			fmt.Sprintf("https://auth.globus.org/scopes/%s/data_access", endpointId.String()),
 		},
 		Url: t.Info.HttpsServer,
 	}
@@ -518,7 +517,7 @@ func (c *GlobusTransferClient) Cancel(taskId uuid.UUID) error {
 
 // Uploads a file to the given (absolute) path on the HTTPS server.
 func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
-	resourcePath := filepath.Join(c.Url, path)
+	resourcePath := c.Url + "/" + path
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return err
@@ -536,13 +535,12 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 	resp.Body.Close()
-
-	return err
+	return errorFromGlobusResponse(respBody)
 }
 
 // https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential

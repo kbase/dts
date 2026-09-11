@@ -54,7 +54,7 @@ endpoints:
   globus-local:
     name: DTS Local Endpoint
     id: ${LOCAL_ENDPOINT_ID}
-    provider: globus
+    provider: local
     credential: globus
   globus-jdp:
     name: DTS JGI Share

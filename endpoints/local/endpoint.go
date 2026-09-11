@@ -102,15 +102,18 @@ func (ep *Endpoint) setPaths(base, data string) error {
 	} else {
 		_, err := os.Stat(base)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't set base path '%s' for local endpoint: %s", base, err.Error())
 		}
 		ep.Paths.Base = base
 	}
-	_, err := os.Stat(filepath.Join(base, data))
-	if err == nil {
-		ep.Paths.Data = data
+	if data != "" {
+		dataPath := filepath.Join(base, data)
+		if _, err := os.Stat(dataPath); err != nil {
+			return fmt.Errorf("couldn't set data path '%s' for local endpoint: %s", dataPath, err.Error())
+		}
 	}
-	return err
+	ep.Paths.Data = data
+	return nil
 }
 
 func (ep Endpoint) Id() uuid.UUID {

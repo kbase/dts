@@ -157,7 +157,20 @@ func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	for dir, files := range filesInDir {
 		globusFiles, err := ep.Globus.FilesInDirectory(dir)
 		if err != nil {
-			return false, err
+			switch lsErr := err.(type) {
+			case *GlobusTransferError:
+				switch lsErr.Code {
+				case "ClientError.NotFound":
+					// it's okay if the directory doesn't exist -- it might need to be staged
+					return false, nil
+				default:
+					// propagate the error
+					return false, err
+				}
+			default:
+				// propagate all other error types
+				return false, err
+			}
 		}
 		filesPresent := make(map[string]bool)
 		for _, file := range globusFiles {

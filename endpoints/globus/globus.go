@@ -162,6 +162,7 @@ func (t GlobusTransferClient) ServerManagerClient() (GlobusServerManagerClient, 
 		return GlobusServerManagerClient{}, fmt.Errorf("Global Connect Server Manager API not available for endpoint %s", t.EndpointId.String())
 	}
 	m := GlobusServerManagerClient{
+		ClientId:      t.Auth.Credential.Id,
 		EndpointId:    t.EndpointId,
 		Scopes:        []string{"endpoint:administrator"}, // fancy!
 		Url:           t.Info.GCSManagerUrl,
@@ -261,21 +262,7 @@ func (c *GlobusTransferClient) FilesInDirectory(dir string) ([]string, error) {
 	values.Add("orderby", "name ASC")
 	body, err := c.get(fmt.Sprintf("operation/endpoint/%s/ls", c.EndpointId), values)
 	if err != nil {
-		switch lsErr := err.(type) {
-		case *GlobusTransferError:
-			switch lsErr.Code {
-			case "ClientError.NotFound":
-				// it's okay if the directory doesn't exist -- it might need to be staged
-				return nil, fmt.Errorf("no files found in directory %s on Globus endpoint %s",
-					dir, c.EndpointId)
-			default:
-				// propagate the error
-				return nil, err
-			}
-		default:
-			// propagate all other error types
-			return nil, err
-		}
+		return nil, err
 	}
 
 	type DirListingResponse struct {

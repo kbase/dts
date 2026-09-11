@@ -6,7 +6,7 @@ import (
 
 // Version numbers
 var majorVersion = 0
-var minorVersion = 14
+var minorVersion = 15
 var patchVersion = 0
 
 // Version string

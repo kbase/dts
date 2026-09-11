@@ -150,6 +150,9 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			}
 			if createEp, valid := createEndpointFuncs_[provider]; valid {
 				endpoint, err = createEp(epConfig)
+				if err != nil {
+					return endpoint, err
+				}
 				if endpoint.BasePath() != "/" {
 					slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
 					slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))

@@ -338,17 +338,20 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
 	if info, found := db.Staging[id]; found {
-		endpoint := db.Endpt.(*Endpoint)
-		if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
-			// update the staged status on the test endpoint
-			stagingRequest := db.Staging[id]
-			for _, fileId := range stagingRequest.FileIds {
-				endpoint.StagedFiles[fileId] = true
+		if endpoint, ok := db.Endpt.(*Endpoint); ok {
+			if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
+				// update the staged status on the test endpoint
+				stagingRequest := db.Staging[id]
+				for _, fileId := range stagingRequest.FileIds {
+					endpoint.StagedFiles[fileId] = true
+				}
+				return databases.StagingStatusSucceeded, nil
 			}
-
+			return databases.StagingStatusActive, nil
+		} else {
+			// assume staging succeeded
 			return databases.StagingStatusSucceeded, nil
 		}
-		return databases.StagingStatusActive, nil
 	}
 	return databases.StagingStatusUnknown, nil
 }

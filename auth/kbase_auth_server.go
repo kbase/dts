@@ -287,5 +287,5 @@ func UserForOrcid(orcid string) (User, error) {
 	if user, ok := usersForOrcid_[orcid]; ok {
 		return user, nil
 	}
-	return User{}, errors.New("Can't fetch ORCID for unauthenticated user")
+	return User{}, errors.New("can't fetch ORCID for unauthenticated user")
 }

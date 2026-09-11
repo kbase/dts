@@ -125,7 +125,7 @@ func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 		if !ok {
 			basePath = "/"
 		}
-		dataPath, ok := config.Endpoints[endpointName]["data_path"].(string)
+		dataPath, _ := config.Endpoints[endpointName]["data_path"].(string)
 		return &Endpoint{
 			Id_:     uuid.New(),
 			Options: options,

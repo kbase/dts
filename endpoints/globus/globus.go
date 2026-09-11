@@ -62,7 +62,7 @@ type GlobusGenericError struct {
 }
 
 func (e GlobusGenericError) Error() string {
-	return fmt.Sprintf("%s", e.Message)
+	return e.Message
 }
 
 type GlobusEndpointInfo struct {
@@ -158,7 +158,7 @@ func (t GlobusTransferClient) HttpsClient(endpointId uuid.UUID) (GlobusHttpsClie
 
 func (t GlobusTransferClient) ServerManagerClient() (GlobusServerManagerClient, error) {
 	if t.Info.GCSManagerUrl == "" {
-		return GlobusServerManagerClient{}, fmt.Errorf("Global Connect Server Manager API not available for endpoint %s", t.EndpointId.String())
+		return GlobusServerManagerClient{}, fmt.Errorf("globus Connect Server Manager API not available for endpoint %s", t.EndpointId.String())
 	}
 	m := GlobusServerManagerClient{
 		ClientId:      t.Auth.Credential.Id,
@@ -549,7 +549,7 @@ func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, pro
 		if provider == "s3" {
 			return c.registerS3UserCredential(user, credential)
 		} else {
-			return fmt.Errorf("Unsupported user credential provider: %s", provider)
+			return fmt.Errorf("unsupported user credential provider: %s", provider)
 		}
 	}
 	return nil
@@ -624,26 +624,6 @@ func (c *GlobusTransferClient) get(resource string, values url.Values) ([]byte, 
 		return nil, err
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-	return c.sendRequest(req)
-}
-
-// Performs a PUT request on the given Globus resource with the given payload, handling any
-// obvious errors and returning a byte slice containing the body of the response,
-// and/or any unhandled error.
-func (c *GlobusTransferClient) put(resource string, body io.Reader) ([]byte, error) {
-	resourcePath := globusTransferApiBaseUrl + fmt.Sprintf("/%s/%s", globusTransferApiVersion, resource)
-	u, err := url.ParseRequestURI(resourcePath)
-	if err != nil {
-		return nil, err
-	}
-	res := fmt.Sprintf("%v", u)
-	slog.Debug(fmt.Sprintf("PUT: %s", res))
-	req, err := http.NewRequest(http.MethodPut, res, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-
 	return c.sendRequest(req)
 }
 
@@ -837,6 +817,9 @@ func (m GlobusServerManagerClient) registerS3UserCredential(user auth.User, cred
 		StorageGatewayId: collection.StorageGatewayId.String(),
 		Username:         credential.Username,
 	})
+	if err != nil {
+		return err
+	}
 	body, err = m.post("api/user_credentials", bytes.NewReader(data))
 	if err != nil {
 		return err

@@ -28,7 +28,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
-	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
 )
@@ -100,6 +99,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
+	/* TODO: Figure out ORCID-based user federation
 	user, err := auth.UserForOrcid(orcid)
 	if err != nil {
 		return "", err
@@ -108,6 +108,8 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 		return credential.Username, nil
 	}
 	return "", fmt.Errorf("no local username found for ORCID %s", user.Orcid)
+	*/
+	return "", nil
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {

@@ -23,7 +23,6 @@ package auth
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -121,17 +120,16 @@ func (server KBaseAuthServer) User() (User, error) {
 	record, err := mms.FetchRecord(server.AccessToken)
 	if err == nil {
 		user.ConnectionCredentials["s3"] = Credential{
+			Username: record.Username,
 			Id:     record.S3AccessKey,
 			Secret: record.S3SecretKey,
 		}
 		user.ConnectionCredentials["polaris"] = Credential{
+			Username: record.Username,
 			Id:     record.PolarisClientId,
 			Secret: record.PolarisClientSecret,
 		}
 	}
-
-	// associate the ORCID with this user
-	usersForOrcid_[user.Orcid] = user
 
 	return user, nil
 }
@@ -176,9 +174,6 @@ type kbaseAuthErrorResponse struct {
 // here's a set of instances to the KBase auth server, mapped by OAuth2
 // access token
 var instances_ map[string]*KBaseAuthServer
-
-// here's a table that associates authenticated users with their ORCIDs
-var usersForOrcid_ map[string]User = make(map[string]User)
 
 // emits an error representing the error in a response to the auth server
 func kbaseAuthError(response *http.Response) error {
@@ -280,12 +275,4 @@ func (server KBaseAuthServer) kbaseUser() (kbaseUser, error) {
 		return user, fmt.Errorf("KBase Auth2: No ORCIDs associated with this user")
 	}
 	return user, err
-}
-
-// Returns an authenticated user for the given ORCID (KBase only).
-func UserForOrcid(orcid string) (User, error) {
-	if user, ok := usersForOrcid_[orcid]; ok {
-		return user, nil
-	}
-	return User{}, errors.New("can't fetch ORCID for unauthenticated user")
 }

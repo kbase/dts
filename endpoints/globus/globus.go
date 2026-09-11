@@ -30,7 +30,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -540,19 +539,17 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 		return err
 	}
 	resp.Body.Close()
-	return errorFromGlobusResponse(respBody)
+	return errorFromGlobusResponse(resp, respBody)
 }
 
 // https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
 func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) error {
-	for provider, credential := range user.ConnectionCredentials {
-		if provider == "s3" {
+	for connectionProvider, credential := range user.ConnectionCredentials {
+		if connectionProvider == "s3" {
 			return c.registerS3UserCredential(user, credential)
-		} else {
-			return fmt.Errorf("unsupported user credential provider: %s", provider)
 		}
 	}
-	return nil
+	return fmt.Errorf("unsupported user credential provider: %s", provider)
 }
 
 //-----------
@@ -578,7 +575,7 @@ func (c *GlobusTransferClient) sendRequest(request *http.Request) ([]byte, error
 	resp.Body.Close()
 
 	// check the response for a Globus-style error code / message
-	err = errorFromGlobusResponse(body)
+	err = errorFromGlobusResponse(resp, body)
 	if err != nil {
 		if xferErr, ok := err.(*GlobusTransferError); ok {
 			if xferErr.Code == "ConsentRequired" || xferErr.Code == "AuthenticationFailed" {
@@ -592,12 +589,18 @@ func (c *GlobusTransferClient) sendRequest(request *http.Request) ([]byte, error
 				}
 				// try the request again using the new access token
 				request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-				resp, err = client.Do(request)
-				if err != nil {
+				if request.Body, err = request.GetBody(); err != nil { // recreate POST body
+			 		return nil, err
+			 	}
+				if resp, err = client.Do(request); err != nil {
 					return nil, err
 				}
 				body, err = io.ReadAll(resp.Body)
 				resp.Body.Close()
+				if err != nil {
+					return nil, err
+				}
+				return body, errorFromGlobusResponse(resp, body)
 			} else {
 				// other transfer errors are propagated
 				return body, err
@@ -653,7 +656,7 @@ func (c *GlobusTransferClient) post(resource string, body io.Reader) ([]byte, er
 
 // returns an error capturing any Globus-related error in a response body, or nil if the response
 // doesn't appear to be an error
-func errorFromGlobusResponse(body []byte) error {
+func errorFromGlobusResponse(response *http.Response, body []byte) error {
 	bodyStr := string(body)
 
 	// Transfer API error
@@ -672,7 +675,13 @@ func errorFromGlobusResponse(body []byte) error {
 		return &GlobusGenericError{Message: bodyStr}
 	}
 
-	return nil
+	// Check the status code
+	switch response.StatusCode {
+	case 200, 201:
+		return nil
+	default:
+		return &GlobusGenericError{Message: bodyStr}
+	}
 }
 
 type GlobusEvent struct {
@@ -685,7 +694,7 @@ type GlobusEvent struct {
 }
 
 func (c GlobusServerManagerClient) get(resource string, values url.Values) ([]byte, error) {
-	resourcePath := filepath.Join(c.Url, resource)
+	resourcePath := c.Url + "/" + resource
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return nil, err
@@ -709,7 +718,7 @@ func (c GlobusServerManagerClient) get(resource string, values url.Values) ([]by
 }
 
 func (c GlobusServerManagerClient) post(resource string, body io.Reader) ([]byte, error) {
-	resourcePath := filepath.Join(c.Url, resource)
+	resourcePath := c.Url + "/" + resource
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
 		return nil, err

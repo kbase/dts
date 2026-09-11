@@ -63,8 +63,8 @@ type Endpoint struct {
 type Config struct {
 	Name     string `yaml:"name"`
 	Id       string `yaml:"id"`
-	BasePath string `yaml:"base_path"`
-	DataPath string `yaml:"data_path"`
+	BasePath string `yaml:"base_path" mapstructure:"base_path,omitempty"`
+	DataPath string `yaml:"data_path" mapstructure:"data_path,omitempty"`
 }
 
 // creates a new local endpoint using the information supplied in the
@@ -107,7 +107,7 @@ func (ep *Endpoint) setPaths(base, data string) error {
 		ep.Paths.Base = base
 	}
 	if data != "" {
-		dataPath := filepath.Join(base, data)
+		dataPath := filepath.Join(ep.Paths.Base, data)
 		if _, err := os.Stat(dataPath); err != nil {
 			return fmt.Errorf("couldn't set data path '%s' for local endpoint: %s", dataPath, err.Error())
 		}

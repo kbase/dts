@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // The Minio Management Service (MMS) provide authentication information for a user
@@ -43,9 +44,17 @@ type MMS struct {
 	Client http.Client
 }
 
+func NewMMS() MMS {
+	return MMS{
+		Client: http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+}
+
 // retrieves the MMS record associated with the given access token
 func (mms MMS) FetchRecord(accessToken string) (MMSRecord, error) {
-	resource := kbaseMMSUrl + "/credentials/"
+	resource := fmt.Sprintf("%s:%d", kbaseMMSUrl, kbaseMMSPort) + "/credentials/"
 	request, err := http.NewRequest(http.MethodGet, resource, http.NoBody)
 	if err != nil {
 		return MMSRecord{}, err
@@ -71,5 +80,6 @@ func (mms MMS) FetchRecord(accessToken string) (MMSRecord, error) {
 }
 
 const (
-	kbaseMMSUrl = "http://mms.dev:8000"
+	kbaseMMSUrl  = "http://mms.dev"
+	kbaseMMSPort = 8000
 )

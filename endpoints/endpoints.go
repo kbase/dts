@@ -153,10 +153,8 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 				if err != nil {
 					return endpoint, err
 				}
-				if endpoint.BasePath() != "/" {
-					slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
-					slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))
-				}
+				slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
+				slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))
 			} else { // invalid provider!
 				err = InvalidProviderError{
 					Name:     endpointName,

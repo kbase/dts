@@ -116,7 +116,7 @@ func (server KBaseAuthServer) User() (User, error) {
 	}
 
 	// try to access the MMS in case we're talking to the KBase Lakehouse
-	mms := MMS{}
+	mms := NewMMS()
 	record, err := mms.FetchRecord(server.AccessToken)
 	if err == nil {
 		user.ConnectionCredentials["s3"] = Credential{

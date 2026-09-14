@@ -549,7 +549,7 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 // https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
 func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) error {
 	for connectionProvider, credential := range user.ConnectionCredentials {
-		if connectionProvider == "s3" {
+		if connectionProvider == provider && provider == "s3" {
 			return c.addOrUpdateS3UserCredential(user, credential)
 		}
 	}

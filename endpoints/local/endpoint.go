@@ -229,11 +229,7 @@ func (ep *Endpoint) transferFile(dest endpoints.Endpoint, file endpoints.FileTra
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(destPath, data, sourceFileInfo.Mode())
-	if err != nil {
-		return err
-	}
-	return err
+	return os.WriteFile(destPath, data, sourceFileInfo.Mode())
 }
 
 func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {

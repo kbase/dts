@@ -109,12 +109,13 @@ type GlobusHttpsClient struct {
 // Globus Connect Server Manager API
 // https://docs.globus.org/globus-connect-server/v5.4/api/
 type GlobusServerManagerClient struct {
-	AccessToken   string
-	ClientId      string // credential ID that granted access token
-	EndpointId    uuid.UUID
-	Scopes        []string
-	Url           string
-	S3Credentials []GlobusUserCredential
+	AccessToken      string
+	ClientId         string // credential ID that granted access token
+	EndpointId       uuid.UUID
+	Scopes           []string
+	Url              string
+	ConnectorId      uuid.UUID
+	StorageGatewayId uuid.UUID
 }
 
 func NewGlobusTransferClient(credential auth.Credential, endpointId uuid.UUID) (GlobusTransferClient, error) {
@@ -160,16 +161,19 @@ func (t GlobusTransferClient) ServerManagerClient() (GlobusServerManagerClient, 
 		return GlobusServerManagerClient{}, fmt.Errorf("globus Connect Server Manager API not available for endpoint %s", t.EndpointId.String())
 	}
 	m := GlobusServerManagerClient{
-		ClientId:      t.Auth.Credential.Id,
-		EndpointId:    t.EndpointId,
-		Scopes:        []string{"endpoint:administrator"}, // fancy!
-		Url:           t.Info.GCSManagerUrl,
-		S3Credentials: make([]GlobusUserCredential, 0),
+		ClientId:   t.Auth.Credential.Id,
+		EndpointId: t.EndpointId,
+		Scopes:     []string{"endpoint:administrator"}, // fancy!
+		Url:        t.Info.GCSManagerUrl,
 	}
 	var err error
 	if m.AccessToken, err = t.Auth.Authenticate(m.Scopes); err != nil {
 		return GlobusServerManagerClient{}, err
 	}
+
+	// get the storage gateway ID for this endpoint / collection
+	m.getCollectionInfo()
+
 	return m, nil
 }
 
@@ -546,7 +550,7 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) error {
 	for connectionProvider, credential := range user.ConnectionCredentials {
 		if connectionProvider == "s3" {
-			return c.registerS3UserCredential(user, credential)
+			return c.addOrUpdateS3UserCredential(user, credential)
 		}
 	}
 	return fmt.Errorf("unsupported user credential provider: %s", provider)
@@ -589,9 +593,11 @@ func (c *GlobusTransferClient) sendRequest(request *http.Request) ([]byte, error
 				}
 				// try the request again using the new access token
 				request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-				if request.Body, err = request.GetBody(); err != nil { // recreate POST body
-			 		return nil, err
-			 	}
+				if request.GetBody != nil { // e.g. recreate POST body
+					if request.Body, err = request.GetBody(); err != nil {
+						return nil, err
+					}
+				}
 				if resp, err = client.Do(request); err != nil {
 					return nil, err
 				}
@@ -741,30 +747,74 @@ func (c GlobusServerManagerClient) post(resource string, body io.Reader) ([]byte
 	return io.ReadAll(resp.Body)
 }
 
-func (m GlobusServerManagerClient) registerS3UserCredential(user auth.User, credential auth.Credential) error {
-	globusCredential := GlobusUserCredential{
-		User: user,
-		Id:   uuid.New(),
+func (c GlobusServerManagerClient) patch(resource string, body io.Reader) ([]byte, error) {
+	resourcePath := c.Url + "/" + resource
+	u, err := url.ParseRequestURI(resourcePath)
+	if err != nil {
+		return nil, err
 	}
+	res := fmt.Sprintf("%v", u)
+	slog.Debug(fmt.Sprintf("Globus Connect Server Manager API: PATCH %s", res))
+	req, err := http.NewRequest(http.MethodPatch, res, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+	req.Header.Set("Content-Type", "application/json")
 
-	// get the storage gateway ID for this endpoint / collection
+	var client http.Client
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+type GlobusManagerApiResult_1_1_0 struct {
+	DataType string `json:"DATA_TYPE"` // always `result#1.0.0`
+	//AuthorizationParameters any `json:"authorization_parameters"`
+	Code string          `json:"code"`
+	Data json.RawMessage `json:"data"`
+	//Detail any `json:"detail"`
+	//HasNextPage bool `json:"has_next_page"`
+	HttpResponseCode int `json:"http_response_code"`
+	//Marker string `json:"marker"`
+	Message string `json:"message"`
+}
+
+type GlobusS3KeysPrefixPaths_1_0_0 struct {
+	PathPrefixes []string `json:"path_prefixes"`
+	S3KeyId      string   `json:"s3_key_id"`
+	S3SecretKey  string   `json:"s3_secret_key"`
+}
+type GlobusS3UserCredentialPolicies_1_2_0 struct {
+	DataType        string                          `json:"DATA_TYPE"` // always `s3_user_credential_policies#1.2.0`
+	S3KeyId         string                          `json:"s3_key_id"`
+	S3MultiKeys     []GlobusS3KeysPrefixPaths_1_0_0 `json:"s3_multi_keys,omitempty"`
+	S3RequesterPays bool                            `json:"s3_requester_pays,omitempty"`
+	S3SecretKey     string                          `json:"s3_secret_key"`
+}
+type GlobusUserCredentialRecord struct {
+	DataType         string            `json:"DATA_TYPE"` // always `user_credential#1.0.0`
+	ConnectorId      string            `json:"connector_id"`
+	Deleted          bool              `json:"deleted"`
+	DisplayName      string            `json:"display_name"`
+	Id               string            `json:"id"`
+	IdentityId       string            `json:"identity_id"`
+	Invalid          bool              `json:"invalid"`
+	Policies         []json.RawMessage `json:"policies"`
+	Provisioned      bool              `json:"provisioned"`
+	StorageGatewayId string            `json:"storage_gateway_id"`
+	Username         string            `json:"username"`
+}
+
+func (m *GlobusServerManagerClient) getCollectionInfo() error {
 	body, err := m.get(fmt.Sprintf("api/collections/%s", m.EndpointId.String()), url.Values{})
 	if err != nil {
 		return err
 	}
-
-	type ManagerApiResult_1_1_0 struct {
-		DataType string `json:"DATA_TYPE"` // always `result#1.0.0`
-		//AuthorizationParameters any `json:"authorization_parameters"`
-		Code string          `json:"code"`
-		Data json.RawMessage `json:"data"`
-		//Detail any `json:"detail"`
-		//HasNextPage bool `json:"has_next_page"`
-		HttpResponseCode int `json:"http_response_code"`
-		//Marker string `json:"marker"`
-		Message string `json:"message"`
-	}
-	var response ManagerApiResult_1_1_0
+	var response GlobusManagerApiResult_1_1_0
 	if err != nil {
 		return err
 	}
@@ -782,57 +832,89 @@ func (m GlobusServerManagerClient) registerS3UserCredential(user auth.User, cred
 	if err := json.Unmarshal(response.Data, &collection); err != nil {
 		return err
 	}
+	m.ConnectorId = collection.ConnectorId
+	m.StorageGatewayId = collection.StorageGatewayId
+	return nil
+}
 
-	// now request the creation of a user credential
-	type S3KeysPrefixPaths_1_0_0 struct {
-		PathPrefixes []string `json:"path_prefixes"`
-		S3KeyId      string   `json:"s3_key_id"`
-		S3SecretKey  string   `json:"s3_secret_key"`
-	}
-	type S3UserCredentialPolicies_1_2_0 struct {
-		DataType        string                    `json:"DATA_TYPE"` // always `s3_user_credential_policies#1.2.0`
-		S3KeyId         string                    `json:"s3_key_id"`
-		S3MultiKeys     []S3KeysPrefixPaths_1_0_0 `json:"s3_multi_keys"`
-		S3RequesterPays bool                      `json:"s3_requester_pays"`
-		S3SecretKey     string                    `json:"s3_secret_key"`
-	}
-	type CreateS3CredentialRequestBody struct {
-		DataType         string                           `json:"DATA_TYPE"` // always `user_credential#1.0.0`
-		ConnectorId      string                           `json:"connector_id"`
-		Deleted          bool                             `json:"deleted"`
-		DisplayName      string                           `json:"display_name"`
-		Id               string                           `json:"id"`
-		IdentityId       string                           `json:"identity_id"`
-		Invalid          bool                             `json:"invalid"`
-		Policies         []S3UserCredentialPolicies_1_2_0 `json:"policies"`
-		Provisioned      bool                             `json:"provisioned"`
-		StorageGatewayId string                           `json:"storage_gateway_id"`
-		Username         string                           `json:"username"`
-	}
-	data, err := json.Marshal(CreateS3CredentialRequestBody{
-		DataType:    "user_credential#1.0.0",
-		ConnectorId: collection.ConnectorId.String(),
-		DisplayName: user.Name,
-		Id:          globusCredential.Id.String(),
-		IdentityId:  m.ClientId, // NOTE: DTS masquerades as the user for this transfer
-		Policies: []S3UserCredentialPolicies_1_2_0{
-			{
+// NOTE: For now, we only allow a single S3 credential per user to be registered with a Globus
+// NOTE: endpoint per user, using the DTS client ID
+func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) error {
+	var record GlobusUserCredentialRecord
+	var response GlobusManagerApiResult_1_1_0
+	var found bool
+	var payload, body []byte
+	var err error
+
+	if record, found, err = m.findUserCredentialRecord(user, credential); found {
+		// Update the record with a new S3 policy, leaving other policies intact
+		foundS3Policy := false
+		for i, policy := range record.Policies {
+			var s3Policy GlobusS3UserCredentialPolicies_1_2_0
+			err := json.Unmarshal(policy, &s3Policy)
+			if err != nil { // not an S3 policy, move along
+				continue
+			}
+			if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
+				// S3 policy is up to date -- nothing to do
+				return nil
+			}
+
+			// update the S3 policy in place
+			s3Policy.S3KeyId = credential.Id
+			s3Policy.S3SecretKey = credential.Secret
+			if record.Policies[i], err = json.Marshal(s3Policy); err != nil {
+				return err
+			}
+			break
+		}
+
+		// If we didn't find an S3 policy attached to this record, append it.
+		if !foundS3Policy {
+			var newS3Policy []byte
+			newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
 				DataType:    "s3_user_credential_policies#1.2.0",
 				S3KeyId:     credential.Id,
 				S3SecretKey: credential.Secret,
-			},
-		},
-		Provisioned:      true, // NOTE: credential is fully provisioned programmatically
-		StorageGatewayId: collection.StorageGatewayId.String(),
-		Username:         credential.Username,
-	})
-	if err != nil {
-		return err
+			})
+			record.Policies = append(record.Policies, newS3Policy)
+		}
+
+		if payload, err = json.Marshal(record); err != nil {
+			return err
+		}
+		if body, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
+			return err
+		}
+	} else {
+		// No existing record -- create a new one.
+		var newS3Policy []byte
+		if newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
+			DataType:    "s3_user_credential_policies#1.2.0",
+			S3KeyId:     credential.Id,
+			S3SecretKey: credential.Secret,
+		}); err != nil {
+			return err
+		}
+		record = GlobusUserCredentialRecord{
+			DataType:         "user_credential#1.0.0",
+			ConnectorId:      m.ConnectorId.String(),
+			DisplayName:      user.Name,
+			Id:               uuid.New().String(),
+			IdentityId:       m.ClientId, // NOTE: DTS masquerades as the user for this transfer
+			Policies:         []json.RawMessage{newS3Policy},
+			Provisioned:      true, // NOTE: credential is fully provisioned programmatically
+			StorageGatewayId: m.StorageGatewayId.String(),
+			Username:         credential.Username,
+		}
+		if payload, err = json.Marshal(record); err != nil {
+			return err
+		}
+		if body, err = m.post("api/user_credentials", bytes.NewReader(payload)); err != nil {
+			return err
+		}
 	}
-	body, err = m.post("api/user_credentials", bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
+
 	err = json.Unmarshal(body, &response)
 	if err != nil {
 		return err
@@ -841,6 +923,36 @@ func (m GlobusServerManagerClient) registerS3UserCredential(user auth.User, cred
 		return errors.New(response.Message)
 	}
 	return nil
+}
+
+func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User, credential auth.Credential) (GlobusUserCredentialRecord, bool, error) {
+	var response GlobusManagerApiResult_1_1_0
+	values := url.Values{}
+	values.Add("include", "all")
+	values.Add("storage_gateway", m.StorageGatewayId.String())
+	body, err := m.get("api/user_credentials", url.Values{})
+	if err != nil {
+		return GlobusUserCredentialRecord{}, false, err
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return GlobusUserCredentialRecord{}, false, err
+	}
+	if response.HttpResponseCode != http.StatusOK && response.HttpResponseCode != http.StatusCreated {
+		return GlobusUserCredentialRecord{}, false, errors.New(response.Message)
+	}
+	var existingCreds []GlobusUserCredentialRecord
+	if err := json.Unmarshal(response.Data, &existingCreds); err != nil {
+		return GlobusUserCredentialRecord{}, false, err
+	}
+	for _, existingCred := range existingCreds {
+		if existingCred.IdentityId != m.ClientId { // credential not managed by DTS
+			continue
+		}
+		if existingCred.Username == credential.Username { // found it!
+			return existingCred, true, nil
+		}
+	}
+	return GlobusUserCredentialRecord{}, false, nil
 }
 
 const (

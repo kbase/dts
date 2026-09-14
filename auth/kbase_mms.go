@@ -55,15 +55,15 @@ func (mms MMS) FetchRecord(accessToken string) (MMSRecord, error) {
 	if err != nil {
 		return MMSRecord{}, err
 	}
-  if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-  	return MMSRecord{}, fmt.Errorf("MMS returned HTTP %d", resp.StatusCode)
-  }
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return MMSRecord{}, fmt.Errorf("MMS returned HTTP %d", resp.StatusCode)
+	}
 
-  body, err := io.ReadAll(resp.Body)
-  if err != nil {
-  	return MMSRecord{}, err
-  }
-	resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return MMSRecord{}, err
+	}
 
 	var record MMSRecord
 	err = json.Unmarshal(body, &record)

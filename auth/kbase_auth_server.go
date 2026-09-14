@@ -121,13 +121,13 @@ func (server KBaseAuthServer) User() (User, error) {
 	if err == nil {
 		user.ConnectionCredentials["s3"] = Credential{
 			Username: record.Username,
-			Id:     record.S3AccessKey,
-			Secret: record.S3SecretKey,
+			Id:       record.S3AccessKey,
+			Secret:   record.S3SecretKey,
 		}
 		user.ConnectionCredentials["polaris"] = Credential{
 			Username: record.Username,
-			Id:     record.PolarisClientId,
-			Secret: record.PolarisClientSecret,
+			Id:       record.PolarisClientId,
+			Secret:   record.PolarisClientSecret,
 		}
 	}
 

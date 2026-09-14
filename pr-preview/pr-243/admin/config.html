@@ -1573,7 +1573,7 @@ section are:</p>
   development work. The default value is <code>false</code>.</li>
 <li><code>double_check_staging</code>: an optional parameter that, if set to <code>true</code>, performs
   additional checks for staged files. This parameter can be useful for figuring
-  out the appropriate <code>root</code> for an endpoint.</li>
+  out the appropriate <code>base_path</code> for an endpoint.</li>
 </ul>
 <h2 id="endpoints"><code>endpoints</code></h2>
 <div class="highlight"><pre><span></span><code><span class="nt">endpoints</span><span class="p">:</span>
@@ -1625,9 +1625,11 @@ The fields that define the behavior of each endpoint are:</p>
   provided by the <code>client_id</code> parameter</li>
 </ul>
 </li>
-<li><code>root</code>: this optional parameter specifies the root directory used by DTS to
-  refer to files on the underlying filesystem of the endpoint. If left blank,
-  the root directory is set to <code>/</code>.</li>
+<li><code>base_path</code>: this optional parameter specifies the root directory used by DTS to
+  refer to the path on the underlying filesystem at which the endpoint sits. If left blank,
+  <code>base_path</code> is set to <code>/</code>.</li>
+<li><code>data_path</code>: this optional parameter specifies a path on the endpoint (relative to <code>base_path</code>)
+  at which files of interest to a database sit. </li>
 </ul>
 <h2 id="databases"><code>databases</code></h2>
 <div class="highlight"><pre><span></span><code><span class="nt">databases</span><span class="p">:</span>

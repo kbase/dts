@@ -21,9 +21,6 @@
 
 package auth
 
-import "bytes"
-import "fmt"
-
 // A record containing information about a DTS user using a DTS client to request file transfers.
 type User struct {
 	// name (human-readable and display-friendly)
@@ -38,20 +35,6 @@ type User struct {
 	IsSuper bool
 	// credentials for connections between endpoints with different providers (e.g. Globus <--> S3)
 	ConnectionCredentials map[string]Credential
-}
-
-// Marshals a User to a binary representation (minus ConnectionCredentials).
-func (u User) MarshalBinary() ([]byte, error) {
-	var b bytes.Buffer
-	fmt.Fprintln(&b, u.Name, u.Email, u.Orcid, u.Organization, u.IsSuper)
-	return b.Bytes(), nil
-}
-
-// Unmarshals a User from a binary representation (minus ConnectionCredentials).
-func (u *User) UnmarshalBinary(data []byte) error {
-	b := bytes.NewBuffer(data)
-	_, err := fmt.Fscanln(b, &u.Name, &u.Email, &u.Orcid, &u.Organization, &u.IsSuper)
-	return err
 }
 
 // A credential used for authorization and authentication

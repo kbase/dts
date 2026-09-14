@@ -288,9 +288,6 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 						sourceEndpoint.Provider(), destinationEp.Provider()),
 				}
 			}
-			if err := sourceEndpoint.RegisterConnectionCredential(spec.User, destinationEp.Provider()); err != nil {
-				return nil, err
-			}
 		}
 
 		moveId, err := sourceEndpoint.Transfer(destinationEp, files)

@@ -19,6 +19,7 @@ nav:
     - 'Glossary': 'integration/glossary.md'
   - 'Developer Guide':
     - 'Overview': 'developer/index.md'
+    - 'Repository Overview': 'developer/repository_overview.md'
     - 'Architecture Decision Records':
       - 'developer/adrs/index.md'
       - 'Transmitting Metadata': 'developer/adrs/transmit-metadata.md'

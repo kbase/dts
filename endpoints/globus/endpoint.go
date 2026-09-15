@@ -61,6 +61,8 @@ type Endpoint struct {
 		Base string
 		Data string
 	}
+
+	provider string
 }
 
 // configuration struct for Globus endpoints
@@ -95,7 +97,11 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	}
 	ep.Paths.Data = config.DataPath
 
-	return ep, err
+	if ep.provider, err = ep.determineProvider(); err != nil {
+		return nil, err
+	}
+
+	return ep, nil
 }
 
 // constructs a Globus endpoint from a configuration map
@@ -113,7 +119,8 @@ func (ep Endpoint) Id() uuid.UUID {
 }
 
 func (ep Endpoint) Provider() string {
-	return "globus"
+	// A Globus endpoint can have a different provider via Globus Premium Connectors.
+	return ep.provider
 }
 
 func (ep Endpoint) BasePath() string {
@@ -190,6 +197,16 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 }
 
 func (ep *Endpoint) Transfer(destination endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+	if _, isGlobus := destination.(*Endpoint); !isGlobus {
+		return uuid.UUID{}, &endpoints.IncompatibleDestinationError{
+			Source:              ep.Id().String(),
+			SourceProvider:      ep.Provider(),
+			Destination:         destination.Id().String(),
+			DestinationProvider: destination.Provider(),
+			Message:             "Globus connector may be required",
+		}
+	}
+
 	// NOTE: We don't check whether files are staged here, because the endpoint itself doesn't always
 	// have a reliable staging check (e.g. JDP's private data is invisible to Globus directory
 	// listings). Consequently, we assume that files are staged by the time this function is called.
@@ -275,6 +292,26 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 // Internals
 //-----------
+
+func (ep *Endpoint) determineProvider() (string, error) {
+	manager, err := ep.Globus.ServerManagerClient()
+	if err != nil {
+		return "", err
+	}
+	policies, err := manager.StoragePolicies()
+	if err != nil {
+		return "", err
+	}
+
+	// NOTE: we assume only a single Globus premium connector is present, and we match the
+	// first one we find.
+	for _, policy := range policies {
+		if policy == "s3" {
+			return "s3", nil
+		}
+	}
+	return "globus", nil
+}
 
 type EventList struct {
 	Data []Event `json:"DATA"`

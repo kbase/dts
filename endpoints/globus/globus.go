@@ -556,6 +556,31 @@ func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, pro
 	return fmt.Errorf("unsupported user credential provider: %s", provider)
 }
 
+// Returns a list of storage providers supported by the underlying storage gateway.
+func (m GlobusServerManagerClient) StoragePolicies() ([]string, error) {
+	var response GlobusManagerApiResult_1_1_0
+
+	values := url.Values{}
+	values.Add("include", "all")
+	values.Add("storage_gateway", m.StorageGatewayId.String())
+	body, err := m.get("api/user_credentials", url.Values{})
+	if err != nil {
+		return []string{}, err
+	}
+	if err = json.Unmarshal(body, &response); err != nil {
+		return []string{}, err
+	}
+	type GlobusS3StoragePolicies_1_3_0 struct {
+		DataType  string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
+		S3Buckets string `json:"s3_buckets"`
+	}
+	var policies []GlobusS3StoragePolicies_1_3_0
+	if err = json.Unmarshal(response.Data, &policies); err != nil {
+		return []string{}, err
+	}
+	return []string{"s3"}, nil
+}
+
 //-----------
 // Internals
 //-----------

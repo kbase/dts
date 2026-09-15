@@ -161,10 +161,7 @@ func (ep *Endpoint) DataPath() string {
 }
 
 func (ep *Endpoint) ConnectsWith(provіder string) bool {
-	if provіder == "dtstest" {
-		return true
-	}
-	return false
+	return provіder == "dtstest"
 }
 
 func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provіder string) error {

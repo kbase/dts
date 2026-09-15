@@ -22,10 +22,13 @@
 package endpoints
 
 import (
+	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 )
 
@@ -67,10 +70,22 @@ type TransferStatus struct {
 
 // This type represents an endpoint for transferring files.
 type Endpoint interface {
+	// Returns the endpoint's unique identifier.
+	Id() uuid.UUID
 	// Returns a string indicating the service provider for the endpoint.
 	Provider() string
-	// Returns the path on the file system that serves as the endpoint's root.
-	Root() string
+	// Returns the path on the file system that serves as the endpoint's base path, below which
+	// no files are visible.
+	BasePath() string
+	// Returns the path of the file system at which files of interest sit (relative to the base path).
+	// If blank, BasePath is used to locate files.
+	DataPath() string
+	// Returns true if this endpoint can transfer files to an endpoint with the given provider,
+	// false otherwise.
+	ConnectsWith(provider string) bool
+	// Registers a credential for a user with this endpoint in order to connect with another endpoint
+	// with the given provider.
+	RegisterConnectionCredential(user auth.User, provider string) error
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)
@@ -135,6 +150,11 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			}
 			if createEp, valid := createEndpointFuncs_[provider]; valid {
 				endpoint, err = createEp(epConfig)
+				if err != nil {
+					return endpoint, err
+				}
+				slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
+				slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))
 			} else { // invalid provider!
 				err = InvalidProviderError{
 					Name:     endpointName,

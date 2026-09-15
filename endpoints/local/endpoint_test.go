@@ -87,19 +87,19 @@ func setup() {
 name: Source Endpoint
 id: 2ee69538-10d5-4d1e-a890-1127b5e42003
 provider: local
-root: %s
+base_path: %s
 `, sourceRoot)
 	destConfig = fmt.Sprintf(`
 name: Destination Endpoint
 id: b925d96e-7e39-473b-a658-714f8c243b1c
 provider: local
-root: %s
+base_path: %s
 `, destinationRoot)
 	destCancelConfig = fmt.Sprintf(`
 name: Destination Endpoint for cancellation
 id: b925d96e-7e39-473b-a658-714f8c243b1c
 provider: local
-root: %s
+base_path: %s
 `, destinationRootCancel)
 
 }
@@ -124,9 +124,9 @@ func TestBadLocalConstructor(t *testing.T) {
 	assert := assert.New(t)
 
 	conf := Config{
-		Name: "",
-		Id:   uuid.New().String(),
-		Root: "/bad/endpoint/no/name",
+		Name:     "",
+		Id:       uuid.New().String(),
+		BasePath: "/bad/endpoint/no/name",
 	}
 	endpoint, err := NewEndpoint(conf)
 	assert.Nil(endpoint)

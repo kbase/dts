@@ -161,6 +161,9 @@ func (ep *Endpoint) DataPath() string {
 }
 
 func (ep *Endpoint) ConnectsWith(provіder string) bool {
+	if provіder == "dtstest" {
+		return true
+	}
 	return false
 }
 

@@ -230,12 +230,10 @@ endpoints:
     name: Endpoint 1
     id: 26d61236-39f6-4742-a374-8ec709347f2f
     provider: test
-    data_path: SOURCE_ROOT
   destination-endpoint:
     name: Endpoint 2
     id: f1865b86-2c64-4b8b-99f3-5aaa945ec3d9
     provider: test
-    data_path: DESTINATION_ROOT
 `
 
 var testDescriptors map[string]map[string]any = map[string]map[string]any{

@@ -403,7 +403,7 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 
 	// If this is a transfer between endpoints with different providers, register a credential that
 	// allows them to connect.
-	destEndpoint, err := endpoints.NewEndpoint(spec.Destination)
+	destEndpoint, err := determineDestinationEndpoint(spec.Destination)
 	if err != nil {
 		return transferStoreEntry{
 			Spec: spec,

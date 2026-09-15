@@ -404,7 +404,17 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	// If this is a transfer between endpoints with different providers, register a credential that
 	// allows them to connect.
 	destEndpoint, err := endpoints.NewEndpoint(spec.Destination)
-	for source, _ := range sourceEndpoints {
+	if err != nil {
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
+	}
+	for source := range sourceEndpoints {
 		sourceEndpoint, err := endpoints.NewEndpoint(source)
 		if err != nil {
 			return transferStoreEntry{

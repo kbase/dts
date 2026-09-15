@@ -871,7 +871,7 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 	var payload, body []byte
 	var err error
 
-	if record, found, err = m.findUserCredentialRecord(user, credential); found {
+	if record, found, _ = m.findUserCredentialRecord(user, credential); found {
 		// Update the record with a new S3 policy, leaving other policies intact
 		foundS3Policy := false
 		for i, policy := range record.Policies {
@@ -897,11 +897,13 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 		// If we didn't find an S3 policy attached to this record, append it.
 		if !foundS3Policy {
 			var newS3Policy []byte
-			newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
+			if newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
 				DataType:    "s3_user_credential_policies#1.2.0",
 				S3KeyId:     credential.Id,
 				S3SecretKey: credential.Secret,
-			})
+			}); err != nil {
+				return err
+			}
 			record.Policies = append(record.Policies, newS3Policy)
 		}
 

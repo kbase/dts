@@ -133,7 +133,7 @@ func (ep Endpoint) DataPath() string {
 
 func (ep Endpoint) ConnectsWith(provider string) bool {
 	switch provider {
-	case "s3":
+	case "globus", "s3":
 		return true
 	default:
 		return false
@@ -295,8 +295,8 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 
 func (ep *Endpoint) determineProvider() (string, error) {
 	manager, err := ep.Globus.ServerManagerClient()
-	if err != nil {
-		return "", err
+	if err != nil { // couldn't connect to server manager client -- we are Globus only
+		return "globus", nil
 	}
 	policies, err := manager.StoragePolicies()
 	if err != nil {

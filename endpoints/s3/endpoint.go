@@ -158,11 +158,11 @@ func (e Endpoint) Provider() string {
 }
 
 func (e Endpoint) BasePath() string {
-	return ""
+	return e.Bucket + "/"
 }
 
 func (e *Endpoint) DataPath() string {
-	return e.Bucket + "/"
+	return ""
 }
 
 func (e *Endpoint) ConnectsWith(provider string) bool {

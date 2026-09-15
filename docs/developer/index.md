@@ -5,7 +5,8 @@ This guide contains technical information about the Data Transfer Service (DTS).
 ## Start Here
 
 * [Repository Overview](repository_overview.md): purpose, architecture,
-  extension points, and the major directories in this repository
+  architectural drivers, runtime model, extension points, and the major
+  directories in this repository
 
 ## Architecture Decision Records
 

@@ -167,7 +167,7 @@ func (e *Endpoint) DataPath() string {
 
 func (e *Endpoint) ConnectsWith(provider string) bool {
 	// The S3 endpoint can't send to anyone else at the moment.
-	return false
+	return provider == "s3"
 }
 
 func (e *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {

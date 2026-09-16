@@ -394,7 +394,7 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 			endpointName, _ = entry.(string)
 		}
 		if endpointName == "" {
-			endpointName = spec.Source
+			endpointName = source.EndpointNames()[0]
 		}
 		if _, endpointFound := sourceEndpoints[endpointName]; !endpointFound {
 			sourceEndpoints[endpointName] = true

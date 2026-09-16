@@ -96,17 +96,17 @@ endpoints:
     name: Endpoint 1
     id: 26d61236-39f6-4742-a374-8ec709347f2f
     provider: local
-    data_path: SOURCE_ROOT
+    base_path: SOURCE_ROOT
   destination-endpoint1:
     name: Endpoint 2
     id: f1865b86-2c64-4b8b-99f3-5aaa945ec3d9
     provider: local
-    data_path: DESTINATION1_ROOT
+    base_path: DESTINATION1_ROOT
   destination-endpoint2:
     name: Endpoint 3
     id: f1865b86-2c64-4b8b-99f3-5aaa945ec3d9
     provider: local
-    data_path: DESTINATION2_ROOT
+    base_path: DESTINATION2_ROOT
 `
 
 // file test metadata

@@ -59,7 +59,7 @@ type KBaseUserFederationConfig struct {
 	DataDirectory string `yaml:"data_directory" mapstructure:"data_directory"`
 }
 
-func newKBaseUserFederation(conf KBaseUserFederationConfig) (KBaseUserFederation, error) {
+func NewKBaseUserFederation(conf KBaseUserFederationConfig) (KBaseUserFederation, error) {
 	kbaseFed := KBaseUserFederation{}
 	kbaseFed.Started = false
 	kbaseFed.FilePath = filepath.Join(conf.DataDirectory, kbaseUserTableFile)
@@ -102,7 +102,7 @@ func (kbaseFed *KBaseUserFederation) Start() error {
 }
 
 // returns the KBase username associated with the given ORCID
-func (kbaseFed *KBaseUserFederation) usernameForOrcid(orcid string) (string, error) {
+func (kbaseFed *KBaseUserFederation) UsernameForOrcid(orcid string) (string, error) {
 	if !kbaseFed.Started {
 		return "", fmt.Errorf("KBase federated user table not available")
 	}

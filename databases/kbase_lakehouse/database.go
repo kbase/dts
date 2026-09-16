@@ -29,6 +29,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/databases/kbase" // for user federation
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -39,10 +40,13 @@ type Database struct {
 	Client http.Client
 	// Name of Globus/S3 lakehouse endpoint
 	EndpointName string
+	// KBase user federation mechanism (reused from legacy KBase)
+	kbaseFed kbase.KBaseUserFederation
 }
 
 type Config struct {
-	Endpoint string `yaml:"endpoint"`
+	Endpoint                        string `yaml:"endpoint"`
+	kbase.KBaseUserFederationConfig `yaml:",inline" mapstructure:",squash"`
 }
 
 func NewDatabase(conf Config) (databases.Database, error) {
@@ -52,6 +56,18 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	}
 	db := Database{
 		EndpointName: conf.Endpoint,
+	}
+
+	// FIXME: we reuse legacy KBase's user federation spreadsheet to map ORCIDs to
+	// FIXME: Lakehouse users. This should be replaced when practical.
+	var err error
+	db.kbaseFed, err = kbase.NewKBaseUserFederation(conf.KBaseUserFederationConfig)
+	if err != nil {
+		return nil, err
+	}
+	err = db.kbaseFed.Start()
+	if err != nil {
+		return nil, err
 	}
 	return &db, nil
 }
@@ -99,17 +115,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	/* TODO: Figure out ORCID-based user federation
-	user, err := auth.UserForOrcid(orcid)
-	if err != nil {
-		return "", err
-	}
-	if credential, ok := user.ConnectionCredentials["s3"]; ok {
-		return credential.Username, nil
-	}
-	return "", fmt.Errorf("no local username found for ORCID %s", user.Orcid)
-	*/
-	return "", nil
+	return db.kbaseFed.UsernameForOrcid(orcid)
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {
@@ -124,5 +130,5 @@ func (db *Database) Load(state databases.DatabaseSaveState) error {
 }
 
 func (db *Database) FinalizeDatabase() error {
-	return nil
+	return db.kbaseFed.Stop()
 }

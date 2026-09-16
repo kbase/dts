@@ -52,7 +52,7 @@ func NewDatabase(conf Config) (databases.Database, error) {
 		EndpointName: conf.Endpoint,
 	}
 	var err error
-	db.kbaseFed, err = newKBaseUserFederation(conf.KBaseUserFederationConfig)
+	db.kbaseFed, err = NewKBaseUserFederation(conf.KBaseUserFederationConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (db *Database) Finalize(orcid string, id uuid.UUID) error {
 }
 
 func (db *Database) LocalUser(orcid string) (string, error) {
-	return db.kbaseFed.usernameForOrcid(orcid)
+	return db.kbaseFed.UsernameForOrcid(orcid)
 }
 
 func (db Database) Save() (databases.DatabaseSaveState, error) {

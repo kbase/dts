@@ -69,6 +69,12 @@ endpoints:
     credential: globus
     base_path: ${KBASE_ENDPOINT_BASEPATH}
     data_path: jeff_cohere
+  globus-kbase:
+    name: KBase Lakehouse Globus S3 Connector
+    id: ${KBASE_LAKEHOUSE_ENDPOINT_ID}
+    provider: globus
+    credential: globus
+    base_path: ${KBASE_LAKEHOUSE_ENDPOINT_BASEPATH}
   globus-nmdc-nersc:
     name: NMDC (NERSC)
     id: ${NMDC_NERSC_ENDPOINT_ID}
@@ -95,6 +101,11 @@ databases: # databases between which files can be transferred
     name: KBase Workspace Service (KSS)
     organization: KBase
     endpoint: globus-kbase
+    data_directory: /data
+  kbase_lakehouse:
+    name: KBase Lakehouse
+    organization: KBase
+    endpoint: globus-kbase-lakehouse
     data_directory: /data
   nmdc:
     name: National Microbiome Data Collaborative

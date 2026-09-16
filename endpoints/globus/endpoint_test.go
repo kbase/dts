@@ -179,9 +179,9 @@ func TestGlobusConstructor(t *testing.T) {
 	assert.Nil(err)
 
 	endpoint, err := EndpointConstructor(configMap)
-	assert.NotNil(endpoint)
 	// if invalid credientials are provided, an error is returned
 	if !checkGlobusEnvVars() {
+		assert.NotNil(endpoint)
 		assert.NotNil(err)
 		return
 	}

@@ -69,8 +69,8 @@ endpoints:
     credential: globus
     base_path: ${KBASE_ENDPOINT_BASEPATH}
     data_path: jeff_cohere
-  globus-kbase:
-    name: KBase Lakehouse Globus S3 Connector
+  globus-kbase-lakehouse:
+    name: KBase Data Lakehouse Development Environment
     id: ${KBASE_LAKEHOUSE_ENDPOINT_ID}
     provider: globus
     credential: globus

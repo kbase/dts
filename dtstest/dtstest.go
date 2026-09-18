@@ -31,6 +31,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/endpoints"
@@ -99,14 +100,17 @@ type EndpointOptions struct {
 
 // This type implements an Endpoint test fixture
 type Endpoint struct {
+	Id_ uuid.UUID
 	// database fixture attached to endpoint
 	Database *Database
 	// endpoint testing options
 	Options EndpointOptions
 	// a table of ongoing "file transfers"
 	Xfers map[uuid.UUID]transferInfo
-	// root path
-	RootPath string
+	Paths struct {
+		Base string
+		Data string
+	}
 	// a set of files on this endpoint that have been staged
 	StagedFiles map[string]bool
 }
@@ -117,14 +121,19 @@ type Endpoint struct {
 func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	slog.Debug(fmt.Sprintf("Registering test endpoint %s...", endpointName))
 	newEndpointFunc := func(conf map[string]any) (endpoints.Endpoint, error) {
-		root, ok := config.Endpoints[endpointName]["root"].(string)
+		basePath, ok := config.Endpoints[endpointName]["base_path"].(string)
 		if !ok {
-			root = "/"
+			basePath = "/"
 		}
+		dataPath, _ := config.Endpoints[endpointName]["data_path"].(string)
 		return &Endpoint{
-			Options:     options,
-			Xfers:       make(map[uuid.UUID]transferInfo),
-			RootPath:    root,
+			Id_:     uuid.New(),
+			Options: options,
+			Xfers:   make(map[uuid.UUID]transferInfo),
+			Paths: struct{ Base, Data string }{
+				Base: basePath,
+				Data: dataPath,
+			},
 			StagedFiles: make(map[string]bool),
 		}, nil
 	}
@@ -135,12 +144,28 @@ func RegisterEndpoint(endpointName string, options EndpointOptions) error {
 	return endpoints.RegisterEndpointProvider(provider, newEndpointFunc)
 }
 
+func (ep *Endpoint) Id() uuid.UUID {
+	return ep.Id_
+}
+
 func (ep *Endpoint) Provider() string {
 	return "dtstest"
 }
 
-func (ep *Endpoint) Root() string {
-	return ep.RootPath
+func (ep *Endpoint) BasePath() string {
+	return ep.Paths.Base
+}
+
+func (ep *Endpoint) DataPath() string {
+	return ep.Paths.Data
+}
+
+func (ep *Endpoint) ConnectsWith(provіder string) bool {
+	return provіder == "dtstest"
+}
+
+func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provіder string) error {
+	return nil
 }
 
 func (ep *Endpoint) FilesStaged(files []map[string]any) (bool, error) {
@@ -313,17 +338,20 @@ func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
 	if info, found := db.Staging[id]; found {
-		endpoint := db.Endpt.(*Endpoint)
-		if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
-			// update the staged status on the test endpoint
-			stagingRequest := db.Staging[id]
-			for _, fileId := range stagingRequest.FileIds {
-				endpoint.StagedFiles[fileId] = true
+		if endpoint, ok := db.Endpt.(*Endpoint); ok {
+			if time.Since(info.Time) >= endpoint.Options.StagingDuration { // FIXME: not always so!
+				// update the staged status on the test endpoint
+				stagingRequest := db.Staging[id]
+				for _, fileId := range stagingRequest.FileIds {
+					endpoint.StagedFiles[fileId] = true
+				}
+				return databases.StagingStatusSucceeded, nil
 			}
-
+			return databases.StagingStatusActive, nil
+		} else {
+			// assume staging succeeded
 			return databases.StagingStatusSucceeded, nil
 		}
-		return databases.StagingStatusActive, nil
 	}
 	return databases.StagingStatusUnknown, nil
 }

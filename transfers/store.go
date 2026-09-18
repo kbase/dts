@@ -30,8 +30,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/endpoints"
 )
 
 //-------
@@ -248,9 +250,8 @@ func (s *storeState) process(decoder *gob.Decoder) {
 					Time:           time.Now(),
 				})
 			} else {
-				size := transfers[id].payloadSize()
 				publish(Message{
-					Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
+					Description:    fmt.Sprintf("Created new transfer %s (%d file(s))", id, newXfer.Status.NumFiles),
 					TransferId:     id,
 					TransferStatus: transfers[id].Status,
 					Time:           time.Now(),
@@ -316,6 +317,7 @@ func (s *storeState) process(decoder *gob.Decoder) {
 				}
 			}
 		case encoder := <-s.Channels.SaveAndStop:
+			s.eraseConnectionCredentials(transfers)
 			s.Channels.Error <- encoder.Encode(transfers)
 			running = false
 		}
@@ -382,6 +384,62 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	slices.SortFunc(descriptors, func(a, b map[string]any) int {
 		return cmp.Compare(a["id"].(string), b["id"].(string))
 	})
+
+	// Determine all source endpoints.
+	sourceEndpoints := make(map[string]bool)
+	for _, d := range descriptors {
+		var endpointName string
+		entry, keyFound := d["endpoint"]
+		if keyFound {
+			endpointName, _ = entry.(string)
+		}
+		if endpointName == "" {
+			endpointName = source.EndpointNames()[0]
+		}
+		if _, endpointFound := sourceEndpoints[endpointName]; !endpointFound {
+			sourceEndpoints[endpointName] = true
+		}
+	}
+
+	// If this is a transfer between endpoints with different providers, register a credential that
+	// allows them to connect.
+	destEndpoint, err := determineDestinationEndpoint(spec.Destination)
+	if err != nil {
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
+	}
+	for source := range sourceEndpoints {
+		sourceEndpoint, err := endpoints.NewEndpoint(source)
+		if err != nil {
+			return transferStoreEntry{
+				Spec: spec,
+				Status: TransferStatus{
+					Code:     TransferStatusFailed,
+					Message:  err.Error(),
+					NumFiles: len(spec.FileIds),
+				},
+			}
+		}
+		if sourceEndpoint.Provider() != destEndpoint.Provider() {
+			if err := sourceEndpoint.RegisterConnectionCredential(spec.User, destEndpoint.Provider()); err != nil {
+				return transferStoreEntry{
+					Spec: spec,
+					Status: TransferStatus{
+						Code:     TransferStatusFailed,
+						Message:  err.Error(),
+						NumFiles: len(spec.FileIds),
+					},
+				}
+			}
+		}
+	}
+
 	entry := transferStoreEntry{
 		Descriptors: descriptors,
 		Spec:        spec,
@@ -391,4 +449,12 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	}
 
 	return entry
+}
+
+// clears user connection credentials from transfer specifications so they don't get written to disk
+func (s *storeState) eraseConnectionCredentials(transfers map[uuid.UUID]transferStoreEntry) {
+	for i, transfer := range transfers {
+		transfer.Spec.User.ConnectionCredentials = map[string]auth.Credential{}
+		transfers[i] = transfer
+	}
 }

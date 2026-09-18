@@ -39,6 +39,7 @@ import (
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/databases/jdp"
 	"github.com/kbase/dts/databases/kbase"
+	"github.com/kbase/dts/databases/kbase_lakehouse"
 	"github.com/kbase/dts/databases/nmdc"
 	s3db "github.com/kbase/dts/databases/s3"
 	"github.com/kbase/dts/endpoints"
@@ -225,12 +226,12 @@ type resultType[V any] struct {
 func registerEndpointProviders() error {
 	// NOTE: it's okay if these endpoint providers have already been registered,
 	// NOTE: as they can be used in testing
-	endpointsToRegister := map[string]func(conf map[string]any) (endpoints.Endpoint, error){
+	providersToRegister := map[string]func(conf map[string]any) (endpoints.Endpoint, error){
 		"globus": globus.EndpointConstructor,
 		"local":  local.EndpointConstructor,
 		"s3":     s3ep.EndpointConstructor,
 	}
-	for name, constructor := range endpointsToRegister {
+	for name, constructor := range providersToRegister {
 		err := endpoints.RegisterEndpointProvider(name, constructor)
 		if err != nil {
 			// ignore AlreadyRegisteredError but propagate others
@@ -240,13 +241,6 @@ func registerEndpointProviders() error {
 		}
 	}
 	return nil
-}
-
-// constructors for named (bespoke) databases
-var dbConstructors map[string]func(config map[string]any) func() (databases.Database, error) = map[string]func(config map[string]any) func() (databases.Database, error){
-	"jdp":   jdp.DatabaseConstructor,
-	"kbase": kbase.DatabaseConstructor,
-	"nmdc":  nmdc.DatabaseConstructor,
 }
 
 // registers databases; if at least one database is available, no error is propagated
@@ -279,6 +273,13 @@ func registerDatabases(conf config.Config) error {
 			slog.Debug(fmt.Sprintf("No 'delete_after' pruning time specified for database '%s'; using default of %d", dbName, conf.Service.DeleteAfter))
 			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
+		dbConstructors := map[string]func(config map[string]any) func() (databases.Database, error){
+			"jdp":             jdp.DatabaseConstructor,
+			"kbase":           kbase.DatabaseConstructor,
+			"kbase_lakehouse": kbase_lakehouse.DatabaseConstructor,
+			"nmdc":            nmdc.DatabaseConstructor,
+		}
+
 		if constructor, found := dbConstructors[dbName]; found {
 			if err := databases.RegisterDatabase(dbName, constructor(dbConf)); err != nil {
 				slog.Error(err.Error())
@@ -417,9 +418,9 @@ func determineDestinationEndpoint(destination string) (endpoints.Endpoint, error
 			return nil, err
 		}
 		conf := globus.Config{
-			Name: fmt.Sprintf("Custom endpoint (%s)", endpointId.String()),
-			Id:   endpointId.String(),
-			Root: customSpec.Path,
+			Name:     fmt.Sprintf("Custom endpoint (%s)", endpointId.String()),
+			Id:       endpointId.String(),
+			DataPath: customSpec.Path,
 			Credential: auth.Credential{
 				Id:     clientId.String(),
 				Secret: credential.Secret,

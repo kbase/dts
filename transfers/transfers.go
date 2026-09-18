@@ -39,6 +39,7 @@ import (
 	"github.com/kbase/dts/databases"
 	"github.com/kbase/dts/databases/jdp"
 	"github.com/kbase/dts/databases/kbase"
+	"github.com/kbase/dts/databases/kbase_lakehouse"
 	"github.com/kbase/dts/databases/nmdc"
 	s3db "github.com/kbase/dts/databases/s3"
 	"github.com/kbase/dts/endpoints"
@@ -273,9 +274,10 @@ func registerDatabases(conf config.Config) error {
 			dbConf["delete_after"] = conf.Service.DeleteAfter
 		}
 		dbConstructors := map[string]func(config map[string]any) func() (databases.Database, error){
-			"jdp":   jdp.DatabaseConstructor,
-			"kbase": kbase.DatabaseConstructor,
-			"nmdc":  nmdc.DatabaseConstructor,
+			"jdp":             jdp.DatabaseConstructor,
+			"kbase":           kbase.DatabaseConstructor,
+			"kbase_lakehouse": kbase_lakehouse.DatabaseConstructor,
+			"nmdc":            nmdc.DatabaseConstructor,
 		}
 
 		if constructor, found := dbConstructors[dbName]; found {

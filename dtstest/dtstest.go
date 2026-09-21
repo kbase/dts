@@ -205,7 +205,7 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return xfers, nil
 }
 
-func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (ep *Endpoint) Transfer(user auth.User, dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	xferId := uuid.New()
 	ep.Xfers[xferId] = transferInfo{
 		Time: time.Now(),

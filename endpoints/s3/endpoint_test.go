@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -275,7 +276,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 			DestinationPath: "LICENSE_copied.txt",
 		},
 	}
-	transferID, err := awsEndpoint.Transfer(minioEndpoint, filesToTransfer)
+	transferID, err := awsEndpoint.Transfer(auth.User{}, minioEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -349,7 +350,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile2_copied.txt",
 		},
 	}
-	transferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, filesToTransfer)
+	transferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -407,7 +408,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile1_copied_again.txt",
 		},
 	}
-	failedTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, nonexistentFileTransfer)
+	failedTransferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, nonexistentFileTransfer)
 	assert.NotEqual(uuid.Nil, failedTransferID)
 	assert.Nil(err)
 
@@ -470,7 +471,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile3_copied.txt",
 		},
 	}
-	cancelTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, allFilesTransfer)
+	cancelTransferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, allFilesTransfer)
 	assert.NotEqual(uuid.Nil, cancelTransferID)
 	assert.Nil(err)
 

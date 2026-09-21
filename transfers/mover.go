@@ -290,7 +290,7 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 			}
 		}
 
-		moveId, err := sourceEndpoint.Transfer(destinationEp, files)
+		moveId, err := sourceEndpoint.Transfer(spec.User, destinationEp, files)
 		if err != nil {
 			return nil, err
 		}

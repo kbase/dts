@@ -141,11 +141,6 @@ func (ep Endpoint) ConnectsWith(provider string) bool {
 	}
 }
 
-func (ep Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
-	// So far, the DTS can handle transfers between local and other providers without this.
-	return nil
-}
-
 func (ep Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	for _, descriptor := range descriptors {
 		absPath := filepath.Join(ep.BasePath(), ep.DataPath(), descriptor["path"].(string))
@@ -232,7 +227,7 @@ func (ep *Endpoint) transferFile(dest endpoints.Endpoint, file endpoints.FileTra
 	return os.WriteFile(destPath, data, sourceFileInfo.Mode())
 }
 
-func (ep *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (ep *Endpoint) Transfer(user auth.User, dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
 	_, isLocal := dst.(*Endpoint)

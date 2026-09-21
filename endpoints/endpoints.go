@@ -83,9 +83,6 @@ type Endpoint interface {
 	// Returns true if this endpoint can transfer files to an endpoint with the given provider,
 	// false otherwise.
 	ConnectsWith(provider string) bool
-	// Registers a credential for a user with this endpoint in order to connect with another endpoint
-	// with the given provider.
-	RegisterConnectionCredential(user auth.User, provider string) error
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)
@@ -93,8 +90,9 @@ type Endpoint interface {
 	Transfers() ([]uuid.UUID, error)
 	// Begins a transfer task that moves the files identified by the FileTransfer
 	// structs, returning a UUID that can be used to refer to this task. It is assumed that there
-	// no duplicates in the list of files to be transfered.
-	Transfer(dst Endpoint, files []FileTransfer) (uuid.UUID, error)
+	// no duplicates in the list of files to be transfered. If authorization is not required for the
+	// transfer (e.g. DTS performs the transfer on a user's behalf), `user` can be zero-initialized.
+	Transfer(user auth.User, dst Endpoint, files []FileTransfer) (uuid.UUID, error)
 	// Retrieves the status for a transfer task identified by its UUID.
 	Status(id uuid.UUID) (TransferStatus, error)
 	// Cancels the transfer task with the given UUID (must return immediately,

@@ -33,7 +33,6 @@ import (
 	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
-	"github.com/kbase/dts/endpoints"
 )
 
 //-------
@@ -398,45 +397,6 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 		}
 		if _, endpointFound := sourceEndpoints[endpointName]; !endpointFound {
 			sourceEndpoints[endpointName] = true
-		}
-	}
-
-	// If this is a transfer between endpoints with different providers, register a credential that
-	// allows them to connect.
-	destEndpoint, err := determineDestinationEndpoint(spec.Destination)
-	if err != nil {
-		return transferStoreEntry{
-			Spec: spec,
-			Status: TransferStatus{
-				Code:     TransferStatusFailed,
-				Message:  err.Error(),
-				NumFiles: len(spec.FileIds),
-			},
-		}
-	}
-	for source := range sourceEndpoints {
-		sourceEndpoint, err := endpoints.NewEndpoint(source)
-		if err != nil {
-			return transferStoreEntry{
-				Spec: spec,
-				Status: TransferStatus{
-					Code:     TransferStatusFailed,
-					Message:  err.Error(),
-					NumFiles: len(spec.FileIds),
-				},
-			}
-		}
-		if sourceEndpoint.Provider() != destEndpoint.Provider() {
-			if err := sourceEndpoint.RegisterConnectionCredential(spec.User, destEndpoint.Provider()); err != nil {
-				return transferStoreEntry{
-					Spec: spec,
-					Status: TransferStatus{
-						Code:     TransferStatusFailed,
-						Message:  err.Error(),
-						NumFiles: len(spec.FileIds),
-					},
-				}
-			}
 		}
 	}
 

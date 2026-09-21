@@ -170,10 +170,6 @@ func (e *Endpoint) ConnectsWith(provider string) bool {
 	return provider == "s3"
 }
 
-func (e *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
-	return nil
-}
-
 func (e *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	staged := true
 	for _, d := range descriptors {
@@ -205,7 +201,7 @@ func (e *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-func (e *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (e *Endpoint) Transfer(user auth.User, dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	s3Dest, ok := dst.(*Endpoint)
 	if !ok {
 		return uuid.Nil, fmt.Errorf("destination endpoint is not an S3 endpoint")

@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/assert/yaml"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -205,7 +206,7 @@ func TestLocalTransfer(t *testing.T) {
 			DestinationPath: sourceFilesById[id],
 		})
 	}
-	_, err = source.Transfer(destination, fileXfers)
+	_, err = source.Transfer(auth.User{}, destination, fileXfers)
 	assert.Nil(err)
 }
 
@@ -229,7 +230,7 @@ func TestBadLocalTransfer(t *testing.T) {
 			DestinationPath: sourceFilesById[id] + "_with_bad_suffix",
 		})
 	}
-	_, err = source.Transfer(destination, fileXfers)
+	_, err = source.Transfer(auth.User{}, destination, fileXfers)
 	assert.NotNil(err)
 }
 
@@ -268,7 +269,7 @@ func TestLocalTransferCancellation(t *testing.T) {
 			DestinationPath: sourceFilesById[id],
 		})
 	}
-	id, err := source.Transfer(destination, fileXfers)
+	id, err := source.Transfer(auth.User{}, destination, fileXfers)
 	assert.Nil(err)
 	err = source.Cancel(id)
 	assert.Nil(err)

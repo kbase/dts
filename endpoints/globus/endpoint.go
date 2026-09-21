@@ -140,14 +140,6 @@ func (ep Endpoint) ConnectsWith(provider string) bool {
 	}
 }
 
-func (ep *Endpoint) RegisterConnectionCredential(user auth.User, provider string) error {
-	serverManager, err := ep.Globus.ServerManagerClient()
-	if err != nil {
-		return err
-	}
-	return serverManager.AddOrUpdateUserCredential(user, provider)
-}
-
 func (ep *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
 	// find all the directories in which these files reside
 	filesInDir := make(map[string][]string)
@@ -196,14 +188,14 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return ep.Globus.TransferTasks()
 }
 
-func (ep *Endpoint) Transfer(destination endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	if _, isGlobus := destination.(*Endpoint); !isGlobus {
 		return uuid.UUID{}, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Id().String(),
 			SourceProvider:      ep.Provider(),
 			Destination:         destination.Id().String(),
 			DestinationProvider: destination.Provider(),
-			Message:             "Globus connector may be required",
+			Message:             "a premium Globus connector may be required",
 		}
 	}
 
@@ -221,7 +213,18 @@ func (ep *Endpoint) Transfer(destination endpoints.Endpoint, files []endpoints.F
 		}
 	}
 
-	return ep.Globus.Transfer(ep.Id(), destination.Id(), filesWithFullPath)
+	// If this is a transfer between endpoints with different providers, register or fetch the
+	// credential that allows them to connect.
+	var credential auth.Credential
+	if ep.Provider() != destination.Provider() {
+		if serverManager, err := ep.Globus.ServerManagerClient(); err == nil {
+			if credential, err = serverManager.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
+				return uuid.UUID{}, err
+			}
+		}
+	}
+
+	return ep.Globus.Transfer(credential, ep.Id(), destination.Id(), filesWithFullPath)
 }
 
 // mapping of Globus status code strings to DTS status codes
@@ -298,15 +301,15 @@ func (ep *Endpoint) determineProvider() (string, error) {
 	if err != nil { // couldn't connect to server manager client -- we are Globus only
 		return "globus", nil
 	}
-	policies, err := manager.StoragePolicies()
+	providers, err := manager.StorageProviders()
 	if err != nil {
 		return "", err
 	}
 
 	// NOTE: we assume only a single Globus premium connector is present, and we match the
 	// first one we find.
-	for _, policy := range policies {
-		if policy == "s3" {
+	for _, provider := range providers {
+		if provider == "s3" {
 			return "s3", nil
 		}
 	}

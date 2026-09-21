@@ -318,7 +318,7 @@ func (c *GlobusTransferClient) TransferTasks() ([]uuid.UUID, error) {
 // Transfers files from the given source endpoint to the given destination endpoint.
 // NOTE: file paths are relative to the root of the Globus collection, NOT its
 // NOTE: "data directory"
-func (c *GlobusTransferClient) Transfer(sourceId, destinationId uuid.UUID, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (c *GlobusTransferClient) Transfer(credential auth.Credential, sourceId, destinationId uuid.UUID, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	// obtain a submission ID
 	submissionId, err := c.getSubmissionId()
 	if err != nil {
@@ -336,7 +336,7 @@ func (c *GlobusTransferClient) Transfer(sourceId, destinationId uuid.UUID, files
 	}
 
 	// now, submit the transfer task itself
-	return c.submitTransfer(sourceId, destinationId, submissionId, files)
+	return c.submitTransfer(credential, sourceId, destinationId, submissionId, files)
 }
 
 func (c *GlobusTransferClient) getEndpointInfo(id uuid.UUID) (GlobusEndpointInfo, error) {
@@ -368,7 +368,7 @@ func (c GlobusTransferClient) getSubmissionId() (uuid.UUID, error) {
 // https://docs.globus.org/api/transfer/endpoints_and_collections/#get_endpoint_or_collection_by_id
 // https://docs.globus.org/api/transfer/task_submit/#submit_transfer_task
 // https://docs.globus.org/api/transfer/task_submit/#transfer_item_fields
-func (c GlobusTransferClient) submitTransfer(sourceId, destinationId, submissionId uuid.UUID,
+func (c GlobusTransferClient) submitTransfer(credential auth.Credential, sourceId, destinationId, submissionId uuid.UUID,
 	files []endpoints.FileTransfer) (uuid.UUID, error) {
 	var xferId uuid.UUID
 
@@ -420,26 +420,28 @@ func (c GlobusTransferClient) submitTransfer(sourceId, destinationId, submission
 
 	// submit the transfer request
 	type SubmissionRequest struct {
-		DataType            string         `json:"DATA_TYPE"` // "transfer"
-		Id                  string         `json:"submission_id"`
-		Label               string         `json:"label"` // "DTS"
-		Data                []TransferItem `json:"DATA"`
-		DestinationEndpoint string         `json:"destination_endpoint"`
-		SourceEndpoint      string         `json:"source_endpoint"`
-		SyncLevel           int            `json:"sync_level"`
-		VerifyChecksum      bool           `json:"verify_checksum"`
-		FailOnQuotaErrors   bool           `json:"fail_on_quota_errors"`
+		DataType             string         `json:"DATA_TYPE"` // "transfer"
+		Id                   string         `json:"submission_id"`
+		Label                string         `json:"label"` // "DTS"
+		Data                 []TransferItem `json:"DATA"`
+		DestinationEndpoint  string         `json:"destination_endpoint"`
+		DestinationLocalUser string         `json:"destination_local_user"`
+		SourceEndpoint       string         `json:"source_endpoint"`
+		SyncLevel            int            `json:"sync_level"`
+		VerifyChecksum       bool           `json:"verify_checksum"`
+		FailOnQuotaErrors    bool           `json:"fail_on_quota_errors"`
 	}
 	data, err := json.Marshal(SubmissionRequest{
-		DataType:            "transfer",
-		Id:                  submissionId.String(),
-		Label:               "DTS",
-		Data:                xferItems,
-		DestinationEndpoint: destinationId.String(),
-		SourceEndpoint:      sourceId.String(),
-		SyncLevel:           syncLevel,
-		VerifyChecksum:      verifyChecksum,
-		FailOnQuotaErrors:   true,
+		DataType:             "transfer",
+		Id:                   submissionId.String(),
+		Label:                "DTS",
+		Data:                 xferItems,
+		DestinationEndpoint:  destinationId.String(),
+		DestinationLocalUser: credential.Username,
+		SourceEndpoint:       sourceId.String(),
+		SyncLevel:            syncLevel,
+		VerifyChecksum:       verifyChecksum,
+		FailOnQuotaErrors:    true,
 	})
 	if err != nil {
 		return xferId, err
@@ -547,17 +549,17 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 }
 
 // https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
-func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) error {
+func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) (auth.Credential, error) {
 	for connectionProvider, credential := range user.ConnectionCredentials {
 		if connectionProvider == provider && provider == "s3" {
 			return c.addOrUpdateS3UserCredential(user, credential)
 		}
 	}
-	return fmt.Errorf("unsupported user credential provider: %s", provider)
+	return auth.Credential{}, fmt.Errorf("unsupported user credential provider: %s", provider)
 }
 
 // Returns a list of storage providers supported by the underlying storage gateway.
-func (m GlobusServerManagerClient) StoragePolicies() ([]string, error) {
+func (m GlobusServerManagerClient) StorageProviders() ([]string, error) {
 	var response GlobusManagerApiResult_1_1_0
 
 	values := url.Values{}
@@ -863,8 +865,8 @@ func (m *GlobusServerManagerClient) getCollectionInfo() error {
 }
 
 // NOTE: For now, we only allow a single S3 credential per user to be registered with a Globus
-// NOTE: endpoint per user, using the DTS client ID
-func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) error {
+// NOTE: endpoint per user, using the user's ORCID
+func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
 	var record GlobusUserCredentialRecord
 	var response GlobusManagerApiResult_1_1_0
 	var found bool
@@ -882,14 +884,14 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 			}
 			if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
 				// S3 policy is up to date -- nothing to do
-				return nil
+				return credential, nil
 			}
 
 			// update the S3 policy in place
 			s3Policy.S3KeyId = credential.Id
 			s3Policy.S3SecretKey = credential.Secret
 			if record.Policies[i], err = json.Marshal(s3Policy); err != nil {
-				return err
+				return auth.Credential{}, err
 			}
 			break
 		}
@@ -902,16 +904,16 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 				S3KeyId:     credential.Id,
 				S3SecretKey: credential.Secret,
 			}); err != nil {
-				return err
+				return auth.Credential{}, err
 			}
 			record.Policies = append(record.Policies, newS3Policy)
 		}
 
 		if payload, err = json.Marshal(record); err != nil {
-			return err
+			return auth.Credential{}, err
 		}
 		if body, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
-			return err
+			return auth.Credential{}, err
 		}
 	} else {
 		// No existing record -- create a new one.
@@ -921,35 +923,35 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 			S3KeyId:     credential.Id,
 			S3SecretKey: credential.Secret,
 		}); err != nil {
-			return err
+			return auth.Credential{}, err
 		}
 		record = GlobusUserCredentialRecord{
 			DataType:         "user_credential#1.0.0",
 			ConnectorId:      m.ConnectorId.String(),
 			DisplayName:      user.Name,
 			Id:               uuid.New().String(),
-			IdentityId:       m.ClientId, // NOTE: DTS masquerades as the user for this transfer
+			IdentityId:       user.Orcid, // NOTE: user's ORCID is the credential identifier
 			Policies:         []json.RawMessage{newS3Policy},
 			Provisioned:      true, // NOTE: credential is fully provisioned programmatically
 			StorageGatewayId: m.StorageGatewayId.String(),
 			Username:         credential.Username,
 		}
 		if payload, err = json.Marshal(record); err != nil {
-			return err
+			return auth.Credential{}, err
 		}
 		if body, err = m.post("api/user_credentials", bytes.NewReader(payload)); err != nil {
-			return err
+			return auth.Credential{}, err
 		}
 	}
 
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return err
+		return auth.Credential{}, err
 	}
 	if response.HttpResponseCode != http.StatusOK && response.HttpResponseCode != http.StatusCreated {
-		return errors.New(response.Message)
+		return auth.Credential{}, errors.New(response.Message)
 	}
-	return nil
+	return credential, nil
 }
 
 func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User, credential auth.Credential) (GlobusUserCredentialRecord, bool, error) {
@@ -957,7 +959,7 @@ func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User, cred
 	values := url.Values{}
 	values.Add("include", "all")
 	values.Add("storage_gateway", m.StorageGatewayId.String())
-	body, err := m.get("api/user_credentials", url.Values{})
+	body, err := m.get(fmt.Sprintf("api/user_credential/%s", user.Orcid), url.Values{})
 	if err != nil {
 		return GlobusUserCredentialRecord{}, false, err
 	}
@@ -972,10 +974,7 @@ func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User, cred
 		return GlobusUserCredentialRecord{}, false, err
 	}
 	for _, existingCred := range existingCreds {
-		if existingCred.IdentityId != m.ClientId { // credential not managed by DTS
-			continue
-		}
-		if existingCred.Username == credential.Username { // found it!
+		if existingCred.IdentityId == user.Orcid {
 			return existingCred, true, nil
 		}
 	}

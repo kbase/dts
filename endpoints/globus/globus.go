@@ -425,7 +425,7 @@ func (c GlobusTransferClient) submitTransfer(credential auth.Credential, sourceI
 		Label                string         `json:"label"` // "DTS"
 		Data                 []TransferItem `json:"DATA"`
 		DestinationEndpoint  string         `json:"destination_endpoint"`
-		DestinationLocalUser string         `json:"destination_local_user"`
+		DestinationLocalUser string         `json:"destination_local_user,omitempty"`
 		SourceEndpoint       string         `json:"source_endpoint"`
 		SyncLevel            int            `json:"sync_level"`
 		VerifyChecksum       bool           `json:"verify_checksum"`
@@ -865,7 +865,7 @@ func (m *GlobusServerManagerClient) getCollectionInfo() error {
 }
 
 // NOTE: For now, we only allow a single S3 credential per user to be registered with a Globus
-// NOTE: endpoint per user, using the user's ORCID
+// NOTE: endpoint per user, using the user's ORCID.
 func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
 	var record GlobusUserCredentialRecord
 	var response GlobusManagerApiResult_1_1_0
@@ -873,9 +873,10 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 	var payload, body []byte
 	var err error
 
-	if record, found, _ = m.findUserCredentialRecord(user, credential); found {
+	if record, found, _ = m.findUserCredentialRecord(user); found {
 		// Update the record with a new S3 policy, leaving other policies intact
 		foundS3Policy := false
+		slog.Debug("Looking for user S3 credential...")
 		for i, policy := range record.Policies {
 			var s3Policy GlobusS3UserCredentialPolicies_1_2_0
 			err := json.Unmarshal(policy, &s3Policy)
@@ -884,6 +885,7 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 			}
 			if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
 				// S3 policy is up to date -- nothing to do
+				slog.Debug("BINGO")
 				return credential, nil
 			}
 
@@ -898,6 +900,7 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 
 		// If we didn't find an S3 policy attached to this record, append it.
 		if !foundS3Policy {
+			slog.Debug("S3 credential not found. Registering.")
 			var newS3Policy []byte
 			if newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
 				DataType:    "s3_user_credential_policies#1.2.0",
@@ -954,7 +957,7 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 	return credential, nil
 }
 
-func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User, credential auth.Credential) (GlobusUserCredentialRecord, bool, error) {
+func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User) (GlobusUserCredentialRecord, bool, error) {
 	var response GlobusManagerApiResult_1_1_0
 	values := url.Values{}
 	values.Add("include", "all")

@@ -217,10 +217,12 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	// credential that allows them to connect.
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
-		if serverManager, err := ep.Globus.ServerManagerClient(); err == nil {
-			if credential, err = serverManager.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
-				return uuid.UUID{}, err
-			}
+		serverManager, err := ep.Globus.ServerManagerClient()
+		if err != nil {
+			return uuid.UUID{}, err
+		}
+		if credential, err = serverManager.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
+			return uuid.UUID{}, err
 		}
 	}
 

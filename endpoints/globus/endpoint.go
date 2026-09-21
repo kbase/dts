@@ -217,6 +217,7 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	// credential that allows them to connect.
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
+		slog.Debug("Source and destination providers differ, registering credentials...")
 		serverManager, err := ep.Globus.ServerManagerClient()
 		if err != nil {
 			return uuid.UUID{}, err
@@ -303,15 +304,16 @@ func (ep *Endpoint) determineProvider() (string, error) {
 	if err != nil { // couldn't connect to server manager client -- we are Globus only
 		return "globus", nil
 	}
-	providers, err := manager.StorageProviders()
+
+	// sift through the storage policies on the manager's underlying storage gateway
+	// NOTE: we assume only a single Globus premium connector is present, and we match the
+	// first policy we find.
+	policies, err := manager.StoragePolicies()
 	if err != nil {
 		return "", err
 	}
-
-	// NOTE: we assume only a single Globus premium connector is present, and we match the
-	// first one we find.
-	for _, provider := range providers {
-		if provider == "s3" {
+	for _, policy := range policies {
+		if policy == "s3" {
 			return "s3", nil
 		}
 	}

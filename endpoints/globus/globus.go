@@ -558,29 +558,41 @@ func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, pro
 	return auth.Credential{}, fmt.Errorf("unsupported user credential provider: %s", provider)
 }
 
-// Returns a list of storage providers supported by the underlying storage gateway.
-func (m GlobusServerManagerClient) StorageProviders() ([]string, error) {
+// Returns a list of lower-case names of storage providers supported by the underlying storage
+// gateway. Supported storage policies are: "s3"
+func (m GlobusServerManagerClient) StoragePolicies() ([]string, error) {
 	var response GlobusManagerApiResult_1_1_0
 
-	values := url.Values{}
-	values.Add("include", "all")
-	values.Add("storage_gateway", m.StorageGatewayId.String())
-	body, err := m.get("api/user_credentials", url.Values{})
+	body, err := m.get(fmt.Sprintf("api/storage_gateways/%s", m.StorageGatewayId.String()), url.Values{})
 	if err != nil {
 		return []string{}, err
 	}
 	if err = json.Unmarshal(body, &response); err != nil {
 		return []string{}, err
 	}
-	type GlobusS3StoragePolicies_1_3_0 struct {
-		DataType  string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
-		S3Buckets string `json:"s3_buckets"`
+	type GlobusStorageGateway_1_3_0 struct {
+		DataType string            `json:"DATA_TYPE"` // always `s3_storage_gateway#1.3.0`
+		Policies []json.RawMessage `json:"policies"`
 	}
-	var policies []GlobusS3StoragePolicies_1_3_0
-	if err = json.Unmarshal(response.Data, &policies); err != nil {
+	var gateways []GlobusStorageGateway_1_3_0
+	if err = json.Unmarshal(response.Data, &gateways); err != nil {
 		return []string{}, err
 	}
-	return []string{"s3"}, nil
+	for _, gateway := range gateways {
+		for p := range gateway.Policies {
+			type GlobusS3StoragePolicies_1_3_0 struct {
+				DataType   string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
+				S3Buckets  string `json:"s3_buckets"`
+				S3Endpoint string `json:"s3_endpoint"`
+			}
+			var policy []GlobusS3StoragePolicies_1_3_0
+			if err = json.Unmarshal(gateway.Policies[p], &policy); err != nil {
+				continue
+			}
+			return []string{"s3"}, nil
+		}
+	}
+	return []string{}, nil
 }
 
 //-----------

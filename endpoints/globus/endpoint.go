@@ -97,9 +97,11 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	}
 	ep.Paths.Data = config.DataPath
 
+	slog.Debug("OHAI")
 	if ep.provider, err = ep.determineProvider(); err != nil {
 		return nil, err
 	}
+	slog.Debug("OHAI OHAI")
 
 	return ep, nil
 }

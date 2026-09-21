@@ -309,7 +309,7 @@ func (ep *Endpoint) determineProvider() (string, error) {
 	// NOTE: we assume only a single Globus premium connector is present, and we match the
 	// first policy we find.
 	policies, err := manager.StoragePolicies()
-	slog.Debug("Storage gateway policies: %v", policies)
+	slog.Debug(fmt.Sprintf("Storage gateway policies: %v", policies))
 	if err != nil {
 		return "", err
 	}

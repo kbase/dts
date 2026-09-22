@@ -300,27 +300,32 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 
 func (ep *Endpoint) determineProvider() (string, error) {
-	manager, err := ep.Globus.ConnectServerManagerClient()
-	if err != nil {
-		if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {
-			// No Globus Connect Manager Server -- we are Globus only
-			return "globus", nil
+	/*
+		manager, err := ep.Globus.ConnectServerManagerClient()
+		if err != nil {
+			if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {
+				// No Globus Connect Manager Server -- we are Globus only
+				return "globus", nil
+			}
+			return "", err // something went wrong accessing the API
 		}
-		return "", err // something went wrong accessing the API
-	}
 
-	// sift through the storage policies on the manager's underlying storage gateway
-	// NOTE: we assume only a single Globus premium connector is present, and we match the
-	// first policy we find.
-	policies, err := manager.StoragePolicies()
-	slog.Debug(fmt.Sprintf("Storage gateway policies: %v", policies))
-	if err != nil {
-		return "", err
-	}
-	for _, policy := range policies {
-		if policy == "s3" {
-			return "s3", nil
+		// sift through the storage policies on the manager's underlying storage gateway
+		// NOTE: we assume only a single Globus premium connector is present, and we match the
+		// first policy we find.
+		policies, err := manager.StoragePolicies()
+		slog.Debug(fmt.Sprintf("Storage gateway policies: %v", policies))
+		if err != nil {
+			return "", err
 		}
+		for _, policy := range policies {
+			if policy == "s3" {
+				return "s3", nil
+			}
+		}
+	*/
+	if ep.Globus.Info.S3Url != "" {
+		return "s3", nil
 	}
 	return "globus", nil
 }

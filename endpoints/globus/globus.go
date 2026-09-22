@@ -91,6 +91,7 @@ type GlobusEndpointInfo struct {
 	GCSManagerUrl      string `json:"gcs_manager_url"`      // non-blank if GCS Manager operations are supported
 	HttpsServer        string `json:"https_server"`         // non-blank if HTTPS transfers are supported
 	MappedCollectionId string `json:"mapped_collection_id"` // non-blank if GCS Manager operations are supported
+	S3Url              string `json:"s3_url"`               // non-blank if endpoint uses S3 connector
 }
 
 type GlobusTransferStatus struct {

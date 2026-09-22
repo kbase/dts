@@ -310,17 +310,14 @@ func (ep *Endpoint) determineProvider() (string, error) {
 			return "", err // something went wrong accessing the API
 		}
 
-		// sift through the storage policies on the manager's underlying storage gateway
-		// NOTE: we assume only a single Globus premium connector is present, and we match the
-		// first policy we find.
-		policies, err := manager.StoragePolicies()
-		slog.Debug(fmt.Sprintf("Storage gateway policies: %v", policies))
-		if err != nil {
-			return "", err
-		}
-		for _, policy := range policies {
-			if policy == "s3" {
-				return "s3", nil
+		// sift through the storage providers in the gateways
+		// NOTE: we match the first policy we find
+		for _, gateway := range manager.StorageGateways {
+			for _, provider := range gateway.Providers {
+				slog.Debug(fmt.Sprintf("Storage gateway provider: %s", provider))
+				if provider == "s3" {
+					return "s3", nil
+				}
 			}
 		}
 		return "globus", nil

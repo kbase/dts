@@ -867,6 +867,7 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 	if err := json.Unmarshal(body, &response); err != nil {
 		return err
 	}
+	slog.Debug(fmt.Sprintf("GCS Manager API response: %s (%s)", response.Message, response.Code))
 	if response.HttpResponseCode != http.StatusOK {
 		return errors.New(response.Message)
 	}

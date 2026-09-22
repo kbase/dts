@@ -323,7 +323,7 @@ func (ep *Endpoint) determineProvider() (string, error) {
 				return "s3", nil
 			}
 		}
-		return "s3", nil
+		return "globus", nil
 	}
 	return "globus", nil
 }

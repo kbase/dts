@@ -218,7 +218,7 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
 		slog.Debug("Source and destination providers differ, registering credentials...")
-		serverManager, err := ep.Globus.ServerManagerClient()
+		serverManager, err := ep.Globus.ConnectServerManagerClient()
 		if err != nil {
 			return uuid.UUID{}, err
 		}
@@ -300,9 +300,9 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 
 func (ep *Endpoint) determineProvider() (string, error) {
-	manager, err := ep.Globus.ServerManagerClient()
+	manager, err := ep.Globus.ConnectServerManagerClient()
 	if err != nil {
-		if _, notAvailable := err.(*GlobusConnectManagerServerNotAvailableError); notAvailable {
+		if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {
 			// No Globus Connect Manager Server -- we are Globus only
 			return "globus", nil
 		}

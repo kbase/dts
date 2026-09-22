@@ -881,6 +881,7 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		return err
 	}
 	for _, g := range gateways {
+		slog.Debug("Found storage gateway %s", g.Id)
 		var gateway GlobusStorageGateway
 		gateway.ConnectorId = uuid.MustParse(g.ConnectorId)
 		gateway.Id = uuid.MustParse(g.Id)
@@ -894,6 +895,7 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 			if err = json.Unmarshal(g.Policies[p], &policy); err != nil {
 				continue
 			}
+			slog.Debug("Found S3 storage policy %s", g.Id)
 			gateway.Providers = append(gateway.Providers, "s3")
 		}
 		m.StorageGateways = append(m.StorageGateways, gateway)

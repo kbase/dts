@@ -86,13 +86,14 @@ func (e GlobusConnectServerManagerNotAvailableError) Error() string {
 }
 
 type GlobusEndpointInfo struct {
-	DisableVerify      bool   `json:"disable_verify"`       // true if checksums are not available
-	EntityType         string `json:"entity_type"`          // indicates type of Globus endpoint server
-	ForceVerify        bool   `json:"force_verify"`         // true if checksums must be available
-	GCSManagerUrl      string `json:"gcs_manager_url"`      // non-blank if GCS Manager operations are supported
-	HighAssurance      bool   `json:"high_assurance"`       // true if endpoint is a connector
-	HttpsServer        string `json:"https_server"`         // non-blank if HTTPS transfers are supported
-	MappedCollectionId string `json:"mapped_collection_id"` // non-blank if GCS Manager operations are supported
+	DisableVerify           bool   `json:"disable_verify"`       // true if checksums are not available
+	EntityType              string `json:"entity_type"`          // indicates type of Globus endpoint server
+	ForceVerify             bool   `json:"force_verify"`         // true if checksums must be available
+	GCSManagerUrl           string `json:"gcs_manager_url"`      // non-blank if GCS Manager operations are supported
+	HighAssurance           bool   `json:"high_assurance"`       // true if endpoint is a connector
+	HttpsServer             string `json:"https_server"`         // non-blank if HTTPS transfers are supported
+	MappedCollectionId      string `json:"mapped_collection_id"` // non-blank if GCS Manager operations are supported
+	NonFunctionalEndpointId string `json:"non_functional_endpoint_id"`
 }
 
 type GlobusTransferStatus struct {
@@ -186,7 +187,7 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 	}
 	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}
 	if !t.Info.HighAssurance {
-		scopes = append(scopes, fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access", t.Info.MappedCollectionId))
+		scopes = append(scopes, fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access", t.Info.NonFunctionalEndpointId))
 	}
 	m := GlobusConnectServerManagerClient{
 		ClientId:   t.Auth.Credential.Id,
@@ -252,20 +253,21 @@ func (c GlobusAuthClient) Authenticate(scopes []string) (string, error) {
 			// report the authentication error without details
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
 		}
-		if authError.Error == "unknown_scope_error" {
+		switch authError.Error {
+		case "unknown_scope_error":
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: unknown scope(s) requested: %v (%d)",
 				scopes, resp.StatusCode)
-		}
-		if authError.Error == "invalid_scope_error" {
+		case "invalid_scope_error":
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: invalid scope(s) requested: %v (%d)",
 				scopes, resp.StatusCode)
+		default:
+			if len(authError.Description) > 0 {
+				return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
+					authError.Error, authError.Description, resp.StatusCode)
+			}
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
+				authError.Error, resp.StatusCode)
 		}
-		if len(authError.Description) > 0 {
-			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
-				authError.Error, authError.Description, resp.StatusCode)
-		}
-		return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s (%d)",
-			authError.Error, resp.StatusCode)
 	}
 
 	// read and unmarshal the response

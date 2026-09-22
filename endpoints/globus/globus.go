@@ -64,6 +64,27 @@ func (e GlobusGenericError) Error() string {
 	return e.Message
 }
 
+// this error indicates that a Globus endpoint has no associated HTTPS server
+type GlobusHttpsClientNotAvailableError struct {
+	Endpoint uuid.UUID
+}
+
+func (e GlobusHttpsClientNotAvailableError) Error() string {
+	return fmt.Sprintf("no HTTPS Server is not available for endpoint %s",
+		e.Endpoint.String())
+}
+
+// this error indicates that the Globus Connect Server Manager client is not available for the
+// endpoint in question
+type GlobusConnectServerManagerNotAvailableError struct {
+	Endpoint uuid.UUID
+}
+
+func (e GlobusConnectServerManagerNotAvailableError) Error() string {
+	return fmt.Sprintf("the Globus Connect Manager Server API is not available for endpoint %s",
+		e.Endpoint.String())
+}
+
 type GlobusEndpointInfo struct {
 	DisableVerify bool   `json:"disable_verify"`  // true if checksums are not available
 	ForceVerify   bool   `json:"force_verify"`    // true if checksums must be available
@@ -108,7 +129,7 @@ type GlobusHttpsClient struct {
 
 // Globus Connect Server Manager API
 // https://docs.globus.org/globus-connect-server/v5.4/api/
-type GlobusServerManagerClient struct {
+type GlobusConnectServerManagerClient struct {
 	AccessToken      string
 	ClientId         string // credential ID that granted access token
 	EndpointId       uuid.UUID
@@ -141,7 +162,7 @@ func NewGlobusTransferClient(credential auth.Credential, endpointId uuid.UUID) (
 
 func (t GlobusTransferClient) HttpsClient(endpointId uuid.UUID) (GlobusHttpsClient, error) {
 	if t.Info.HttpsServer == "" {
-		return GlobusHttpsClient{}, fmt.Errorf("globus endpoint %s has no HTTPS server", t.EndpointId.String())
+		return GlobusHttpsClient{}, &GlobusHttpsClientNotAvailableError{t.EndpointId}
 	}
 	h := GlobusHttpsClient{
 		Scopes: []string{
@@ -156,11 +177,11 @@ func (t GlobusTransferClient) HttpsClient(endpointId uuid.UUID) (GlobusHttpsClie
 	return h, nil
 }
 
-func (t GlobusTransferClient) ServerManagerClient() (GlobusServerManagerClient, error) {
+func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerManagerClient, error) {
 	if t.Info.GCSManagerUrl == "" {
-		return GlobusServerManagerClient{}, fmt.Errorf("globus Connect Server Manager API not available for endpoint %s", t.EndpointId.String())
+		return GlobusConnectServerManagerClient{}, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
 	}
-	m := GlobusServerManagerClient{
+	m := GlobusConnectServerManagerClient{
 		ClientId:   t.Auth.Credential.Id,
 		EndpointId: t.EndpointId,
 		Scopes:     []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}, // fancy!
@@ -168,7 +189,7 @@ func (t GlobusTransferClient) ServerManagerClient() (GlobusServerManagerClient, 
 	}
 	var err error
 	if m.AccessToken, err = t.Auth.Authenticate(m.Scopes); err != nil {
-		return GlobusServerManagerClient{}, err
+		return GlobusConnectServerManagerClient{}, err
 	}
 
 	// get the storage gateway ID for this endpoint / collection
@@ -223,6 +244,10 @@ func (c GlobusAuthClient) Authenticate(scopes []string) (string, error) {
 		if err != nil {
 			// report the authentication error without details
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API (%d)", resp.StatusCode)
+		}
+		if authError.Error == "unknown_scope_error" {
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: unknown scope(s) requested: %v (%d)",
+				scopes, resp.StatusCode)
 		}
 		if len(authError.Description) > 0 {
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
@@ -549,7 +574,7 @@ func (c GlobusHttpsClient) PutFile(path string, body io.Reader) error {
 }
 
 // https://docs.globus.org/globus-connect-server/v5.4/api/openapi_User_Credentials/#postUserCredential
-func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) (auth.Credential, error) {
+func (c GlobusConnectServerManagerClient) AddOrUpdateUserCredential(user auth.User, provider string) (auth.Credential, error) {
 	for connectionProvider, credential := range user.ConnectionCredentials {
 		if connectionProvider == provider && provider == "s3" {
 			return c.addOrUpdateS3UserCredential(user, credential)
@@ -560,7 +585,7 @@ func (c GlobusServerManagerClient) AddOrUpdateUserCredential(user auth.User, pro
 
 // Returns a list of lower-case names of storage providers supported by the underlying storage
 // gateway. Supported storage policies are: "s3"
-func (m GlobusServerManagerClient) StoragePolicies() ([]string, error) {
+func (m GlobusConnectServerManagerClient) StoragePolicies() ([]string, error) {
 	var response GlobusManagerApiResult_1_1_0
 
 	body, err := m.get(fmt.Sprintf("api/storage_gateways/%s", m.StorageGatewayId.String()), url.Values{})
@@ -738,7 +763,7 @@ type GlobusEvent struct {
 	Time        string `json:"time"`
 }
 
-func (c GlobusServerManagerClient) get(resource string, values url.Values) ([]byte, error) {
+func (c GlobusConnectServerManagerClient) get(resource string, values url.Values) ([]byte, error) {
 	resourcePath := c.Url + "/" + resource
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
@@ -762,7 +787,7 @@ func (c GlobusServerManagerClient) get(resource string, values url.Values) ([]by
 	return io.ReadAll(resp.Body)
 }
 
-func (c GlobusServerManagerClient) post(resource string, body io.Reader) ([]byte, error) {
+func (c GlobusConnectServerManagerClient) post(resource string, body io.Reader) ([]byte, error) {
 	resourcePath := c.Url + "/" + resource
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
@@ -786,7 +811,7 @@ func (c GlobusServerManagerClient) post(resource string, body io.Reader) ([]byte
 	return io.ReadAll(resp.Body)
 }
 
-func (c GlobusServerManagerClient) patch(resource string, body io.Reader) ([]byte, error) {
+func (c GlobusConnectServerManagerClient) patch(resource string, body io.Reader) ([]byte, error) {
 	resourcePath := c.Url + "/" + resource
 	u, err := url.ParseRequestURI(resourcePath)
 	if err != nil {
@@ -848,7 +873,7 @@ type GlobusUserCredentialRecord struct {
 	Username         string            `json:"username"`
 }
 
-func (m *GlobusServerManagerClient) getCollectionInfo() error {
+func (m *GlobusConnectServerManagerClient) getCollectionInfo() error {
 	body, err := m.get(fmt.Sprintf("api/collections/%s", m.EndpointId.String()), url.Values{})
 	if err != nil {
 		return err
@@ -878,7 +903,7 @@ func (m *GlobusServerManagerClient) getCollectionInfo() error {
 
 // NOTE: For now, we only allow a single S3 credential per user to be registered with a Globus
 // NOTE: endpoint per user, using the user's ORCID.
-func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
+func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
 	var record GlobusUserCredentialRecord
 	var response GlobusManagerApiResult_1_1_0
 	var found bool
@@ -969,7 +994,7 @@ func (m GlobusServerManagerClient) addOrUpdateS3UserCredential(user auth.User, c
 	return credential, nil
 }
 
-func (m GlobusServerManagerClient) findUserCredentialRecord(user auth.User) (GlobusUserCredentialRecord, bool, error) {
+func (m GlobusConnectServerManagerClient) findUserCredentialRecord(user auth.User) (GlobusUserCredentialRecord, bool, error) {
 	var response GlobusManagerApiResult_1_1_0
 	values := url.Values{}
 	values.Add("include", "all")

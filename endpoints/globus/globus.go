@@ -87,11 +87,12 @@ func (e GlobusConnectServerManagerNotAvailableError) Error() string {
 
 type GlobusEndpointInfo struct {
 	DisableVerify      bool   `json:"disable_verify"`       // true if checksums are not available
+	EntityType         string `json:"entity_type"`          // indicates type of Globus endpoint server
 	ForceVerify        bool   `json:"force_verify"`         // true if checksums must be available
 	GCSManagerUrl      string `json:"gcs_manager_url"`      // non-blank if GCS Manager operations are supported
+	HighAssurance      bool   `json:"high_assurance"`       // true if endpoint is a connector
 	HttpsServer        string `json:"https_server"`         // non-blank if HTTPS transfers are supported
 	MappedCollectionId string `json:"mapped_collection_id"` // non-blank if GCS Manager operations are supported
-	IsGlobusConnect    bool   `json:"is_globus_connect"`    // true if endpoint is a connector
 }
 
 type GlobusTransferStatus struct {
@@ -183,14 +184,15 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 	if t.Info.GCSManagerUrl == "" {
 		return GlobusConnectServerManagerClient{}, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
 	}
+	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}
+	if t.Info.HighAssurance {
+		scopes = append(scopes, fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access", t.Info.MappedCollectionId))
+	}
 	m := GlobusConnectServerManagerClient{
 		ClientId:   t.Auth.Credential.Id,
 		EndpointId: t.EndpointId,
-		Scopes: []string{
-			fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String()),
-			fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access", t.Info.MappedCollectionId),
-		},
-		Url: t.Info.GCSManagerUrl,
+		Scopes:     scopes,
+		Url:        t.Info.GCSManagerUrl,
 	}
 	var err error
 	if m.AccessToken, err = t.Auth.Authenticate(m.Scopes); err != nil {

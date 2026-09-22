@@ -300,7 +300,7 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 
 func (ep *Endpoint) determineProvider() (string, error) {
-	if ep.Globus.Info.IsGlobusConnect {
+	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" {
 		manager, err := ep.Globus.ConnectServerManagerClient()
 		if err != nil {
 			if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {

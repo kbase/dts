@@ -185,7 +185,7 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 		return GlobusConnectServerManagerClient{}, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
 	}
 	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}
-	if t.Info.HighAssurance {
+	if !t.Info.HighAssurance {
 		scopes = append(scopes, fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access", t.Info.MappedCollectionId))
 	}
 	m := GlobusConnectServerManagerClient{

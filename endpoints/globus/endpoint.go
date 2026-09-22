@@ -302,7 +302,6 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 func (ep *Endpoint) determineProvider() (string, error) {
 	manager, err := ep.Globus.ServerManagerClient()
 	if err != nil { // couldn't connect to server manager client -- we are Globus only
-		slog.Debug(err.Error())
 		return "globus", nil
 	}
 

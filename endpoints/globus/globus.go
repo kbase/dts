@@ -256,6 +256,10 @@ func (c GlobusAuthClient) Authenticate(scopes []string) (string, error) {
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: unknown scope(s) requested: %v (%d)",
 				scopes, resp.StatusCode)
 		}
+		if authError.Error == "invalid_scope_error" {
+			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: invalid scope(s) requested: %v (%d)",
+				scopes, resp.StatusCode)
+		}
 		if len(authError.Description) > 0 {
 			return "", fmt.Errorf("couldn't authenticate via Globus Auth API: %s; %s (%d)",
 				authError.Error, authError.Description, resp.StatusCode)

@@ -300,7 +300,7 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 
 func (ep *Endpoint) determineProvider() (string, error) {
-	/*
+	if ep.Globus.Info.IsGlobusConnect {
 		manager, err := ep.Globus.ConnectServerManagerClient()
 		if err != nil {
 			if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {
@@ -323,8 +323,6 @@ func (ep *Endpoint) determineProvider() (string, error) {
 				return "s3", nil
 			}
 		}
-	*/
-	if ep.Globus.Info.S3Url != "" {
 		return "s3", nil
 	}
 	return "globus", nil

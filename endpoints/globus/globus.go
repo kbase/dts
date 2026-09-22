@@ -184,7 +184,7 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 	m := GlobusConnectServerManagerClient{
 		ClientId:   t.Auth.Credential.Id,
 		EndpointId: t.EndpointId,
-		Scopes:     []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}, // fancy!
+		Scopes:     []string{fmt.Sprintf("urn:globus:auth:scope:%s:all", t.EndpointId.String())}, // fancy!
 		Url:        t.Info.GCSManagerUrl,
 	}
 	var err error

@@ -93,7 +93,7 @@ type GlobusEndpointInfo struct {
 	HighAssurance           bool   `json:"high_assurance"`       // true if endpoint is a connector
 	HttpsServer             string `json:"https_server"`         // non-blank if HTTPS transfers are supported
 	MappedCollectionId      string `json:"mapped_collection_id"` // non-blank if GCS Manager operations are supported
-	NonFunctionalEndpointId string `json:"non_functional_endpoint_id"`
+	NonfunctionalEndpointId string `json:"non_functional_endpoint_id"`
 }
 
 type GlobusTransferStatus struct {
@@ -190,7 +190,7 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 	if t.Info.GCSManagerUrl == "" {
 		return GlobusConnectServerManagerClient{}, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
 	}
-	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.EndpointId.String())}
+	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.Info.NonfunctionalEndpointId)}
 	//if !t.Info.HighAssurance {
 	//	scopes[0] += fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access]", t.EndpointId)
 	//}
@@ -224,11 +224,10 @@ func NewGlobusAuthClient(credential auth.Credential) (*GlobusAuthClient, error) 
 // (https://docs.globus.org/api/auth/reference/#client_credentials_grant)
 // returns an access token corresponding to the given set of scopes
 func (c GlobusAuthClient) Authenticate(scopes []string) (string, error) {
-	authUrl := "https://auth.globus.org/v2/oauth2/token"
 	data := url.Values{}
 	data.Set("scope", strings.Join(scopes, " "))
 	data.Set("grant_type", "client_credentials")
-	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
+	req, err := http.NewRequest(http.MethodPost, c.Url, strings.NewReader(data.Encode()))
 	if err != nil {
 		return "", err
 	}

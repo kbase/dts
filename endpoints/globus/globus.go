@@ -205,10 +205,8 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 		return GlobusConnectServerManagerClient{}, err
 	}
 
-	// get the storage gateway ID for this endpoint / collection
-	m.getStorageGatewayInfo()
-
-	return m, nil
+	err = m.getStorageGatewayInfo()
+	return m, err
 }
 
 // creates a new Globus endpoint using the given information

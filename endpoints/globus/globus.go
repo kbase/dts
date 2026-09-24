@@ -907,7 +907,7 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 	var payload, body []byte
 	var err error
 
-	if record, found, _ = m.findUserCredentialRecord(user); found {
+	if record, found, _ = m.findUserCredentialRecord(credential); found {
 		// Update the record with an S3 policy
 		slog.Debug("Looking for user S3 credential...")
 		var s3Policy GlobusS3UserCredentialPolicies_1_2_0
@@ -963,9 +963,9 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			ConnectorId:      connectorId.String(),
 			DisplayName:      user.Name,
 			Id:               uuid.New().String(),
-			IdentityId:       user.Orcid, // NOTE: user's ORCID is the credential identifier
+			IdentityId:       m.ClientId,
 			Policies:         newS3Policy,
-			Provisioned:      true, // NOTE: credential is fully provisioned programmatically
+			Provisioned:      true,
 			StorageGatewayId: storageGatewayId.String(),
 			Username:         credential.Username,
 		}
@@ -987,13 +987,13 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 	return credential, nil
 }
 
-func (m GlobusConnectServerManagerClient) findUserCredentialRecord(user auth.User) (GlobusUserCredentialRecord, bool, error) {
+func (m GlobusConnectServerManagerClient) findUserCredentialRecord(credential auth.Credential) (GlobusUserCredentialRecord, bool, error) {
 	for _, gateway := range m.StorageGateways {
 		var response GlobusManagerApiResult_1_1_0
 		values := url.Values{}
 		values.Add("include", "all")
 		values.Add("storage_gateway", gateway.Id.String())
-		body, err := m.get(fmt.Sprintf("api/user_credential/%s", user.Orcid), url.Values{})
+		body, err := m.get("api/user_credentials", url.Values{})
 		if err != nil {
 			return GlobusUserCredentialRecord{}, false, err
 		}
@@ -1008,7 +1008,7 @@ func (m GlobusConnectServerManagerClient) findUserCredentialRecord(user auth.Use
 			return GlobusUserCredentialRecord{}, false, err
 		}
 		for _, existingCred := range existingCreds {
-			if existingCred.IdentityId == user.Orcid {
+			if existingCred.Username == credential.Username {
 				return existingCred, true, nil
 			}
 		}

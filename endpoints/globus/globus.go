@@ -838,17 +838,17 @@ type GlobusS3UserCredentialPolicies_1_2_0 struct {
 	S3SecretKey     string                          `json:"s3_secret_key"`
 }
 type GlobusUserCredentialRecord struct {
-	DataType         string            `json:"DATA_TYPE"` // always `user_credential#1.0.0`
-	ConnectorId      string            `json:"connector_id"`
-	Deleted          bool              `json:"deleted"`
-	DisplayName      string            `json:"display_name"`
-	Id               string            `json:"id"`
-	IdentityId       string            `json:"identity_id"`
-	Invalid          bool              `json:"invalid"`
-	Policies         []json.RawMessage `json:"policies"`
-	Provisioned      bool              `json:"provisioned"`
-	StorageGatewayId string            `json:"storage_gateway_id"`
-	Username         string            `json:"username"`
+	DataType         string          `json:"DATA_TYPE"` // always `user_credential#1.0.0`
+	ConnectorId      string          `json:"connector_id"`
+	Deleted          bool            `json:"deleted"`
+	DisplayName      string          `json:"display_name"`
+	Id               string          `json:"id"`
+	IdentityId       string          `json:"identity_id"`
+	Invalid          bool            `json:"invalid"`
+	Policies         json.RawMessage `json:"policies"`
+	Provisioned      bool            `json:"provisioned"`
+	StorageGatewayId string          `json:"storage_gateway_id"`
+	Username         string          `json:"username"`
 }
 
 func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
@@ -908,49 +908,31 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 	var err error
 
 	if record, found, _ = m.findUserCredentialRecord(user); found {
-		// Update the record with a new S3 policy, leaving other policies intact
-		foundS3Policy := false
+		// Update the record with an S3 policy
 		slog.Debug("Looking for user S3 credential...")
-		for i, policy := range record.Policies {
-			var s3Policy GlobusS3UserCredentialPolicies_1_2_0
-			err := json.Unmarshal(policy, &s3Policy)
-			if err != nil { // not an S3 policy, move along
-				continue
-			}
-			if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
-				// S3 policy is up to date -- nothing to do
-				slog.Debug("BINGO")
-				return credential, nil
-			}
-
-			// update the S3 policy in place
+		var s3Policy GlobusS3UserCredentialPolicies_1_2_0
+		err := json.Unmarshal(record.Policies, &s3Policy)
+		if err != nil { // not an S3 policy
+			slog.Debug("Found a different *kind* of credential policy...?")
+			// insert an S3 policy and patch the registered credential
+			s3Policy.DataType = "s3_user_credential_policies#1.2.0"
 			s3Policy.S3KeyId = credential.Id
 			s3Policy.S3SecretKey = credential.Secret
-			if record.Policies[i], err = json.Marshal(s3Policy); err != nil {
+			if record.Policies, err = json.Marshal(s3Policy); err != nil {
 				return auth.Credential{}, err
 			}
-			break
-		}
-
-		// If we didn't find an S3 policy attached to this record, append it.
-		if !foundS3Policy {
-			slog.Debug("S3 credential not found. Registering.")
-			var newS3Policy []byte
-			if newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
-				DataType:    "s3_user_credential_policies#1.2.0",
-				S3KeyId:     credential.Id,
-				S3SecretKey: credential.Secret,
-			}); err != nil {
+			if payload, err = json.Marshal(record); err != nil {
 				return auth.Credential{}, err
 			}
-			record.Policies = append(record.Policies, newS3Policy)
+			if body, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
+				return auth.Credential{}, err
+			}
+			return credential, nil
 		}
-
-		if payload, err = json.Marshal(record); err != nil {
-			return auth.Credential{}, err
-		}
-		if body, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
-			return auth.Credential{}, err
+		if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
+			// S3 policy is up to date -- nothing to do
+			slog.Debug("BINGO")
+			return credential, nil
 		}
 	} else {
 		// No existing record -- create a new one.
@@ -982,7 +964,7 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			DisplayName:      user.Name,
 			Id:               uuid.New().String(),
 			IdentityId:       user.Orcid, // NOTE: user's ORCID is the credential identifier
-			Policies:         []json.RawMessage{newS3Policy},
+			Policies:         newS3Policy,
 			Provisioned:      true, // NOTE: credential is fully provisioned programmatically
 			StorageGatewayId: storageGatewayId.String(),
 			Username:         credential.Username,

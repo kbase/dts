@@ -134,7 +134,7 @@ type GlobusHttpsClient struct {
 type GlobusStorageGateway struct {
 	ConnectorId uuid.UUID
 	Id          uuid.UUID
-	Providers   []string // "s3", etc
+	Provider    string // "s3", etc
 }
 
 // Globus Connect Server Manager API
@@ -868,10 +868,10 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		return errors.New(response.Message)
 	}
 	type GlobusStorageGateway_1_3_0 struct {
-		ConnectorId string            `json:"connector_id"`
-		DataType    string            `json:"DATA_TYPE"` // always `s3_storage_gateway#1.3.0`
-		Id          string            `json:"id"`
-		Policies    []json.RawMessage `json:"policies"`
+		ConnectorId string          `json:"connector_id"`
+		DataType    string          `json:"DATA_TYPE"` // always `s3_storage_gateway#1.3.0`
+		Id          string          `json:"id"`
+		Policies    json.RawMessage `json:"policies"`
 	}
 	var gateways []GlobusStorageGateway_1_3_0
 	if err := json.Unmarshal(response.Data, &gateways); err != nil {
@@ -882,19 +882,17 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		var gateway GlobusStorageGateway
 		gateway.ConnectorId = uuid.MustParse(g.ConnectorId)
 		gateway.Id = uuid.MustParse(g.Id)
-		for p := range g.Policies {
-			type GlobusS3StoragePolicies_1_3_0 struct {
-				DataType   string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
-				S3Buckets  string `json:"s3_buckets"`
-				S3Endpoint string `json:"s3_endpoint"`
-			}
-			var policy []GlobusS3StoragePolicies_1_3_0
-			if err = json.Unmarshal(g.Policies[p], &policy); err != nil {
-				continue
-			}
-			slog.Debug(fmt.Sprintf("Found S3 storage policy %s", g.Id))
-			gateway.Providers = append(gateway.Providers, "s3")
+		type GlobusS3StoragePolicies_1_3_0 struct {
+			DataType   string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
+			S3Buckets  string `json:"s3_buckets"`
+			S3Endpoint string `json:"s3_endpoint"`
 		}
+		var policy GlobusS3StoragePolicies_1_3_0
+		if err = json.Unmarshal(g.Policies, &policy); err != nil {
+			continue
+		}
+		slog.Debug(fmt.Sprintf("Found S3 storage policy %s", g.Id))
+		gateway.Provider = "s3"
 		m.StorageGateways = append(m.StorageGateways, gateway)
 	}
 	return nil
@@ -968,12 +966,10 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		// Find our S3-powered storage gateway.
 		var connectorId, storageGatewayId uuid.UUID
 		for _, gateway := range m.StorageGateways {
-			for _, provider := range gateway.Providers {
-				if provider == "s3" {
-					storageGatewayId = gateway.Id
-					connectorId = gateway.ConnectorId
-					break
-				}
+			if gateway.Provider == "s3" {
+				storageGatewayId = gateway.Id
+				connectorId = gateway.ConnectorId
+				break
 			}
 			if storageGatewayId != uuid.Nil {
 				break

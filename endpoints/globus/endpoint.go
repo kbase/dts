@@ -313,11 +313,9 @@ func (ep *Endpoint) determineProvider() (string, error) {
 		// sift through the storage providers in the gateways
 		// NOTE: we match the first policy we find
 		for _, gateway := range manager.StorageGateways {
-			for _, provider := range gateway.Providers {
-				slog.Debug(fmt.Sprintf("Storage gateway provider: %s", provider))
-				if provider == "s3" {
-					return "s3", nil
-				}
+			slog.Debug(fmt.Sprintf("Storage gateway provider: %s", gateway.Provider))
+			if gateway.Provider == "s3" {
+				return "s3", nil
 			}
 		}
 		return "globus", nil

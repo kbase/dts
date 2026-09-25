@@ -22,10 +22,13 @@
 package endpoints
 
 import (
+	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 )
 
@@ -67,10 +70,19 @@ type TransferStatus struct {
 
 // This type represents an endpoint for transferring files.
 type Endpoint interface {
+	// Returns the endpoint's unique identifier.
+	Id() uuid.UUID
 	// Returns a string indicating the service provider for the endpoint.
 	Provider() string
-	// Returns the path on the file system that serves as the endpoint's root.
-	Root() string
+	// Returns the path on the file system that serves as the endpoint's base path, below which
+	// no files are visible.
+	BasePath() string
+	// Returns the path of the file system at which files of interest sit (relative to the base path).
+	// If blank, BasePath is used to locate files.
+	DataPath() string
+	// Returns true if this endpoint can transfer files to an endpoint with the given provider,
+	// false otherwise.
+	ConnectsWith(provider string) bool
 	// Returns true if the files associated with the given Frictionless
 	// descriptors are staged at this endpoint AND are valid, false otherwise.
 	FilesStaged(descriptors []map[string]any) (bool, error)
@@ -78,8 +90,9 @@ type Endpoint interface {
 	Transfers() ([]uuid.UUID, error)
 	// Begins a transfer task that moves the files identified by the FileTransfer
 	// structs, returning a UUID that can be used to refer to this task. It is assumed that there
-	// no duplicates in the list of files to be transfered.
-	Transfer(dst Endpoint, files []FileTransfer) (uuid.UUID, error)
+	// no duplicates in the list of files to be transfered. If authorization is not required for the
+	// transfer (e.g. DTS performs the transfer on a user's behalf), `user` can be zero-initialized.
+	Transfer(user auth.User, dst Endpoint, files []FileTransfer) (uuid.UUID, error)
 	// Retrieves the status for a transfer task identified by its UUID.
 	Status(id uuid.UUID) (TransferStatus, error)
 	// Cancels the transfer task with the given UUID (must return immediately,
@@ -135,6 +148,11 @@ func NewEndpoint(endpointName string) (Endpoint, error) {
 			}
 			if createEp, valid := createEndpointFuncs_[provider]; valid {
 				endpoint, err = createEp(epConfig)
+				if err != nil {
+					return endpoint, err
+				}
+				slog.Debug(fmt.Sprintf("Endpoint %s: base path is %s", endpointName, endpoint.BasePath()))
+				slog.Debug(fmt.Sprintf("Endpoint %s: relative data path is %s", endpointName, endpoint.DataPath()))
 			} else { // invalid provider!
 				err = InvalidProviderError{
 					Name:     endpointName,

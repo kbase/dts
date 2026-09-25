@@ -19,28 +19,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package kbase
+package kbase_lakehouse
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/databases/kbase" // for user federation
 	"github.com/kbase/dts/endpoints"
 )
 
 // file database appropriate for handling KBase searches and transfers
 // (implements the databases.Database interface)
 type Database struct {
+	// HTTP client that caches queries
+	Client http.Client
+	// Name of Globus/S3 lakehouse endpoint
 	EndpointName string
-	kbaseFed     KBaseUserFederation
+	// KBase user federation mechanism (reused from legacy KBase)
+	kbaseFed kbase.KBaseUserFederation
 }
 
 type Config struct {
-	Endpoint                  string `yaml:"endpoint"`
-	KBaseUserFederationConfig `yaml:",inline" mapstructure:",squash"`
+	Endpoint                        string `yaml:"endpoint"`
+	kbase.KBaseUserFederationConfig `yaml:",inline" mapstructure:",squash"`
 }
 
 func NewDatabase(conf Config) (databases.Database, error) {
@@ -51,8 +57,11 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	db := Database{
 		EndpointName: conf.Endpoint,
 	}
+
+	// FIXME: we reuse legacy KBase's user federation spreadsheet to map ORCIDs to
+	// FIXME: Lakehouse users. This should be replaced when practical.
 	var err error
-	db.kbaseFed, err = NewKBaseUserFederation(conf.KBaseUserFederationConfig)
+	db.kbaseFed, err = kbase.NewKBaseUserFederation(conf.KBaseUserFederationConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +69,6 @@ func NewDatabase(conf Config) (databases.Database, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &db, nil
 }
 
@@ -79,12 +87,12 @@ func (db *Database) SpecificSearchParameters() map[string]any {
 }
 
 func (db *Database) Search(orcid string, params databases.SearchParameters) (databases.SearchResults, error) {
-	err := fmt.Errorf("Search not implemented for kbase database")
+	err := fmt.Errorf("Search not implemented for kbase_lakehouse database")
 	return databases.SearchResults{}, err
 }
 
 func (db *Database) Descriptors(orcid string, fileIds []string) ([]map[string]any, error) {
-	err := fmt.Errorf("Descriptors not implemented for kbase database")
+	err := fmt.Errorf("Descriptors not implemented for kbase_lakehouse database")
 	return nil, err
 }
 
@@ -93,12 +101,12 @@ func (db *Database) EndpointNames() []string {
 }
 
 func (db *Database) StageFiles(orcid string, fileIds []string) (uuid.UUID, error) {
-	err := fmt.Errorf("StageFiles not implemented for kbase database")
+	err := fmt.Errorf("StageFiles not implemented for kbase_lakehouse database")
 	return uuid.UUID{}, err
 }
 
 func (db *Database) StagingStatus(id uuid.UUID) (databases.StagingStatus, error) {
-	err := fmt.Errorf("StagingStatus not implemented for kbase database")
+	err := fmt.Errorf("StagingStatus not implemented for kbase_lakehouse database")
 	return databases.StagingStatusUnknown, err
 }
 
@@ -113,13 +121,12 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 func (db Database) Save() (databases.DatabaseSaveState, error) {
 	// so far, this database has no internal state
 	return databases.DatabaseSaveState{
-		Name: "kbase",
+		Name: "kbase_lakehouse",
 	}, nil
 }
 
 func (db *Database) Load(state databases.DatabaseSaveState) error {
-	// no internal state -> nothing to do
-	return nil
+	return nil // no internal state
 }
 
 func (db *Database) FinalizeDatabase() error {

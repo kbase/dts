@@ -137,17 +137,17 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.Nil(err, "Error starting KBase user federation")
 
 	// look up a user
-	username, err := kbaseFed.usernameForOrcid("1234-5678-9101-112X")
+	username, err := kbaseFed.UsernameForOrcid("1234-5678-9101-112X")
 	assert.Nil(err, "Error looking up existing ORCID")
 	assert.Equal("Alice", username, "Incorrect username for existing ORCID")
 
 	// look up another user
-	username, err = kbaseFed.usernameForOrcid("9402-1876-5432-1098")
+	username, err = kbaseFed.UsernameForOrcid("9402-1876-5432-1098")
 	assert.Nil(err, "Error looking up existing ORCID")
 	assert.Equal("Dave", username, "Incorrect username for existing ORCID")
 
 	// look up a non-existing user
-	username, err = kbaseFed.usernameForOrcid("9999-8888-7777-6666")
+	username, err = kbaseFed.UsernameForOrcid("9999-8888-7777-6666")
 	assert.NotNil(err, "No error looking up non-existing ORCID")
 	assert.Equal("", username, "Username returned for non-existing ORCID")
 
@@ -161,17 +161,17 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.Nil(err, "Error reloading user table")
 
 	// look up a user from the updated table
-	username, err = kbaseFed.usernameForOrcid("1234-5678-9101-1121")
+	username, err = kbaseFed.UsernameForOrcid("1234-5678-9101-1121")
 	assert.Nil(err, "Error looking up existing ORCID after reload")
 	assert.Equal("Bob", username, "Incorrect username for existing ORCID after reload")
 
 	// look up another user from the updated table
-	username, err = kbaseFed.usernameForOrcid("4321-1876-5432-1098")
+	username, err = kbaseFed.UsernameForOrcid("4321-1876-5432-1098")
 	assert.Nil(err, "Error looking up existing ORCID after reload")
 	assert.Equal("Charlie", username, "Incorrect username for existing ORCID after reload")
 
 	// look up an ORCID that existed in the old table but not in the new table
-	username, err = kbaseFed.usernameForOrcid("9402-1876-5432-1098")
+	username, err = kbaseFed.UsernameForOrcid("9402-1876-5432-1098")
 	assert.NotNil(err, "No error looking up old ORCID after reload")
 	assert.Equal("", username, "Username returned for old ORCID after reload")
 
@@ -184,7 +184,7 @@ func TestKBaseStartReloadStop(t *testing.T) {
 	assert.NotNil(err, "No error stopping KBase user federation again")
 
 	// try to look up a user after stopping
-	username, err = kbaseFed.usernameForOrcid("1234-5678-9101-112X")
+	username, err = kbaseFed.UsernameForOrcid("1234-5678-9101-112X")
 	assert.NotNil(err, "No error looking up ORCID after stopping federation")
 	assert.Equal("", username, "Username returned after stopping federation")
 }

@@ -72,10 +72,10 @@ func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*
 	}
 
 	// check our list of KBase auth server instances for this access token
-	if instances == nil {
-		instances = make(map[string]*KBaseAuthServer)
+	if instances_ == nil {
+		instances_ = make(map[string]*KBaseAuthServer)
 	}
-	if server, found := instances[accessToken]; found {
+	if server, found := instances_[accessToken]; found {
 		return server, nil
 	} else {
 		server := KBaseAuthServer{
@@ -91,7 +91,7 @@ func NewKBaseAuthServer(accessToken string, options ...KBaseAuthServerOption) (*
 		}
 
 		// register this instance of the auth server
-		instances[accessToken] = &server
+		instances_[accessToken] = &server
 		return &server, err
 	}
 }
@@ -103,8 +103,9 @@ func (server KBaseAuthServer) User() (User, error) {
 		return User{}, err
 	}
 	user := User{
-		Name:  kbUser.Display,
-		Email: kbUser.Email,
+		Name:                  kbUser.Display,
+		Email:                 kbUser.Email,
+		ConnectionCredentials: make(map[string]Credential),
 	}
 	for _, pid := range kbUser.Idents {
 		// grab the first ORCID associated with the user
@@ -113,6 +114,23 @@ func (server KBaseAuthServer) User() (User, error) {
 			break
 		}
 	}
+
+	// try to access the MMS in case we're talking to the KBase Lakehouse
+	mms := NewMMS()
+	record, err := mms.FetchRecord(server.AccessToken)
+	if err == nil {
+		user.ConnectionCredentials["s3"] = Credential{
+			Username: record.Username,
+			Id:       record.S3AccessKey,
+			Secret:   record.S3SecretKey,
+		}
+		user.ConnectionCredentials["polaris"] = Credential{
+			Username: record.Username,
+			Id:       record.PolarisClientId,
+			Secret:   record.PolarisClientSecret,
+		}
+	}
+
 	return user, nil
 }
 
@@ -155,7 +173,7 @@ type kbaseAuthErrorResponse struct {
 
 // here's a set of instances to the KBase auth server, mapped by OAuth2
 // access token
-var instances map[string]*KBaseAuthServer
+var instances_ map[string]*KBaseAuthServer
 
 // emits an error representing the error in a response to the auth server
 func kbaseAuthError(response *http.Response) error {

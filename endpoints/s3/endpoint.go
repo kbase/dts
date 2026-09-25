@@ -37,6 +37,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -70,7 +71,7 @@ type Endpoint struct {
 	// AWS S3 uploader
 	Uploader *manager.Uploader
 	// endpoint UUID (obtained from config)
-	Id uuid.UUID
+	Id_ uuid.UUID
 	// Map of completed transfers
 	TransfersMap map[uuid.UUID]*TransferStatus
 }
@@ -125,7 +126,7 @@ func NewEndpoint(bucket string, id uuid.UUID, ecfg Config) (endpoints.Endpoint, 
 	newEndpoint.Downloader = manager.NewDownloader(newEndpoint.Client)
 	newEndpoint.Uploader = manager.NewUploader(newEndpoint.Client)
 	newEndpoint.Bucket = bucket
-	newEndpoint.Id = id
+	newEndpoint.Id_ = id
 	newEndpoint.TransfersMap = make(map[uuid.UUID]*TransferStatus)
 
 	return &newEndpoint, nil
@@ -148,12 +149,25 @@ func EndpointConstructor(conf map[string]any) (endpoints.Endpoint, error) {
 	return NewEndpoint(config.Bucket, id, config.Config)
 }
 
-func (e *Endpoint) Provider() string {
+func (e Endpoint) Id() uuid.UUID {
+	return e.Id_
+}
+
+func (e Endpoint) Provider() string {
 	return "s3"
 }
 
-func (e *Endpoint) Root() string {
+func (e Endpoint) BasePath() string {
 	return e.Bucket + "/"
+}
+
+func (e *Endpoint) DataPath() string {
+	return ""
+}
+
+func (e *Endpoint) ConnectsWith(provider string) bool {
+	// The S3 endpoint can't send to anyone else at the moment.
+	return provider == "s3"
 }
 
 func (e *Endpoint) FilesStaged(descriptors []map[string]any) (bool, error) {
@@ -187,7 +201,7 @@ func (e *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-func (e *Endpoint) Transfer(dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (e *Endpoint) Transfer(user auth.User, dst endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	s3Dest, ok := dst.(*Endpoint)
 	if !ok {
 		return uuid.Nil, fmt.Errorf("destination endpoint is not an S3 endpoint")

@@ -49,13 +49,13 @@ endpoints:
     name: NMDC (NERSC)
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    root: /
+    base_path: /
     credential: globus
   globus-nmdc-emsl:
     name: NMDC Bulk Data Cache
     id: ${DTS_GLOBUS_TEST_ENDPOINT}
     provider: globus
-    root: /
+    base_path: /
     credential: globus
   globus-jdp:
     name: Globus NERSC DTN

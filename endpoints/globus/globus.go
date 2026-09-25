@@ -64,6 +64,39 @@ func (e GlobusGenericError) Error() string {
 	return e.Message
 }
 
+// this error type encodes authentication errors and diagnostics
+type GlobusAuthRequirementsError struct {
+	AuthorizationParameters GlobusAuthorizationParameters
+	Message                 string
+	Code                    string
+}
+
+func (e GlobusAuthRequirementsError) Error() string {
+	s := fmt.Sprintf("%s (%s)", e.Message, e.Code)
+	if e.AuthorizationParameters.SessionMessage != "" {
+		s += ": " + e.AuthorizationParameters.SessionMessage
+	}
+	if e.AuthorizationParameters.SessionRequiredIdentities != nil {
+		s += fmt.Sprintf("; required identities: %v", e.AuthorizationParameters.SessionRequiredIdentities)
+	}
+	if e.AuthorizationParameters.SessionRequiredPolicies != nil {
+		s += fmt.Sprintf("; required policies: %v", e.AuthorizationParameters.SessionRequiredPolicies)
+	}
+	if e.AuthorizationParameters.SessionRequiredSingleDomain != nil {
+		s += fmt.Sprintf("; required identities: %v", e.AuthorizationParameters.SessionRequiredSingleDomain)
+	}
+	if e.AuthorizationParameters.SessionRequiredMfa {
+		s += "; MFA required"
+	}
+	if e.AuthorizationParameters.RequiredScopes != nil {
+		s += fmt.Sprintf("; required scopes: %v", e.AuthorizationParameters.RequiredScopes)
+	}
+	if e.AuthorizationParameters.Prompt != "" {
+		s += "; prompt: " + e.AuthorizationParameters.Prompt
+	}
+	return s
+}
+
 // this error indicates that a Globus endpoint has no associated HTTPS server
 type GlobusHttpsClientNotAvailableError struct {
 	Endpoint uuid.UUID
@@ -83,6 +116,10 @@ type GlobusConnectServerManagerNotAvailableError struct {
 func (e GlobusConnectServerManagerNotAvailableError) Error() string {
 	return fmt.Sprintf("the Globus Connect Manager Server API is not available for endpoint %s",
 		e.Endpoint.String())
+}
+
+// this error contains information about a failed operation with the Globus Connect Server Manager
+type GlobusConnectServerManagerError struct {
 }
 
 type GlobusEndpointInfo struct {
@@ -146,6 +183,18 @@ type GlobusConnectServerManagerClient struct {
 	Scopes          []string
 	Url             string
 	StorageGateways []GlobusStorageGateway
+}
+
+// Auth error diagnostics (can be encoded in Globus service responses)
+// https://docs.globus.org/guides/overviews/gares/
+type GlobusAuthorizationParameters struct {
+	SessionMessage              string   `json:"session_message,omitempty"`
+	SessionRequiredIdentities   []string `json:"session_required_identities,omitempty"`
+	SessionRequiredPolicies     []string `json:"session_required_policies,omitempty"`
+	SessionRequiredSingleDomain []string `json:"session_required_single_domain,omitempty"`
+	SessionRequiredMfa          bool     `json:"session_required_mfa,omitempty"`
+	RequiredScopes              []string `json:"required_scopes,omitempty"`
+	Prompt                      string   `json:"prompt,omitempty"`
 }
 
 func NewGlobusTransferClient(credential auth.Credential, endpointId uuid.UUID) (GlobusTransferClient, error) {
@@ -762,7 +811,7 @@ func (c GlobusConnectServerManagerClient) get(resource string, values url.Values
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return c.interpretResult(resp.Body)
 }
 
 func (c GlobusConnectServerManagerClient) post(resource string, body io.Reader) ([]byte, error) {
@@ -786,7 +835,7 @@ func (c GlobusConnectServerManagerClient) post(resource string, body io.Reader) 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return c.interpretResult(resp.Body)
 }
 
 func (c GlobusConnectServerManagerClient) patch(resource string, body io.Reader) ([]byte, error) {
@@ -810,14 +859,42 @@ func (c GlobusConnectServerManagerClient) patch(resource string, body io.Reader)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return c.interpretResult(resp.Body)
+}
+
+func (m GlobusConnectServerManagerClient) interpretResult(body io.Reader) (json.RawMessage, error) {
+	var payload []byte
+	var err error
+	if payload, err = io.ReadAll(body); err != nil {
+		return []byte{}, err
+	}
+	var result GlobusManagerApiResult_1_1_0
+	if err = json.Unmarshal(payload, &result); err != nil {
+		return []byte{}, err
+	}
+	slog.Debug(fmt.Sprintf("GCS Manager API result: %s (%s)", result.Message, result.Code))
+	if result.HttpResponseCode != http.StatusOK && result.HttpResponseCode != http.StatusCreated {
+		if result.AuthorizationParameters != nil {
+			var params GlobusAuthorizationParameters
+			if err := json.Unmarshal(result.AuthorizationParameters, &params); err != nil {
+				return []byte{}, err
+			}
+			return []byte{}, &GlobusAuthRequirementsError{
+				AuthorizationParameters: params,
+				Message:                 result.Message,
+				Code:                    result.Code,
+			}
+		}
+		return []byte{}, errors.New(result.Message)
+	}
+	return result.Data, nil
 }
 
 type GlobusManagerApiResult_1_1_0 struct {
-	DataType string `json:"DATA_TYPE"` // always `result#1.0.0`
-	//AuthorizationParameters any `json:"authorization_parameters"`
-	Code string          `json:"code"`
-	Data json.RawMessage `json:"data"`
+	DataType                string          `json:"DATA_TYPE"`                          // always `result#1.1.0`
+	AuthorizationParameters json.RawMessage `json:"authorization_parameters,omitempty"` // diagnostics
+	Code                    string          `json:"code"`
+	Data                    json.RawMessage `json:"data"`
 	//Detail any `json:"detail"`
 	//HasNextPage bool `json:"has_next_page"`
 	HttpResponseCode int `json:"http_response_code"`
@@ -852,20 +929,9 @@ type GlobusUserCredentialRecord struct {
 }
 
 func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
-	body, err := m.get("api/storage_gateways/", url.Values{})
+	data, err := m.get("api/storage_gateways/", url.Values{})
 	if err != nil {
 		return err
-	}
-	var response GlobusManagerApiResult_1_1_0
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return err
-	}
-	slog.Debug(fmt.Sprintf("GCS Manager API response: %s (%s)", response.Message, response.Code))
-	if response.HttpResponseCode != http.StatusOK {
-		return errors.New(response.Message)
 	}
 	type GlobusStorageGateway_1_3_0 struct {
 		ConnectorId string          `json:"connector_id"`
@@ -874,7 +940,7 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		Policies    json.RawMessage `json:"policies"`
 	}
 	var gateways []GlobusStorageGateway_1_3_0
-	if err := json.Unmarshal(response.Data, &gateways); err != nil {
+	if err := json.Unmarshal(data, &gateways); err != nil {
 		return err
 	}
 	for _, g := range gateways {
@@ -902,9 +968,8 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 // NOTE: endpoint per user, using the user's ORCID.
 func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
 	var record GlobusUserCredentialRecord
-	var response GlobusManagerApiResult_1_1_0
 	var found bool
-	var payload, body []byte
+	var payload []byte
 	var err error
 
 	if record, found, _ = m.findUserCredentialRecord(credential); found {
@@ -912,8 +977,8 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		slog.Debug("Looking for user S3 credential...")
 		var s3Policy GlobusS3UserCredentialPolicies_1_2_0
 		err := json.Unmarshal(record.Policies, &s3Policy)
-		if err != nil { // not an S3 policy
-			slog.Debug("Found a different *kind* of credential policy...?")
+		if err != nil || s3Policy.S3KeyId != credential.Id || s3Policy.S3SecretKey != credential.Secret {
+			slog.Debug("Found a differing credential policy... overwriting")
 			// insert an S3 policy and patch the registered credential
 			s3Policy.DataType = "s3_user_credential_policies#1.2.0"
 			s3Policy.S3KeyId = credential.Id
@@ -924,15 +989,9 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			if payload, err = json.Marshal(record); err != nil {
 				return auth.Credential{}, err
 			}
-			if body, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
+			if _, err = m.patch("api/user_credentials", bytes.NewReader(payload)); err != nil {
 				return auth.Credential{}, err
 			}
-			return credential, nil
-		}
-		if s3Policy.S3KeyId == credential.Id && s3Policy.S3SecretKey == credential.Secret {
-			// S3 policy is up to date -- nothing to do
-			slog.Debug("BINGO")
-			return credential, nil
 		}
 	} else {
 		// No existing record -- create a new one.
@@ -972,17 +1031,9 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		if payload, err = json.Marshal(record); err != nil {
 			return auth.Credential{}, err
 		}
-		if body, err = m.post("api/user_credentials", bytes.NewReader(payload)); err != nil {
+		if _, err = m.post("api/user_credentials", bytes.NewReader(payload)); err != nil {
 			return auth.Credential{}, err
 		}
-	}
-
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return auth.Credential{}, err
-	}
-	if response.HttpResponseCode != http.StatusOK && response.HttpResponseCode != http.StatusCreated {
-		return auth.Credential{}, errors.New(response.Message)
 	}
 	return credential, nil
 }

@@ -1004,35 +1004,34 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			return auth.Credential{}, err
 		}
 
-		// Find our S3-powered storage gateway.
-		var connectorId, storageGatewayId uuid.UUID
+		// Attempt to register the S3 credential with each S3-powered storage gateway.
+		registrations := 0
 		for _, gateway := range m.StorageGateways {
 			if gateway.Provider == "s3" {
-				storageGatewayId = gateway.Id
-				connectorId = gateway.ConnectorId
-				break
+				record = GlobusUserCredentialRecord{
+					DataType:         "user_credential#1.0.0",
+					ConnectorId:      gateway.ConnectorId.String(),
+					DisplayName:      user.Name,
+					Id:               uuid.New().String(),
+					IdentityId:       m.ClientId,
+					Policies:         newS3Policy,
+					Provisioned:      true,
+					StorageGatewayId: gateway.Id.String(),
+					Username:         credential.Username,
+				}
+				if payload, err = json.Marshal(record); err != nil {
+					return auth.Credential{}, err
+				}
+				_, err = m.post("api/user_credentials", bytes.NewReader(payload))
+				if err != nil {
+					slog.Debug("Couldn't register S3 credential: " + err.Error())
+				} else {
+					registrations += 1
+				}
 			}
-			if storageGatewayId != uuid.Nil {
-				break
-			}
 		}
-
-		record = GlobusUserCredentialRecord{
-			DataType:         "user_credential#1.0.0",
-			ConnectorId:      connectorId.String(),
-			DisplayName:      user.Name,
-			Id:               uuid.New().String(),
-			IdentityId:       m.ClientId,
-			Policies:         newS3Policy,
-			Provisioned:      true,
-			StorageGatewayId: storageGatewayId.String(),
-			Username:         credential.Username,
-		}
-		if payload, err = json.Marshal(record); err != nil {
-			return auth.Credential{}, err
-		}
-		if _, err = m.post("api/user_credentials", bytes.NewReader(payload)); err != nil {
-			return auth.Credential{}, err
+		if registrations == 0 {
+			return auth.Credential{}, errors.New("couldn't register an S3 credential at any storage gateway")
 		}
 	}
 	return credential, nil

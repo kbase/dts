@@ -958,11 +958,15 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			}
 		}
 
+		globusCred, found := user.ConnectionCredentials["globus"]
+		if !found {
+			return auth.Credential{}, fmt.Errorf("no Globus ID is associated with the KBase user with ORCID %s", user.Orcid)
+		}
 		record = GlobusUserCredentialRecord{
 			DataType:         "user_credential#1.0.0",
 			ConnectorId:      connectorId.String(),
 			DisplayName:      user.Name,
-			Id:               uuid.New().String(),
+			Id:               globusCred.Id,
 			IdentityId:       m.ClientId,
 			Policies:         newS3Policy,
 			Provisioned:      true,

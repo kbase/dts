@@ -118,6 +118,12 @@ func (db *Database) LocalUser(orcid string) (string, error) {
 	return db.kbaseFed.UsernameForOrcid(orcid)
 }
 
+// NOTE: This method is KBase-specific and not part of the Database interface.
+// NOTE: It's here to allow us to hand a KBase user's Globus ID over to the Globus S3 Connector.
+func (db *Database) GlobusId(orcid string) (uuid.UUID, error) {
+	return db.kbaseFed.GlobusIdForOrcid(orcid)
+}
+
 func (db Database) Save() (databases.DatabaseSaveState, error) {
 	// so far, this database has no internal state
 	return databases.DatabaseSaveState{

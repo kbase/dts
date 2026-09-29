@@ -33,6 +33,7 @@ import (
 	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/databases/kbase_lakehouse" // for Globus S3 connector HACK
 )
 
 //-------
@@ -397,6 +398,37 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 		}
 		if _, endpointFound := sourceEndpoints[endpointName]; !endpointFound {
 			sourceEndpoints[endpointName] = true
+		}
+	}
+
+	// HACK: Special logic for Globus transfers to KBase Lakehouse via S3 Connector:
+	// HACK: A Globus ID іs required for every user for which we register S3 credentials for
+	// HACK: connectors. We attempt to fetch this ID from the KBase Lakehouse database
+	dest, err := databases.NewDatabase(spec.Destination)
+	if err != nil {
+		return transferStoreEntry{
+			Spec: spec,
+			Status: TransferStatus{
+				Code:     TransferStatusFailed,
+				Message:  err.Error(),
+				NumFiles: len(spec.FileIds),
+			},
+		}
+	}
+	if kbLakehouse, ok := dest.(*kbase_lakehouse.Database); ok {
+		globusId, err := kbLakehouse.GlobusId(spec.User.Orcid)
+		if err != nil {
+			return transferStoreEntry{
+				Spec: spec,
+				Status: TransferStatus{
+					Code:     TransferStatusFailed,
+					Message:  err.Error(),
+					NumFiles: len(spec.FileIds),
+				},
+			}
+		}
+		if globusId.String() != "" {
+			spec.User.ConnectionCredentials["globus"] = auth.Credential{Id: globusId.String()}
 		}
 	}
 

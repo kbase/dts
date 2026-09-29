@@ -266,20 +266,17 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 		// figure out the relevant columns
 		if orcidColumn == -1 {
 			for i := range record {
-				fmt.Printf("Column %d: %s", i, record[i])
 				if isOrcid(record[i]) {
-					fmt.Printf("ORCID\n")
 					orcidColumn = i
 				} else if len(record) >= 3 && isGlobusId(record[i]) {
-					fmt.Printf("Globus ID\n")
 					globusIdColumn = i
 				} else if isUsername(record[i]) {
-					fmt.Printf("username\n")
 					userColumn = i
 				}
 			}
 			if orcidColumn == -1 {
 				if k == 0 { // first record, ignore
+					userColumn = -1
 					continue
 				}
 				return nil, &InvalidKBaseUserSpreadsheetError{

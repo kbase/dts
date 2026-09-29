@@ -35,7 +35,7 @@ jobs:
         staticcheck ./...
 
     - name: Set up MinIO
-      uses: cohere-llc/minio-action@v0.0.2
+      uses: cohere-llc/minio-action@v0.0.3
       with:
         port: "9000"
         version: "latest"

@@ -8,5 +8,19 @@ authentication capabilities:
   associated user credentials, like S3 for the KBase Lakehouse environment
 * a standalone DTS authenticator that reads data from an encrypted file on the local file system
 
-## Selected Topics
+## A Few Remarks
 
+The DTS standalone authenticator was created to allow users without KBase dev tokens to request
+transfers in the early days of the project. Given that KBase (in its old and new incarnations) is
+the only destination for DTS file transfers so far, it seems likely that this standalone
+authenticator is not strictly necessary. But it's pretty simple.
+
+**Who gets to request a file transfer?** Every resource-burdened request to the DTS must have an
+`Authorization` header with a valid KBase or DTS token. In a file transfer to the KBase WSS, this
+token need not belong to the user to whom the files are transferred -- each transfer accepts an
+ORCID that is mapped to a local user on the destination system, so an authenticated user can
+request file transfers on behalf of other users.
+
+In the KBase Lakehouse, the authenticated user is the only one authorized to receive the transferred
+files. Technically, this is because the KBase auth server passes this user's token to the MMS and
+returns the user's S3 credentials, which are needed to complete the transfer.

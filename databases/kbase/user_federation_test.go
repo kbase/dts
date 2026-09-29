@@ -24,19 +24,6 @@ Dave,9402-1876-5432-1098,
 `,
 }
 
-var goodUserMap = [2]map[string]string{
-	{
-		"1234-5678-9101-112X": "Alice",
-		"1234-5678-9101-1121": "Bob",
-		"9402-1876-5432-1098": "Dave",
-	},
-	{
-		"1234-5678-9101-112X": "Alice",
-		"1234-5678-9101-1121": "Bob",
-		"4321-1876-5432-1098": "Charlie",
-	},
-}
-
 // invalid user table csv contents
 var badUserTables = []string{
 	`nocommas`,

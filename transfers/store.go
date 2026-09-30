@@ -25,6 +25,7 @@ import (
 	"cmp"
 	"encoding/gob"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -404,19 +405,8 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	// HACK: Special logic for Globus transfers to KBase Lakehouse via S3 Connector:
 	// HACK: A Globus ID іs required for every user for which we register S3 credentials for
 	// HACK: connectors. We attempt to fetch this ID from the KBase Lakehouse database
-	dest, err := databases.NewDatabase(spec.Destination)
-	if err != nil {
-		return transferStoreEntry{
-			Spec: spec,
-			Status: TransferStatus{
-				Code:     TransferStatusFailed,
-				Message:  err.Error(),
-				NumFiles: len(spec.FileIds),
-			},
-		}
-	}
-	if kbLakehouse, ok := dest.(*kbase_lakehouse.Database); ok {
-		globusId, err := kbLakehouse.GlobusId(spec.User.Orcid)
+	{
+		dest, err := databases.NewDatabase(spec.Destination)
 		if err != nil {
 			return transferStoreEntry{
 				Spec: spec,
@@ -427,8 +417,22 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 				},
 			}
 		}
-		if globusId.String() != "" {
-			spec.User.ConnectionCredentials["globus"] = auth.Credential{Id: globusId.String()}
+		if kbLakehouse, ok := dest.(*kbase_lakehouse.Database); ok {
+			globusId, err := kbLakehouse.GlobusId(spec.User.Orcid)
+			if err != nil {
+				return transferStoreEntry{
+					Spec: spec,
+					Status: TransferStatus{
+						Code:     TransferStatusFailed,
+						Message:  err.Error(),
+						NumFiles: len(spec.FileIds),
+					},
+				}
+			}
+			if globusId.String() != "" {
+				slog.Debug("Adding Globus ID for user")
+				spec.User.ConnectionCredentials["globus"] = auth.Credential{Id: globusId.String()}
+			}
 		}
 	}
 

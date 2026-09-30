@@ -872,7 +872,6 @@ func (m GlobusConnectServerManagerClient) interpretResult(body io.Reader) (json.
 	if err = json.Unmarshal(payload, &result); err != nil {
 		return []byte{}, err
 	}
-	slog.Debug(fmt.Sprintf("GCS Manager API result: %s (%s)", result.Message, result.Code))
 	if result.HttpResponseCode != http.StatusOK && result.HttpResponseCode != http.StatusCreated {
 		if result.AuthorizationParameters != nil {
 			var params GlobusAuthorizationParameters
@@ -1008,6 +1007,8 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		if !found {
 			return auth.Credential{}, fmt.Errorf("no Globus ID is associated with the KBase user with ORCID %s", user.Orcid)
 		}
+		slog.Debug(fmt.Sprintf("User Globus ID: %s", globusCred.Id))
+
 		// Attempt to register the S3 credential with each S3-powered storage gateway.
 		registrations := 0
 		for _, gateway := range m.StorageGateways {

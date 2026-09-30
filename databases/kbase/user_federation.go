@@ -291,7 +291,8 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 				}
 			}
 			// NOTE: not every KBase user has a Globus ID, so we don't check for the existence of that column
-		} else if !isOrcid(record[orcidColumn]) || (globusIdColumn != -1 && record[globusIdColumn] != "" && !isGlobusId(record[globusIdColumn])) || !isUsername(record[userColumn]) {
+		}
+		if !isOrcid(record[orcidColumn]) || (globusIdColumn != -1 && record[globusIdColumn] != "" && !isGlobusId(record[globusIdColumn])) || !isUsername(record[userColumn]) {
 			// we've already established the layout, but this line disagrees, so the whole file is suspect
 			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,

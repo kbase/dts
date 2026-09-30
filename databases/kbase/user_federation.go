@@ -293,7 +293,7 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 		}
 
 		// keep checking for a Globus ID column if we haven't found it yet
-		if len(record) >= 3 && globusIdColumn != -1 {
+		if len(record) >= 3 && globusIdColumn == -1 {
 			for i := range record {
 				if isGlobusId(record[i]) { // can't be confused with ORCID or username
 					globusIdColumn = i

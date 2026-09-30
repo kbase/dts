@@ -19,3 +19,12 @@ The important processes in this lifecycle are
   updating it within the store
 * the **manifestor**, which generates and transfers a JSON manifest file after each successful
   file transfer
+
+## A Few Remarks
+
+In order to transmit a user's S3 credentials to Globus to transfer files into the KBase Data
+Lakehouse, we inserted a hack into the store process. In the hack, we check to see whether the
+destination database is the KBase Data Lakehouse, and if so, we read the Globus ID from the
+KBase user federation system and insert it into the user's `ConnectionCredentials` field where it
+can be read by the Globus endpoint downstream in order to authorize the transfer via the Globus
+S3 connector.

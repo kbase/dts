@@ -24,3 +24,7 @@ request file transfers on behalf of other users.
 In the KBase Lakehouse, the authenticated user is the only one authorized to receive the transferred
 files. Technically, this is because the KBase auth server passes this user's token to the MMS and
 returns the user's S3 credentials, which are needed to complete the transfer.
+
+A user's S3 credentials are stored in a set of named credentials under the `auth.User`'s
+`ConnectionCredentials` field. The keys in this field are providers for whom credentials are
+stored (`s3`, `globus`, etc), and the values are credentials with IDs, usernameѕ, and secrets.

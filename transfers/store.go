@@ -418,6 +418,7 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 			}
 		}
 		if kbLakehouse, ok := dest.(*kbase_lakehouse.Database); ok {
+			slog.Debug("Extracting Globus ID for user")
 			globusId, err := kbLakehouse.GlobusId(spec.User.Orcid)
 			if err != nil {
 				return transferStoreEntry{
@@ -430,7 +431,7 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 				}
 			}
 			if globusId.String() != "" {
-				slog.Debug("Adding Globus ID for user")
+				slog.Debug(fmt.Sprintf("Adding Globus ID %s for user", globusId.String()))
 				spec.User.ConnectionCredentials["globus"] = auth.Credential{Id: globusId.String()}
 			}
 		}

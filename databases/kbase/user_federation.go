@@ -290,12 +290,19 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 					Message: "no username column found",
 				}
 			}
-			// NOTE: not every KBase user has a Globus ID, so we don't check for the existence of that column
 		}
+
+		// keep checking for a Globus ID column if we haven't found it yet
+		if len(record) >= 3 && globusIdColumn != -1 {
+			for i := range record {
+				if isGlobusId(record[i]) { // can't be confused with ORCID or username
+					globusIdColumn = i
+				}
+			}
+		}
+
 		if !isOrcid(record[orcidColumn]) || (globusIdColumn != -1 && record[globusIdColumn] != "" && !isGlobusId(record[globusIdColumn])) || !isUsername(record[userColumn]) {
 			// we've already established the layout, but this line disagrees, so the whole file is suspect
-			fmt.Printf("orcid column: %d, user column: %d, globus ID column: %d, record: {%s, %s, %s}\n", orcidColumn, userColumn, globusIdColumn, record[0], record[1], record[2])
-			fmt.Printf("%b, %b, %b\n", !isOrcid(record[orcidColumn]), (globusIdColumn != -1 && record[globusIdColumn] != "" && !isGlobusId(record[globusIdColumn])), !isUsername(record[userColumn]))
 			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
 				Message: fmt.Sprintf("row %d: Different lines list username, ORCID, globus ID data in different columns", row+1),

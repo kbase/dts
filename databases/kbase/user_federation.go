@@ -294,9 +294,10 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 		}
 		if !isOrcid(record[orcidColumn]) || (globusIdColumn != -1 && record[globusIdColumn] != "" && !isGlobusId(record[globusIdColumn])) || !isUsername(record[userColumn]) {
 			// we've already established the layout, but this line disagrees, so the whole file is suspect
+			fmt.Printf("orcid column: %d, user column: %d, globus ID column: %d, record: {%s, %s, %s}\n", orcidColumn, userColumn, globusIdColumn, record[0], record[1], record[2])
 			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
-				Message: fmt.Sprintf("row %d: Different lines list username, ORCID, globus ID data in different columns", row),
+				Message: fmt.Sprintf("row %d: Different lines list username, ORCID, globus ID data in different columns", row+1),
 			}
 		}
 

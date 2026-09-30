@@ -109,10 +109,6 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 	if ep.provider, err = ep.determineProvider(); err != nil {
 		return nil, err
 	}
-
-	if ep.GCSM != nil {
-		slog.Debug("Okay, we have a server manager!")
-	}
 	return ep, nil
 }
 

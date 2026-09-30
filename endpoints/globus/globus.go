@@ -1030,7 +1030,7 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		}
 		_, err = m.post("api/user_credentials", bytes.NewReader(payload))
 		if err != nil {
-			return auth.Credential{}, errors.New("couldn't register an S3 credential with the storage gateway")
+			return auth.Credential{}, err
 		}
 		/*
 			// Attempt to register the S3 credential with each S3-powered storage gateway.

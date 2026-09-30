@@ -915,7 +915,7 @@ type GlobusS3UserCredentialPolicies_1_2_0 struct {
 }
 type GlobusUserCredentialRecord struct {
 	DataType         string          `json:"DATA_TYPE"` // always `user_credential#1.0.0`
-	ConnectorId      string          `json:"connector_id"`
+	ConnectorId      string          `json:"connector_id,omitempty"`
 	Deleted          bool            `json:"deleted"`
 	DisplayName      string          `json:"display_name"`
 	Id               string          `json:"id"`
@@ -1014,35 +1014,55 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		// NOTE: usernames are mapped in Globus via ORCID
 		mappedUsername := fmt.Sprintf("%s@orcid.org", user.Orcid)
 
-		// Attempt to register the S3 credential with each S3-powered storage gateway.
-		registrations := 0
-		for _, gateway := range m.StorageGateways {
-			if gateway.Provider == "s3" {
-				record = GlobusUserCredentialRecord{
-					DataType:         "user_credential#1.0.0",
-					ConnectorId:      gateway.ConnectorId.String(),
-					DisplayName:      user.Name,
-					Id:               globusCred.Id,
-					IdentityId:       m.ClientId,
-					Policies:         newS3Policy,
-					Provisioned:      true,
-					StorageGatewayId: gateway.Id.String(),
-					Username:         mappedUsername,
-				}
-				if payload, err = json.Marshal(record); err != nil {
-					return auth.Credential{}, err
-				}
-				_, err = m.post("api/user_credentials", bytes.NewReader(payload))
-				if err != nil {
-					slog.Debug("Couldn't register S3 credential: " + err.Error())
-				} else {
-					registrations += 1
+		record = GlobusUserCredentialRecord{
+			DataType: "user_credential#1.0.0",
+			//ConnectorId:      gateway.ConnectorId.String(),
+			DisplayName:      user.Name,
+			Id:               globusCred.Id,
+			IdentityId:       m.ClientId,
+			Policies:         newS3Policy,
+			Provisioned:      true,
+			StorageGatewayId: "50386184-ac00-4534-8ee9-72dec4f31b55", //gateway.Id.String(),
+			Username:         mappedUsername,
+		}
+		if payload, err = json.Marshal(record); err != nil {
+			return auth.Credential{}, err
+		}
+		_, err = m.post("api/user_credentials", bytes.NewReader(payload))
+		if err != nil {
+			return auth.Credential{}, errors.New("couldn't register an S3 credential with the storage gateway")
+		}
+		/*
+			// Attempt to register the S3 credential with each S3-powered storage gateway.
+			registrations := 0
+			for _, gateway := range m.StorageGateways {
+				if gateway.Provider == "s3" {
+					record = GlobusUserCredentialRecord{
+						DataType: "user_credential#1.0.0",
+						ConnectorId:      gateway.ConnectorId.String(),
+						DisplayName:      user.Name,
+						Id:               globusCred.Id,
+						IdentityId:       m.ClientId,
+						Policies:         newS3Policy,
+						Provisioned:      true,
+						StorageGatewayId: gateway.Id.String(),
+						Username:         mappedUsername,
+					}
+					if payload, err = json.Marshal(record); err != nil {
+						return auth.Credential{}, err
+					}
+					_, err = m.post("api/user_credentials", bytes.NewReader(payload))
+					if err != nil {
+						slog.Debug("Couldn't register S3 credential: " + err.Error())
+					} else {
+						registrations += 1
+					}
 				}
 			}
-		}
-		if registrations == 0 {
-			return auth.Credential{}, errors.New("couldn't register an S3 credential at any storage gateway")
-		}
+			if registrations == 0 {
+				return auth.Credential{}, errors.New("couldn't register an S3 credential at any storage gateway")
+			}
+		*/
 	}
 	return s3Credential, nil
 }

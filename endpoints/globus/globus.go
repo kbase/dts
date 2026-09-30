@@ -1011,10 +1011,13 @@ func (m *GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth
 			return auth.Credential{}, err
 		}
 
-		// NOTE: usernames are mapped in Globus via ORCID
-		mappedUsername := fmt.Sprintf("%s@orcid.org", user.Orcid)
-
 		// Attempt to register the S3 credential with our storage gateways until one accepts.
+		// FIXME: This is where the remaining auth issue is. The error message I encounter with
+		// FIXME: the correct gateway is: `Identity set contains an identity from an allowed domain,
+		// FIXME: but it does not map to a valid username for this connector`. This suggests to me that
+		// FIXME: either the user's Globus ID (globusCred.Id) or the mapped username (globusCred.Username)
+		// FIXME: is incorrect, but I've checked my own account's values against the ORCID identity
+		// FIXME: shown at https://app.globus.org/settings/identities and they are correct.
 		registrations := 0
 		for _, gateway := range m.StorageGateways {
 			if gateway.Provider == "s3" {
@@ -1027,7 +1030,7 @@ func (m *GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth
 					Policies:   newS3Policy,
 					//Provisioned:      true,
 					StorageGatewayId: gateway.Id.String(),
-					Username:         mappedUsername,
+					Username:         globusCred.Username,
 				}
 				if payload, err = json.Marshal(record); err != nil {
 					return auth.Credential{}, err

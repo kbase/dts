@@ -432,7 +432,10 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 			}
 			if globusId.String() != "" {
 				slog.Debug(fmt.Sprintf("Adding Globus ID %s for user", globusId.String()))
-				spec.User.ConnectionCredentials["globus"] = auth.Credential{Id: globusId.String()}
+				spec.User.ConnectionCredentials["globus"] = auth.Credential{
+					Id:       globusId.String(),
+					Username: fmt.Sprintf("%s@orcid.org", spec.User.Orcid),
+				}
 			}
 		}
 	}

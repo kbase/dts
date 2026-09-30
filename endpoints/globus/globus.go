@@ -977,7 +977,8 @@ func (m *GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth
 	if !foundGlobusId {
 		return auth.Credential{}, fmt.Errorf("no Globus ID is associated with this user")
 	}
-	slog.Debug(fmt.Sprintf("User Globus ID: %s", globusCred.Id))
+	slog.Debug(fmt.Sprintf("Globus ID: %s", globusCred.Id))
+	slog.Debug(fmt.Sprintf("Globus Username: %s", globusCred.Username))
 
 	if record, found, _ = m.findUserCredentialRecord(globusCred); found {
 		// Update the record with an S3 policy

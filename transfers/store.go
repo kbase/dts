@@ -25,13 +25,16 @@ import (
 	"cmp"
 	"encoding/gob"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/config"
 	"github.com/kbase/dts/databases"
+	"github.com/kbase/dts/databases/kbase_lakehouse" // for Globus S3 connector HACK
 )
 
 //-------
@@ -248,9 +251,8 @@ func (s *storeState) process(decoder *gob.Decoder) {
 					Time:           time.Now(),
 				})
 			} else {
-				size := transfers[id].payloadSize()
 				publish(Message{
-					Description:    fmt.Sprintf("Created new transfer %s (%d file(s), %g GB)", id, newXfer.Status.NumFiles, float64(size)/float64(1024*1024*1024)),
+					Description:    fmt.Sprintf("Created new transfer %s (%d file(s))", id, newXfer.Status.NumFiles),
 					TransferId:     id,
 					TransferStatus: transfers[id].Status,
 					Time:           time.Now(),
@@ -316,6 +318,7 @@ func (s *storeState) process(decoder *gob.Decoder) {
 				}
 			}
 		case encoder := <-s.Channels.SaveAndStop:
+			s.eraseConnectionCredentials(transfers)
 			s.Channels.Error <- encoder.Encode(transfers)
 			running = false
 		}
@@ -382,6 +385,61 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	slices.SortFunc(descriptors, func(a, b map[string]any) int {
 		return cmp.Compare(a["id"].(string), b["id"].(string))
 	})
+
+	// Determine all source endpoints.
+	sourceEndpoints := make(map[string]bool)
+	for _, d := range descriptors {
+		var endpointName string
+		entry, keyFound := d["endpoint"]
+		if keyFound {
+			endpointName, _ = entry.(string)
+		}
+		if endpointName == "" {
+			endpointName = source.EndpointNames()[0]
+		}
+		if _, endpointFound := sourceEndpoints[endpointName]; !endpointFound {
+			sourceEndpoints[endpointName] = true
+		}
+	}
+
+	// HACK: Special logic for Globus transfers to KBase Lakehouse via S3 Connector:
+	// HACK: A Globus ID іs required for every user for which we register S3 credentials for
+	// HACK: connectors. We attempt to fetch this ID from the KBase Lakehouse database
+	{
+		dest, err := databases.NewDatabase(spec.Destination)
+		if err != nil {
+			return transferStoreEntry{
+				Spec: spec,
+				Status: TransferStatus{
+					Code:     TransferStatusFailed,
+					Message:  err.Error(),
+					NumFiles: len(spec.FileIds),
+				},
+			}
+		}
+		if kbLakehouse, ok := dest.(*kbase_lakehouse.Database); ok {
+			slog.Debug("Extracting Globus ID for user")
+			globusId, err := kbLakehouse.GlobusId(spec.User.Orcid)
+			if err != nil {
+				return transferStoreEntry{
+					Spec: spec,
+					Status: TransferStatus{
+						Code:     TransferStatusFailed,
+						Message:  err.Error(),
+						NumFiles: len(spec.FileIds),
+					},
+				}
+			}
+			if globusId.String() != "" {
+				slog.Debug(fmt.Sprintf("Adding Globus ID %s for user", globusId.String()))
+				spec.User.ConnectionCredentials["globus"] = auth.Credential{
+					Id:       globusId.String(),
+					Username: fmt.Sprintf("%s@orcid.org", spec.User.Orcid),
+				}
+			}
+		}
+	}
+
 	entry := transferStoreEntry{
 		Descriptors: descriptors,
 		Spec:        spec,
@@ -391,4 +449,12 @@ func (s *storeState) newTransfer(spec Specification) transferStoreEntry {
 	}
 
 	return entry
+}
+
+// clears user connection credentials from transfer specifications so they don't get written to disk
+func (s *storeState) eraseConnectionCredentials(transfers map[uuid.UUID]transferStoreEntry) {
+	for i, transfer := range transfers {
+		transfer.Spec.User.ConnectionCredentials = map[string]auth.Credential{}
+		transfers[i] = transfer
+	}
 }

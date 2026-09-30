@@ -251,7 +251,7 @@ func (m *manifestorState) generateAndSendManifest(transferId uuid.UUID) (manifes
 	if err != nil {
 		return manifestEntry{}, err
 	}
-	manifestXferId, err := source.Transfer(destination, []FileTransfer{
+	manifestXferId, err := source.Transfer(spec.User, destination, []FileTransfer{
 		{
 			SourcePath:      filename,
 			DestinationPath: filepath.Join(destinationFolder, "manifest.json"),

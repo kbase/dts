@@ -35,7 +35,7 @@ jobs:
         staticcheck ./...
 
     - name: Set up MinIO
-      uses: infleet/minio-action@v0.0.1
+      uses: cohere-llc/minio-action@v0.0.3
       with:
         port: "9000"
         version: "latest"

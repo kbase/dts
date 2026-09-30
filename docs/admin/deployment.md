@@ -116,7 +116,7 @@ following files:
 * `dts.gob` - a file containing information about pending and recently finished
   file transfers, along with any related database-specific state information
 * `kbase_user_orcids.csv` - a comma-separated variable file associating ORCID
-  identifiers with KBase users. This file is a temporary mechanism that allows
-  the DTS to obtain the username of a KBase user given their ORCID. It is
-  re-read at the top of the hour, making it easy to replace without restarting
-  a deployment.
+  identifiers with KBase users, and optionally with Globus IDs (which are UUIDs).
+  This file is a temporary mechanism that allows the DTS to obtain the username
+  and Globus ID for a KBase user given their ORCID. It is re-read at the top of
+  the hour, making it easy to replace without restarting a deployment.

@@ -275,7 +275,22 @@ func (m *moverState) moveFiles(transferId uuid.UUID) ([]moveOperation, error) {
 		if err != nil {
 			return nil, err
 		}
-		moveId, err := sourceEndpoint.Transfer(destinationEp, files)
+
+		// Handle connections between endpoints with different providers.
+		if sourceEndpoint.Provider() != destinationEp.Provider() {
+			if !sourceEndpoint.ConnectsWith(destinationEp.Provider()) {
+				return nil, &endpoints.IncompatibleDestinationError{
+					Source:              source,
+					SourceProvider:      sourceEndpoint.Provider(),
+					Destination:         spec.Destination,
+					DestinationProvider: destinationEp.Provider(),
+					Message: fmt.Sprintf("a %s endpoints cannot transfer files to a %s endpoint",
+						sourceEndpoint.Provider(), destinationEp.Provider()),
+				}
+			}
+		}
+
+		moveId, err := sourceEndpoint.Transfer(spec.User, destinationEp, files)
 		if err != nil {
 			return nil, err
 		}

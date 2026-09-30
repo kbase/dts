@@ -143,11 +143,12 @@ func (a *Authenticator) readAccessTokenFile() error {
 		}
 
 		userRecords[token] = User{
-			Name:         record[0],
-			Email:        record[1],
-			Orcid:        record[2],
-			Organization: record[3],
-			IsSuper:      isSuper,
+			Name:                  record[0],
+			Email:                 record[1],
+			Orcid:                 record[2],
+			Organization:          record[3],
+			IsSuper:               isSuper,
+			ConnectionCredentials: make(map[string]Credential),
 		}
 	}
 

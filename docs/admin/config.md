@@ -74,7 +74,7 @@ section are:
   development work. The default value is `false`.
 * `double_check_staging`: an optional parameter that, if set to `true`, performs
   additional checks for staged files. This parameter can be useful for figuring
-  out the appropriate `root` for an endpoint.
+  out the appropriate `base_path` for an endpoint.
 
 ## `endpoints`
 
@@ -125,9 +125,11 @@ The fields that define the behavior of each endpoint are:
       a client
     * `client_secret`: a string containing a secret corresponding to the ID
       provided by the `client_id` parameter
-* `root`: this optional parameter specifies the root directory used by DTS to
-  refer to files on the underlying filesystem of the endpoint. If left blank,
-  the root directory is set to `/`.
+* `base_path`: this optional parameter specifies the root directory used by DTS to
+  refer to the path on the underlying filesystem at which the endpoint sits. If left blank,
+  `base_path` is set to `/`.
+* `data_path`: this optional parameter specifies a path on the endpoint (relative to `base_path`)
+  at which files of interest to a database sit. 
 
 ## `databases`
 

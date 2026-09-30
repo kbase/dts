@@ -160,10 +160,10 @@ func authorize(authorizationHeader string) (auth.User, error) {
 		}
 	}
 	if err != nil {
+		// maybe it's a KBase token, so check with the KBase auth server
 		slog.Debug(fmt.Sprintf("authenticator: %s", err.Error()))
 		slog.Debug("Falling back to KBase authentication.")
 
-		// maybe it's a KBase dev token, so check with the KBase auth server
 		authServer, err := auth.NewKBaseAuthServer(accessToken)
 		if err != nil {
 			return auth.User{}, huma.Error401Unauthorized(err.Error())

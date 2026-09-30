@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -145,7 +146,7 @@ func TestNewAWSS3Endpoint(t *testing.T) {
 	awsEndpoint, err := NewEndpoint(awsTestBucket, uuid.New(), cfg)
 	assert.NotNil(awsEndpoint)
 	assert.Nil(err)
-	assert.Equal(awsTestBucket+"/", awsEndpoint.Root())
+	assert.Equal(awsTestBucket+"/", awsEndpoint.BasePath())
 	assert.Equal("s3", awsEndpoint.Provider())
 	staged, err := awsEndpoint.FilesStaged([]map[string]any{})
 	assert.True(staged)
@@ -179,7 +180,7 @@ func TestNewMinioS3Endpoint(t *testing.T) {
 	minioEndpoint, err := NewEndpoint(minioTestBuckets[0], uuid.New(), cfg)
 	assert.NotNil(minioEndpoint)
 	assert.Nil(err)
-	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.Root())
+	assert.Equal(minioTestBuckets[0]+"/", minioEndpoint.BasePath())
 	assert.Equal("s3", minioEndpoint.Provider())
 
 	// test FilesStaged with existing files
@@ -275,7 +276,7 @@ func TestAWSToMinioTransfer(t *testing.T) {
 			DestinationPath: "LICENSE_copied.txt",
 		},
 	}
-	transferID, err := awsEndpoint.Transfer(minioEndpoint, filesToTransfer)
+	transferID, err := awsEndpoint.Transfer(auth.User{}, minioEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -349,7 +350,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile2_copied.txt",
 		},
 	}
-	transferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, filesToTransfer)
+	transferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, filesToTransfer)
 	assert.NotEqual(uuid.Nil, transferID)
 	assert.Nil(err)
 
@@ -407,7 +408,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile1_copied_again.txt",
 		},
 	}
-	failedTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, nonexistentFileTransfer)
+	failedTransferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, nonexistentFileTransfer)
 	assert.NotEqual(uuid.Nil, failedTransferID)
 	assert.Nil(err)
 
@@ -470,7 +471,7 @@ func TestMinioToMinioTransfer(t *testing.T) {
 			DestinationPath: "testfile3_copied.txt",
 		},
 	}
-	cancelTransferID, err := minioSrcEndpoint.Transfer(minioDestEndpoint, allFilesTransfer)
+	cancelTransferID, err := minioSrcEndpoint.Transfer(auth.User{}, minioDestEndpoint, allFilesTransfer)
 	assert.NotEqual(uuid.Nil, cancelTransferID)
 	assert.Nil(err)
 

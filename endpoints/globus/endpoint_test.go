@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/assert/yaml"
 
+	"github.com/kbase/dts/auth"
 	"github.com/kbase/dts/endpoints"
 )
 
@@ -179,12 +180,13 @@ func TestGlobusConstructor(t *testing.T) {
 	assert.Nil(err)
 
 	endpoint, err := EndpointConstructor(configMap)
-	assert.NotNil(endpoint)
 	// if invalid credientials are provided, an error is returned
 	if !checkGlobusEnvVars() {
+		assert.Nil(endpoint)
 		assert.NotNil(err)
 		return
 	}
+	assert.NotNil(endpoint)
 	assert.Nil(err)
 }
 
@@ -309,7 +311,7 @@ func TestGlobusTransfer(t *testing.T) {
 			DestinationPath: path.Join(destDirName(16), path.Base(sourceFilesById[id])),
 		})
 	}
-	taskId, err := source.Transfer(destination, fileXfers)
+	taskId, err := source.Transfer(auth.User{}, destination, fileXfers)
 	assert.Nil(err)
 
 	// wait for the task to register in the system
@@ -388,7 +390,7 @@ func TestGlobusTransferCancellation(t *testing.T) {
 			DestinationPath: path.Join(destDirName(16), path.Base(sourceFilesById[id])),
 		})
 	}
-	taskId, err := source.Transfer(destination, fileXfers)
+	taskId, err := source.Transfer(auth.User{}, destination, fileXfers)
 	assert.Nil(err)
 
 	// wait for the task to show up

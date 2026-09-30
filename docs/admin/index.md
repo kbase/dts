@@ -11,4 +11,5 @@ services it needs to perform data transfers.
 * [Deploying DTS via Docker](deployment.md)
 * [Configuring DTS](config.md)
 * [Granting DTS Access to a Globus Endpoint](globus.md)
+* [The KBase Workspace Service (WSS) Environment](kbase_wss.md)
 

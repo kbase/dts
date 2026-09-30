@@ -107,6 +107,12 @@ navigate to the `dts` deployment.
 
 That's it! You've now updated the service with new features and bugfixes.
 
+## Deploying to Argonne's Rancher2 Environment
+
+The DTS is automatically deployed to ANL's Rancher2 environment for the KBase Data Lakehouse
+by a [GitHub workflow](https://github.com/kbase/dts/blob/main/.github/workflows/build.yml)
+that invokes a standard KBase process.
+
 ## Maintaining the DTS Data Directory
 
 The DTS uses its data directory to manage its own state, as well as its

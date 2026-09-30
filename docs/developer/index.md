@@ -2,6 +2,12 @@
 
 This guide contains technical information about the Data Transfer Service (DTS).
 
+## Start Here
+
+* [Repository Overview](repository_overview.md): purpose, architecture,
+  architectural drivers, runtime model, extension points, and the major
+  directories in this repository
+
 ## Architecture Decision Records
 
 [Here](adrs/index.md) we've recorded design decisions in a succinct format that
@@ -23,9 +29,6 @@ the Data Transfer Service.
   integration of DTS with database providers
 * [endpoints](endpoints.md): defines endpoint types for file transfer
   providers used by DTS, such as [Globus](https://globus.org)
-* [frictionless](frictionless.md): defines [data structures](https://frictionlessdata.io/)
-  that describe data for [individual files](https://specs.frictionlessdata.io/data-resource/)
-  and [packages containing multiple files](https://specs.frictionlessdata.io/data-package/)
 * [services](services.md): defines types that implement the REST endpoints
   provided by the DTS
 * [tasks](tasks.md): implements the "heart" of the DTS, which creates and

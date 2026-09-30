@@ -54,8 +54,9 @@ type Endpoint struct {
 	Name string
 	// endpoint UUID (obtained from config)
 	Id_ uuid.UUID
-	// Globus client
+	// Globus clients
 	Globus GlobusTransferClient
+	GCSM   GlobusConnectServerManagerClient
 
 	Paths struct {
 		Base string
@@ -88,6 +89,11 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		Name:   config.Name,
 		Id_:    id,
 		Globus: globus,
+	}
+
+	// try accessing the Connect Server Manager API
+	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" {
+		ep.GCSM, _ = ep.Globus.ConnectServerManagerClient()
 	}
 
 	if config.BasePath != "" {
@@ -218,11 +224,11 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
 		slog.Debug("Source and destination providers differ, registering credentials...")
-		serverManager, err := ep.Globus.ConnectServerManagerClient()
-		if err != nil {
-			return uuid.UUID{}, err
+		if ep.GCSM.Url == "" { // Connect Server Manager API not available
+			return uuid.UUID{}, fmt.Errorf("the Globus Connect Server Manager API is not available; cannot register credentials")
 		}
-		if credential, err = serverManager.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
+		var err error
+		if credential, err = ep.GCSM.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
 			return uuid.UUID{}, err
 		}
 	}
@@ -301,18 +307,14 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 
 func (ep *Endpoint) determineProvider() (string, error) {
 	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" {
-		manager, err := ep.Globus.ConnectServerManagerClient()
-		if err != nil {
-			if _, notAvailable := err.(*GlobusConnectServerManagerNotAvailableError); notAvailable {
-				// No Globus Connect Manager Server -- we are Globus only
-				return "globus", nil
-			}
-			return "", err // something went wrong accessing the API
+		if ep.GCSM.Url == "" {
+			// No Globus Connect Manager Server -- we are Globus only
+			return "globus", nil
 		}
 
 		// sift through the storage providers in the gateways
 		// NOTE: we match the first policy we find
-		for _, gateway := range manager.StorageGateways {
+		for _, gateway := range ep.GCSM.StorageGateways {
 			slog.Debug(fmt.Sprintf("Storage gateway provider: %s", gateway.Provider))
 			if gateway.Provider == "s3" {
 				return "s3", nil

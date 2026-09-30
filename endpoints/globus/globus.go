@@ -948,16 +948,16 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		gateway.ConnectorId = uuid.MustParse(g.ConnectorId)
 		gateway.Id = uuid.MustParse(g.Id)
 		/*
-		type GlobusS3StoragePolicies_1_3_0 struct {
-			DataType   string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
-			S3Buckets  string `json:"s3_buckets"`
-			S3Endpoint string `json:"s3_endpoint"`
-		}
-		var policy GlobusS3StoragePolicies_1_3_0
-		if err = json.Unmarshal(g.Policies, &policy); err != nil {
-			continue
-		}
-		slog.Debug(fmt.Sprintf("Found S3 storage policy %s", g.Id))
+			type GlobusS3StoragePolicies_1_3_0 struct {
+				DataType   string `json:"DATA_TYPE"` // always `s3_storage_policies#1.3.0`
+				S3Buckets  string `json:"s3_buckets"`
+				S3Endpoint string `json:"s3_endpoint"`
+			}
+			var policy GlobusS3StoragePolicies_1_3_0
+			if err = json.Unmarshal(g.Policies, &policy); err != nil {
+				continue
+			}
+			slog.Debug(fmt.Sprintf("Found S3 storage policy %s", g.Id))
 		*/
 		gateway.Provider = "s3"
 		m.StorageGateways = append(m.StorageGateways, gateway)

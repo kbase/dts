@@ -255,7 +255,7 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 			Message: "Couldn't parse CVS file",
 		}
 	}
-	for k, record := range records {
+	for row, record := range records {
 		if len(record) < 2 {
 			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
@@ -275,7 +275,7 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 				}
 			}
 			if orcidColumn == -1 {
-				if k == 0 { // first record, ignore
+				if row == 0 { // first record, ignore
 					userColumn = -1
 					continue
 				}
@@ -296,7 +296,7 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 			// we've already established the layout, but this line disagrees, so the whole file is suspect
 			return nil, &InvalidKBaseUserSpreadsheetError{
 				File:    kbaseUserTableFile,
-				Message: "Different lines list username, ORCID, globus ID data in different columns",
+				Message: fmt.Sprintf("row %d: Different lines list username, ORCID, globus ID data in different columns", row),
 			}
 		}
 

@@ -297,7 +297,6 @@ func (kbaseFed *KBaseUserFederation) readUserTable() (map[string]kbaseUserRecord
 			for i := range record {
 				if isGlobusId(record[i]) { // can't be confused with ORCID or username
 					globusIdColumn = i
-					slog.Debug(fmt.Sprintf("Found a Globus ID in column %d", globusIdColumn))
 				}
 			}
 		}

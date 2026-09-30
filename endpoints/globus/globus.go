@@ -967,23 +967,29 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 
 // NOTE: For now, we only allow a single S3 credential per user to be registered with a Globus
 // NOTE: endpoint per user, using the user's ORCID.
-func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.User, credential auth.Credential) (auth.Credential, error) {
+func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.User, s3Credential auth.Credential) (auth.Credential, error) {
 	var record GlobusUserCredentialRecord
 	var found bool
 	var payload []byte
 	var err error
 
-	if record, found, _ = m.findUserCredentialRecord(credential); found {
+	globusCred, foundGlobusId := user.ConnectionCredentials["globus"]
+	if !foundGlobusId {
+		return auth.Credential{}, fmt.Errorf("no Globus ID is associated with this user")
+	}
+	slog.Debug(fmt.Sprintf("User Globus ID: %s", globusCred.Id))
+
+	if record, found, _ = m.findUserCredentialRecord(globusCred); found {
 		// Update the record with an S3 policy
 		slog.Debug("Looking for user S3 credential...")
 		var s3Policy GlobusS3UserCredentialPolicies_1_2_0
 		err := json.Unmarshal(record.Policies, &s3Policy)
-		if err != nil || s3Policy.S3KeyId != credential.Id || s3Policy.S3SecretKey != credential.Secret {
+		if err != nil || s3Policy.S3KeyId != s3Credential.Id || s3Policy.S3SecretKey != s3Credential.Secret {
 			slog.Debug("Found a differing credential policy... overwriting")
 			// insert an S3 policy and patch the registered credential
 			s3Policy.DataType = "s3_user_credential_policies#1.2.0"
-			s3Policy.S3KeyId = credential.Id
-			s3Policy.S3SecretKey = credential.Secret
+			s3Policy.S3KeyId = s3Credential.Id
+			s3Policy.S3SecretKey = s3Credential.Secret
 			if record.Policies, err = json.Marshal(s3Policy); err != nil {
 				return auth.Credential{}, err
 			}
@@ -999,17 +1005,14 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 		var newS3Policy []byte
 		if newS3Policy, err = json.Marshal(GlobusS3UserCredentialPolicies_1_2_0{
 			DataType:    "s3_user_credential_policies#1.2.0",
-			S3KeyId:     credential.Id,
-			S3SecretKey: credential.Secret,
+			S3KeyId:     s3Credential.Id,
+			S3SecretKey: s3Credential.Secret,
 		}); err != nil {
 			return auth.Credential{}, err
 		}
 
-		globusCred, found := user.ConnectionCredentials["globus"]
-		if !found {
-			return auth.Credential{}, fmt.Errorf("no Globus ID is associated with the KBase user with ORCID %s", user.Orcid)
-		}
-		slog.Debug(fmt.Sprintf("User Globus ID: %s", globusCred.Id))
+		// NOTE: usernames are mapped in Globus via ORCID
+		mappedUsername := fmt.Sprintf("%s@orcid.org", user.Orcid)
 
 		// Attempt to register the S3 credential with each S3-powered storage gateway.
 		registrations := 0
@@ -1024,7 +1027,7 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 					Policies:         newS3Policy,
 					Provisioned:      true,
 					StorageGatewayId: gateway.Id.String(),
-					Username:         credential.Username,
+					Username:         mappedUsername,
 				}
 				if payload, err = json.Marshal(record); err != nil {
 					return auth.Credential{}, err
@@ -1041,7 +1044,7 @@ func (m GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth.
 			return auth.Credential{}, errors.New("couldn't register an S3 credential at any storage gateway")
 		}
 	}
-	return credential, nil
+	return s3Credential, nil
 }
 
 func (m GlobusConnectServerManagerClient) findUserCredentialRecord(credential auth.Credential) (GlobusUserCredentialRecord, bool, error) {
@@ -1050,7 +1053,7 @@ func (m GlobusConnectServerManagerClient) findUserCredentialRecord(credential au
 		values := url.Values{}
 		values.Add("include", "all")
 		values.Add("storage_gateway", gateway.Id.String())
-		body, err := m.get("api/user_credentials", url.Values{})
+		body, err := m.get(fmt.Sprintf("api/user_credentials/%s", credential.Id), url.Values{})
 		if err != nil {
 			return GlobusUserCredentialRecord{}, false, err
 		}
@@ -1060,15 +1063,11 @@ func (m GlobusConnectServerManagerClient) findUserCredentialRecord(credential au
 		if response.HttpResponseCode != http.StatusOK && response.HttpResponseCode != http.StatusCreated {
 			return GlobusUserCredentialRecord{}, false, errors.New(response.Message)
 		}
-		var existingCreds []GlobusUserCredentialRecord
-		if err := json.Unmarshal(response.Data, &existingCreds); err != nil {
+		var existingCred GlobusUserCredentialRecord
+		if err := json.Unmarshal(response.Data, &existingCred); err != nil {
 			return GlobusUserCredentialRecord{}, false, err
 		}
-		for _, existingCred := range existingCreds {
-			if existingCred.Username == credential.Username {
-				return existingCred, true, nil
-			}
-		}
+		return existingCred, true, nil
 	}
 	return GlobusUserCredentialRecord{}, false, nil
 }

@@ -235,15 +235,15 @@ func (t GlobusTransferClient) HttpsClient(endpointId uuid.UUID) (GlobusHttpsClie
 	return h, nil
 }
 
-func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerManagerClient, error) {
+func (t GlobusTransferClient) ConnectServerManagerClient() (*GlobusConnectServerManagerClient, error) {
 	if t.Info.GCSManagerUrl == "" {
-		return GlobusConnectServerManagerClient{}, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
+		return nil, &GlobusConnectServerManagerNotAvailableError{Endpoint: t.EndpointId}
 	}
 	scopes := []string{fmt.Sprintf("urn:globus:auth:scope:%s:manage_collections", t.Info.NonfunctionalEndpointId)}
 	//if !t.Info.HighAssurance {
 	//	scopes[0] += fmt.Sprintf("[*:https://auth.globus.org/scopes/%s/data_access]", t.EndpointId)
 	//}
-	m := GlobusConnectServerManagerClient{
+	m := &GlobusConnectServerManagerClient{
 		ClientId:   t.Auth.Credential.Id,
 		EndpointId: t.EndpointId,
 		Scopes:     scopes,
@@ -251,7 +251,7 @@ func (t GlobusTransferClient) ConnectServerManagerClient() (GlobusConnectServerM
 	}
 	var err error
 	if m.AccessToken, err = t.Auth.Authenticate(m.Scopes); err != nil {
-		return GlobusConnectServerManagerClient{}, err
+		return nil, err
 	}
 
 	err = m.getStorageGatewayInfo()

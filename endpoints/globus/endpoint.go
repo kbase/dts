@@ -56,7 +56,7 @@ type Endpoint struct {
 	Id_ uuid.UUID
 	// Globus clients
 	Globus GlobusTransferClient
-	GCSM   GlobusConnectServerManagerClient
+	GCSM   *GlobusConnectServerManagerClient
 
 	Paths struct {
 		Base string
@@ -91,17 +91,20 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		Globus: globus,
 	}
 
-	// try accessing the Connect Server Manager API
-	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" {
-		ep.GCSM, _ = ep.Globus.ConnectServerManagerClient()
-	}
-
 	if config.BasePath != "" {
 		ep.Paths.Base = config.BasePath
 	} else {
 		ep.Paths.Base = "/"
 	}
 	ep.Paths.Data = config.DataPath
+
+	// try accessing the Connect Server Manager API
+	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" && ep.Globus.Info.GCSManagerUrl != "" {
+		ep.GCSM, _ = ep.Globus.ConnectServerManagerClient()
+		if ep.GCSM != nil {
+			slog.Debug("Connected to Globus Connect Server Manager.")
+		}
+	}
 
 	if ep.provider, err = ep.determineProvider(); err != nil {
 		return nil, err
@@ -224,7 +227,7 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
 		slog.Debug("Source and destination providers differ, registering credentials...")
-		if ep.GCSM.Url == "" { // Connect Server Manager API not available
+		if ep.GCSM == nil {
 			return uuid.UUID{}, fmt.Errorf("the Globus Connect Server Manager API is not available; cannot register credentials")
 		}
 		var err error
@@ -306,12 +309,7 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 //-----------
 
 func (ep *Endpoint) determineProvider() (string, error) {
-	if ep.Globus.Info.EntityType == "GCSv5_mapped_collection" {
-		if ep.GCSM.Url == "" {
-			// No Globus Connect Manager Server -- we are Globus only
-			return "globus", nil
-		}
-
+	if ep.GCSM != nil {
 		// sift through the storage providers in the gateways
 		// NOTE: we match the first policy we find
 		for _, gateway := range ep.GCSM.StorageGateways {

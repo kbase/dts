@@ -1064,10 +1064,9 @@ func (m GlobusConnectServerManagerClient) findUserCredentialRecord(credential au
 			return GlobusUserCredentialRecord{}, false, errors.New(response.Message)
 		}
 		var existingCred GlobusUserCredentialRecord
-		if err := json.Unmarshal(response.Data, &existingCred); err != nil {
-			return GlobusUserCredentialRecord{}, false, err
+		if err := json.Unmarshal(response.Data, &existingCred); err == nil {
+			return existingCred, true, nil
 		}
-		return existingCred, true, nil
 	}
 	return GlobusUserCredentialRecord{}, false, nil
 }

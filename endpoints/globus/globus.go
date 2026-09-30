@@ -943,7 +943,6 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 		return err
 	}
 	for _, g := range gateways {
-		slog.Debug(fmt.Sprintf("Found storage gateway %s", g.Id))
 		var gateway GlobusStorageGateway
 		gateway.ConnectorId = uuid.MustParse(g.ConnectorId)
 		gateway.Id = uuid.MustParse(g.Id)
@@ -957,7 +956,6 @@ func (m *GlobusConnectServerManagerClient) getStorageGatewayInfo() error {
 			if err = json.Unmarshal(g.Policies, &policy); err != nil {
 				continue
 			}
-			slog.Debug(fmt.Sprintf("Found S3 storage policy %s", g.Id))
 		*/
 		gateway.Provider = "s3"
 		m.StorageGateways = append(m.StorageGateways, gateway)
@@ -986,7 +984,6 @@ func (m *GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth
 		var s3Policy GlobusS3UserCredentialPolicies_1_2_0
 		err := json.Unmarshal(record.Policies, &s3Policy)
 		if err != nil || s3Policy.S3KeyId != s3Credential.Id || s3Policy.S3SecretKey != s3Credential.Secret {
-			slog.Debug("Found a differing credential policy... overwriting")
 			// insert an S3 policy and patch the registered credential
 			s3Policy.DataType = "s3_user_credential_policies#1.2.0"
 			s3Policy.S3KeyId = s3Credential.Id
@@ -1038,7 +1035,7 @@ func (m *GlobusConnectServerManagerClient) addOrUpdateS3UserCredential(user auth
 				}
 				_, err = m.post("api/user_credentials", bytes.NewReader(payload))
 				if err != nil {
-					slog.Debug("Couldn't register S3 credential: " + err.Error())
+					slog.Debug(fmt.Sprintf("Couldn't register S3 credential at storage gateway %s: %s", gateway.Id.String(), err.Error()))
 				} else {
 					// Now that we know this gateway works, eliminate the others.
 					m.StorageGateways = []GlobusStorageGateway{gateway}

@@ -110,6 +110,9 @@ func NewEndpoint(config Config) (endpoints.Endpoint, error) {
 		return nil, err
 	}
 
+	if ep.GCSM != nil {
+		slog.Debug("Okay, we have a server manager!")
+	}
 	return ep, nil
 }
 
@@ -197,7 +200,7 @@ func (ep *Endpoint) Transfers() ([]uuid.UUID, error) {
 	return ep.Globus.TransferTasks()
 }
 
-func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
+func (ep Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, files []endpoints.FileTransfer) (uuid.UUID, error) {
 	if _, isGlobus := destination.(*Endpoint); !isGlobus {
 		return uuid.UUID{}, &endpoints.IncompatibleDestinationError{
 			Source:              ep.Id().String(),
@@ -227,12 +230,14 @@ func (ep *Endpoint) Transfer(user auth.User, destination endpoints.Endpoint, fil
 	var credential auth.Credential
 	if ep.Provider() != destination.Provider() {
 		slog.Debug("Source and destination providers differ, registering credentials...")
-		if ep.GCSM == nil {
-			return uuid.UUID{}, fmt.Errorf("the Globus Connect Server Manager API is not available; cannot register credentials")
-		}
-		var err error
-		if credential, err = ep.GCSM.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
-			return uuid.UUID{}, err
+		if destEp, isGlobus := destination.(*Endpoint); isGlobus {
+			if destEp.GCSM == nil {
+				return uuid.UUID{}, fmt.Errorf("the Globus Connect Server Manager API is not available; cannot register credentials")
+			}
+			var err error
+			if credential, err = destEp.GCSM.AddOrUpdateUserCredential(user, destination.Provider()); err != nil {
+				return uuid.UUID{}, err
+			}
 		}
 	}
 
@@ -308,7 +313,7 @@ func (ep *Endpoint) PutFromReader(resource string, body io.Reader) error {
 // Internals
 //-----------
 
-func (ep *Endpoint) determineProvider() (string, error) {
+func (ep Endpoint) determineProvider() (string, error) {
 	if ep.GCSM != nil {
 		// sift through the storage providers in the gateways
 		// NOTE: we match the first policy we find
